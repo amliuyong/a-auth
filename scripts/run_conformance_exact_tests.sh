@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Issue #17 live proof: intentionally fail this required dependency once.
+exit 1
+
 cd "$(git rev-parse --show-toplevel)"
 source ./scripts/rust_test_stack.sh
 
