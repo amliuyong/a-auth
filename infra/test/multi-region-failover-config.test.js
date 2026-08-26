@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const test = require('node:test');
-const { App, Aspects } = require('aws-cdk-lib');
+const { App, Aspects, Aws, Fn } = require('aws-cdk-lib');
 const { Annotations, Match, Template } = require('aws-cdk-lib/assertions');
 const { AwsSolutionsChecks } = require('cdk-nag');
 
@@ -117,9 +117,16 @@ test('disposable multi-Region stacks cannot select another Region pair', () => {
   assert.doesNotThrow(() => synth([], false));
 });
 
-function synthStandby(invitationTtlSecs, withNag = false) {
+function synthStandby(
+  invitationTtlSecs,
+  withNag = false,
+  overrides = {},
+) {
   const app = new App();
   const assetPath = path.resolve(__dirname);
+  const cloudFrontOriginSecretName =
+    overrides.cloudFrontOriginSecretName ??
+    'AgentAuthSaas/cloudfront-origin-auth';
   const authorityTableNames = Object.fromEntries(
     DURABLE_TABLES.map((prefix) => [
       prefix
@@ -142,10 +149,9 @@ function synthStandby(invitationTtlSecs, withNag = false) {
     tenantIds: ['t1', 't2'],
     authorityTableNames,
     regionControlTableName: 'primary-region-control',
-    cloudFrontOriginSecretName:
-      'AgentAuthSaas/cloudfront-origin-auth',
+    cloudFrontOriginSecretName,
     cloudFrontOriginSecondarySecretName:
-      'AgentAuthSaas/cloudfront-origin-auth-secondary',
+      `${cloudFrontOriginSecretName}-secondary`,
     saasOriginAuthRevision: 'rotation-7',
     runtimeSecretArns: {
       server:
@@ -165,18 +171,19 @@ function synthStandby(invitationTtlSecs, withNag = false) {
         t2: 'arn:aws:secretsmanager:us-west-2:123456789012:secret:scim-t2-AbCd12',
       },
     },
-    tenantResidency: {
-      t1: {
-        jurisdiction: 'us',
-        allowed_regions: ['us-east-1', 'us-west-2'],
-        governance_region: 'us-east-1',
+    tenantResidency:
+      overrides.tenantResidency ?? {
+        t1: {
+          jurisdiction: 'us',
+          allowed_regions: ['us-east-1', 'us-west-2'],
+          governance_region: 'us-east-1',
+        },
+        t2: {
+          jurisdiction: 'us',
+          allowed_regions: ['us-east-1', 'us-west-2'],
+          governance_region: 'us-east-1',
+        },
       },
-      t2: {
-        jurisdiction: 'us',
-        allowed_regions: ['us-east-1', 'us-west-2'],
-        governance_region: 'us-east-1',
-      },
-    },
     passkeyEnabled: true,
     authzEnabled: true,
     policySet: 'permit(principal, action, resource);',
@@ -202,6 +209,22 @@ function resourceByPrefix(template, prefix, type) {
   );
   assert.equal(matches.length, 1, `expected one ${type} with prefix ${prefix}`);
   return matches[0];
+}
+
+function standbyRuntimeBootstrapRevisions(template) {
+  return Object.fromEntries(
+    ['NonTokenFn', 'TokenFn'].map((prefix) => {
+      const [, fn] = resourceByPrefix(
+        template,
+        prefix,
+        'AWS::Lambda::Function',
+      );
+      return [
+        prefix,
+        fn.Properties.Environment.Variables.AGENT_AUTH_BOOTSTRAP_REVISION,
+      ];
+    }),
+  );
 }
 
 function policyStatementsForFunction(template, fn) {
@@ -972,6 +995,48 @@ test('standby imports durable authority and creates only Region-local replay tab
   assert.equal(env.SAAS_TENANTS, undefined);
   assert.equal(env.TENANT_ADMIN_SECRET_ARNS, undefined);
   assert.equal(env.SCIM_TENANT_SECRET_ARNS, undefined);
+});
+
+test('standby bootstrap revision is stable across independent syntheses', () => {
+  const tokenizedSecretName = () =>
+    Fn.join('', ['AgentAuthSaas/cloudfront-origin-auth-', Aws.REGION]);
+  const first = standbyRuntimeBootstrapRevisions(
+    synthStandby(undefined, false, {
+      cloudFrontOriginSecretName: tokenizedSecretName(),
+    }).template,
+  );
+  const second = standbyRuntimeBootstrapRevisions(
+    synthStandby(undefined, false, {
+      cloudFrontOriginSecretName: tokenizedSecretName(),
+    }).template,
+  );
+
+  assert.equal(first.NonTokenFn, first.TokenFn);
+  assert.deepEqual(second, first);
+});
+
+test('standby bootstrap revision changes with bootstrap configuration', () => {
+  const first = standbyRuntimeBootstrapRevisions(synthStandby().template);
+  const second = standbyRuntimeBootstrapRevisions(
+    synthStandby(undefined, false, {
+      tenantResidency: {
+        t1: {
+          jurisdiction: 'north-america',
+          allowed_regions: ['us-east-1', 'us-west-2'],
+          governance_region: 'us-east-1',
+        },
+        t2: {
+          jurisdiction: 'us',
+          allowed_regions: ['us-east-1', 'us-west-2'],
+          governance_region: 'us-east-1',
+        },
+      },
+    }).template,
+  );
+
+  assert.equal(first.NonTokenFn, first.TokenFn);
+  assert.equal(second.NonTokenFn, second.TokenFn);
+  assert.notDeepEqual(second, first);
 });
 
 test('standby can atomically finalize codes and authorization sessions', () => {
