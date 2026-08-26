@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type HTMLAttributes,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import {
   Alert,
   AutoComplete,
@@ -24,6 +31,7 @@ import {
   Typography,
   message,
 } from 'antd';
+import type { TableColumnsType } from 'antd';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { useBlocker, useSearchParams } from 'react-router-dom';
@@ -70,6 +78,106 @@ type FederationAttributeMappingView =
 type ClientCredentialKind = 'client-secret' | 'registration-token';
 type CredentialSlotRow = { role: 'current' | 'next'; credential: CredentialView };
 type AdminAccessType = 'token' | 'session';
+type ClientColumnKey =
+  | 'client_id'
+  | 'auth'
+  | 'redirects'
+  | 'resource'
+  | 'introspect'
+  | 'last_used_at'
+  | 'actions';
+
+const CLIENT_COLUMN_DEFAULT_WIDTHS: Record<ClientColumnKey, number> = {
+  client_id: 240,
+  auth: 150,
+  redirects: 340,
+  resource: 210,
+  introspect: 100,
+  last_used_at: 180,
+  actions: 250,
+};
+
+const CLIENT_COLUMN_MIN_WIDTHS: Record<ClientColumnKey, number> = {
+  client_id: 140,
+  auth: 110,
+  redirects: 180,
+  resource: 140,
+  introspect: 90,
+  last_used_at: 140,
+  actions: 210,
+};
+
+type ResizableHeaderCellProps = Omit<HTMLAttributes<HTMLTableCellElement>, 'onResize'> & {
+  width?: number;
+  minWidth?: number;
+  resizeLabel?: string;
+  onColumnResize?: (width: number) => void;
+};
+
+function ResizableHeaderCell({
+  width,
+  minWidth = 80,
+  resizeLabel,
+  onColumnResize,
+  style,
+  children,
+  ...rest
+}: ResizableHeaderCellProps) {
+  const onPointerDown = (event: ReactPointerEvent<HTMLSpanElement>) => {
+    if (width == null || !onColumnResize) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    const startX = event.clientX;
+    const startWidth = width;
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      onColumnResize(Math.max(minWidth, Math.round(startWidth + moveEvent.clientX - startX)));
+    };
+    const finishResize = () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', finishResize);
+      window.removeEventListener('pointercancel', finishResize);
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+    };
+
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', finishResize);
+    window.addEventListener('pointercancel', finishResize);
+  };
+
+  return (
+    <th {...rest} style={{ ...style, width, position: 'relative' }}>
+      {children}
+      {onColumnResize && width != null && (
+        <span
+          role="separator"
+          aria-label={resizeLabel}
+          aria-orientation="vertical"
+          aria-valuenow={Math.round(width)}
+          data-client-column-resizer
+          onPointerDown={onPointerDown}
+          style={{
+            position: 'absolute',
+            top: 0,
+            right: -4,
+            zIndex: 1,
+            width: 8,
+            height: '100%',
+            cursor: 'col-resize',
+            touchAction: 'none',
+            borderRight: '2px solid #d9d9d9',
+          }}
+        />
+      )}
+    </th>
+  );
+}
 
 function userStatusFilterFromParam(value: string | null): UserStatusFilter {
   switch (value) {
@@ -2588,6 +2696,9 @@ function ClientsTab({
   const [editing, setEditing] = useState<ClientView | 'new' | null>(null);
   const [credentialClient, setCredentialClient] = useState<ClientView | null>(null);
   const [secretModal, setSecretModal] = useState<{ clientId: string; secret: string } | null>(null);
+  const [columnWidths, setColumnWidths] = useState<Record<ClientColumnKey, number>>(
+    () => ({ ...CLIENT_COLUMN_DEFAULT_WIDTHS }),
+  );
   const loadGeneration = useRef(0);
 
   useEffect(() => {
@@ -2624,30 +2735,52 @@ function ClientsTab({
     }
   };
 
-  const columns = [
-    { title: t('admin.clients.col.id'), dataIndex: 'client_id', key: 'client_id', width: 240,
+  const resizeColumn = useCallback((key: ClientColumnKey, width: number) => {
+    setColumnWidths((current) => (
+      current[key] === width ? current : { ...current, [key]: width }
+    ));
+  }, []);
+  const resizableHeader = (key: ClientColumnKey, label: string) => ({
+    width: columnWidths[key],
+    onHeaderCell: () => ({
+      width: columnWidths[key],
+      minWidth: CLIENT_COLUMN_MIN_WIDTHS[key],
+      resizeLabel: label,
+      onColumnResize: (width: number) => resizeColumn(key, width),
+    } as ResizableHeaderCellProps),
+  });
+  const clientTableWidth = Object.values(columnWidths).reduce((total, width) => total + width, 0);
+
+  const columns: TableColumnsType<ClientView> = [
+    { title: t('admin.clients.col.id'), dataIndex: 'client_id', key: 'client_id',
+      ...resizableHeader('client_id', t('admin.clients.col.id')),
       render: (v: string) => (
         <Typography.Text code copyable style={{ whiteSpace: 'nowrap' }}>{v}</Typography.Text>
       ) },
-    { title: t('admin.clients.col.authMethod'), dataIndex: 'token_endpoint_auth_method', key: 'auth', width: 150,
+    { title: t('admin.clients.col.authMethod'), dataIndex: 'token_endpoint_auth_method', key: 'auth',
+      ...resizableHeader('auth', t('admin.clients.col.authMethod')),
       render: (v: string) => <Tag>{v}</Tag> },
-    { title: t('admin.clients.col.redirects'), dataIndex: 'redirect_uris', key: 'redirects', width: 340,
+    { title: t('admin.clients.col.redirects'), dataIndex: 'redirect_uris', key: 'redirects',
+      ...resizableHeader('redirects', t('admin.clients.col.redirects')),
       render: (v: string[]) => v.map((u) => (
         <Typography.Text key={u} ellipsis={{ tooltip: u }} style={{ display: 'block' }}>{u}</Typography.Text>
       )) },
-    { title: t('admin.clients.col.resource'), dataIndex: 'default_resource', key: 'resource', width: 210,
+    { title: t('admin.clients.col.resource'), dataIndex: 'default_resource', key: 'resource',
+      ...resizableHeader('resource', t('admin.clients.col.resource')),
       render: (v?: string | null) => v
         ? <Typography.Text ellipsis={{ tooltip: v }} style={{ display: 'block' }}>{v}</Typography.Text>
         : '—' },
-    { title: t('admin.clients.col.introspect'), dataIndex: 'introspect_enabled', key: 'introspect', width: 100,
+    { title: t('admin.clients.col.introspect'), dataIndex: 'introspect_enabled', key: 'introspect',
+      ...resizableHeader('introspect', t('admin.clients.col.introspect')),
       render: (v: boolean) => (v ? <Tag color="blue">✓</Tag> : '—') },
     { title: t('admin.clients.col.lastTokenIssued'), dataIndex: 'last_used_at', key: 'last_used_at',
-      width: 180, fixed: 'right' as const,
+      ...resizableHeader('last_used_at', t('admin.clients.col.lastTokenIssued')),
       render: (v?: number | null) => v == null
         ? t('admin.clients.neverUsed')
         : formatUtcDay(v) },
     {
-      title: t('admin.clients.col.actions'), key: 'actions', width: 250, fixed: 'right' as const,
+      title: t('admin.clients.col.actions'), key: 'actions',
+      ...resizableHeader('actions', t('admin.clients.col.actions')),
       render: (_: unknown, c: ClientView) => (
         <Space>
           <Button size="small" onClick={() => setCredentialClient(c)}>
@@ -2694,11 +2827,12 @@ function ClientsTab({
       <Table
         rowKey="client_id"
         loading={loading}
+        components={{ header: { cell: ResizableHeaderCell } }}
         columns={columns}
         dataSource={filteredClients}
         locale={{ emptyText: t('admin.clients.empty') }}
         pagination={false}
-        scroll={{ x: 1470 }}
+        scroll={{ x: clientTableWidth }}
         tableLayout="fixed"
       />
       {editing && (

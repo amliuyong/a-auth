@@ -58,20 +58,33 @@ async function routeLayoutRegressionClient(page: Page) {
   );
 }
 
-async function expectNoHorizontalOverlap(left: Locator, right: Locator) {
-  const [leftBox, rightBox] = await Promise.all([left.boundingBox(), right.boundingBox()]);
-  expect(leftBox).not.toBeNull();
-  expect(rightBox).not.toBeNull();
-  expect(leftBox!.x + leftBox!.width).toBeLessThanOrEqual(rightBox!.x + 0.5);
-}
-
-async function expectClientActivityAndActionsSeparated(page: Page) {
+async function expectClientColumnsUniformAndResizable(page: Page) {
   const tableScroller = page.locator('.ant-table-content');
   await expect(tableScroller).toBeVisible();
-  await tableScroller.evaluate((element) => {
-    element.scrollLeft = Math.max(0, element.scrollWidth - element.clientWidth - 8);
-  });
 
+  const headers = page.getByRole('columnheader');
+  await expect(headers).toHaveCount(7);
+  await expect(page.locator('[data-client-column-resizer]')).toHaveCount(7);
+  const headerBoxes = await headers.evaluateAll((elements) =>
+    elements.map((element) => {
+      const box = element.getBoundingClientRect();
+      return {
+        x: box.x,
+        right: box.right,
+        height: box.height,
+        position: getComputedStyle(element).position,
+      };
+    }),
+  );
+  for (let index = 0; index < headerBoxes.length; index += 1) {
+    expect(headerBoxes[index].position).not.toBe('sticky');
+    expect(headerBoxes[index].height).toBeCloseTo(headerBoxes[0].height, 1);
+    if (index > 0) {
+      expect(headerBoxes[index - 1].right).toBeLessThanOrEqual(headerBoxes[index].x + 0.5);
+    }
+  }
+
+  const clientIdHeader = page.getByRole('columnheader', { name: /client id|客户端 ID/i });
   const lastTokenHeader = page.getByRole('columnheader', {
     name: /last token issued|最后签发 Token/i,
   });
@@ -85,21 +98,39 @@ async function expectClientActivityAndActionsSeparated(page: Page) {
     actionsCell: row.getByRole('cell').nth(6),
   }));
 
-  await expect(lastTokenHeader).toBeInViewport();
-  await expect(actionsHeader).toBeInViewport();
-  await expectNoHorizontalOverlap(lastTokenHeader, actionsHeader);
-  for (const { lastTokenCell, actionsCell } of rowCellPairs) {
-    await expect(lastTokenCell).toBeInViewport();
-    await expect(actionsCell).toBeInViewport();
-    await expectNoHorizontalOverlap(lastTokenCell, actionsCell);
-  }
+  const firstClientCell = clientRows[0].getByRole('cell').nth(0);
+  const beforeHeaderBox = await clientIdHeader.boundingBox();
+  const beforeCellBox = await firstClientCell.boundingBox();
+  const beforeScrollWidth = await tableScroller.evaluate((element) => element.scrollWidth);
+  expect(beforeHeaderBox).not.toBeNull();
+  expect(beforeCellBox).not.toBeNull();
+  expect(beforeHeaderBox!.width).toBeCloseTo(beforeCellBox!.width, 0);
+
+  const resizeHandle = clientIdHeader.locator('[data-client-column-resizer]');
+  const handleBox = await resizeHandle.boundingBox();
+  expect(handleBox).not.toBeNull();
+  await page.mouse.move(handleBox!.x + handleBox!.width / 2, handleBox!.y + handleBox!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(handleBox!.x + handleBox!.width / 2 + 80, handleBox!.y + handleBox!.height / 2);
+  await page.mouse.up();
+
+  const afterHeaderBox = await clientIdHeader.boundingBox();
+  const afterCellBox = await firstClientCell.boundingBox();
+  const afterScrollWidth = await tableScroller.evaluate((element) => element.scrollWidth);
+  expect(afterHeaderBox).not.toBeNull();
+  expect(afterCellBox).not.toBeNull();
+  expect(afterHeaderBox!.width).toBeGreaterThanOrEqual(beforeHeaderBox!.width + 75);
+  expect(afterHeaderBox!.width).toBeCloseTo(afterCellBox!.width, 0);
+  expect(afterScrollWidth).toBeGreaterThanOrEqual(beforeScrollWidth + 75);
 
   await tableScroller.evaluate((element) => {
     element.scrollLeft = element.scrollWidth;
   });
-  await expectNoHorizontalOverlap(lastTokenHeader, actionsHeader);
+  await expect(lastTokenHeader).toBeInViewport();
+  await expect(actionsHeader).toBeInViewport();
   for (const { lastTokenCell, actionsCell } of rowCellPairs) {
-    await expectNoHorizontalOverlap(lastTokenCell, actionsCell);
+    await expect(lastTokenCell).toBeInViewport();
+    await expect(actionsCell).toBeInViewport();
   }
   const actionsCell = rowCellPairs[0].actionsCell;
   for (const button of [
@@ -172,10 +203,13 @@ test('c10_24_clients_show_utc_activity_and_never_used', async ({ page }) => {
   await expect(page.getByRole('columnheader', { name: /last token issued|最后签发 Token/i })).toBeVisible();
   await expect(page.getByText(formattedLastUsed, { exact: true })).toBeVisible();
   await expect(page.getByText(/^Never used$|^从未使用$/)).toBeVisible();
+  await page.locator('.ant-table-content').evaluate((element) => {
+    element.scrollLeft = element.scrollWidth;
+  });
   await expect(page.getByRole('columnheader', { name: /actions|操作/i })).toBeInViewport();
 });
 
-test('admin clients keeps last-token and actions columns separate at desktop widths', async ({ page }) => {
+test('admin clients uses uniform resizable columns at desktop widths', async ({ page }) => {
   await connectedAdmin(page);
   await routeLayoutRegressionClient(page);
 
@@ -187,12 +221,12 @@ test('admin clients keeps last-token and actions columns separate at desktop wid
     await test.step(`${viewport.width}x${viewport.height}`, async () => {
       await page.setViewportSize(viewport);
       await page.goto('/admin?tab=clients&ui_locales=en');
-      await expectClientActivityAndActionsSeparated(page);
+      await expectClientColumnsUniformAndResizable(page);
     });
   }
 });
 
-test('admin clients keeps Chinese activity and actions columns separate at 768px', async ({ page }) => {
+test('admin clients keeps uniform resizable Chinese columns at 768px', async ({ page }) => {
   await page.setViewportSize({ width: 768, height: 800 });
   await page.addInitScript(() => {
     localStorage.setItem('agent-auth-lang', 'zh');
@@ -203,7 +237,7 @@ test('admin clients keeps Chinese activity and actions columns separate at 768px
   await page.goto('/admin?tab=clients&ui_locales=zh');
   await expect(page.getByRole('columnheader', { name: '最后签发 Token' })).toBeAttached();
   await expect(page.getByRole('columnheader', { name: '操作' })).toBeAttached();
-  await expectClientActivityAndActionsSeparated(page);
+  await expectClientColumnsUniformAndResizable(page);
 });
 
 test('c10_23_clients_deep_link_reload_and_complete_list_search', async ({ page }) => {
