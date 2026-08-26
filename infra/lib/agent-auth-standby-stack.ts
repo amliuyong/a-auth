@@ -647,8 +647,10 @@ export class AgentAuthStandbyStack extends Stack {
       tenant_residency: props.tenantResidency,
       tenant_secret_dependencies: tenantSecretDependencies,
     };
+    const runtimeBootstrapDocumentString =
+      Fn.toJsonString(runtimeBootstrapDocument);
     const runtimeBootstrapRevision = createHash('sha256')
-      .update(JSON.stringify(runtimeBootstrapDocument))
+      .update(JSON.stringify(this.resolve(runtimeBootstrapDocumentString)))
       .digest('hex')
       .slice(0, 16);
 
