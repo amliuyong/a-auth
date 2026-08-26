@@ -1,0 +1,377 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 1200 760"
+  role="img"
+  aria-labelledby="architecture-title architecture-description"
+>
+  <title id="architecture-title">A Auth system architecture</title>
+  <desc id="architecture-description">
+    OAuth clients and agents enter through CloudFront and API Gateway to the
+    A Auth Rust protocol runtime. The React user interface uses the same edge
+    and runtime. The runtime federates with enterprise identity providers,
+    stores authority and replay state in DynamoDB, and uses AWS KMS for signing
+    and encryption. MCP and OAuth resource servers receive access tokens from
+    clients and validate them with metadata, JWKS, or the resource-server SDK.
+  </desc>
+
+  <defs>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#102a43" flood-opacity="0.1"/>
+    </filter>
+    <marker
+      id="arrow-blue"
+      viewBox="0 0 10 10"
+      refX="9"
+      refY="5"
+      markerWidth="8"
+      markerHeight="8"
+      orient="auto-start-reverse"
+    >
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#1677ff"/>
+    </marker>
+    <marker
+      id="arrow-purple"
+      viewBox="0 0 10 10"
+      refX="9"
+      refY="5"
+      markerWidth="8"
+      markerHeight="8"
+      orient="auto-start-reverse"
+    >
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#722ed1"/>
+    </marker>
+    <marker
+      id="arrow-green"
+      viewBox="0 0 10 10"
+      refX="9"
+      refY="5"
+      markerWidth="8"
+      markerHeight="8"
+      orient="auto-start-reverse"
+    >
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#389e0d"/>
+    </marker>
+    <marker
+      id="arrow-slate"
+      viewBox="0 0 10 10"
+      refX="9"
+      refY="5"
+      markerWidth="8"
+      markerHeight="8"
+      orient="auto-start-reverse"
+    >
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#486581"/>
+    </marker>
+    <style>
+      text {
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", sans-serif;
+      }
+
+      .boundary {
+        fill: #ffffff;
+        stroke-width: 2;
+      }
+
+      .boundary-label {
+        fill: #486581;
+        font-size: 14px;
+        font-weight: 700;
+        letter-spacing: 1.2px;
+      }
+
+      .node-title {
+        fill: #102a43;
+        font-size: 18px;
+        font-weight: 700;
+      }
+
+      .node-detail {
+        fill: #486581;
+        font-size: 14px;
+      }
+
+      .flow-label {
+        fill: #243b53;
+        font-size: 13px;
+        font-weight: 650;
+      }
+
+      .pill {
+        font-size: 12px;
+        font-weight: 700;
+      }
+    </style>
+  </defs>
+
+  <rect width="1200" height="760" rx="24" fill="#f4f7fb"/>
+
+  <g aria-hidden="true">
+    <circle cx="1110" cy="66" r="38" fill="#e6f4ff"/>
+    <circle cx="1148" cy="92" r="16" fill="#d6e4ff"/>
+    <circle cx="80" cy="704" r="30" fill="#e6fffb"/>
+  </g>
+
+  <text x="48" y="58" fill="#102a43" font-size="30" font-weight="800">
+    A Auth architecture
+  </text>
+  <text x="48" y="86" fill="#486581" font-size="15">
+    Protocol and policy core behind an AWS-native edge, with explicit trust boundaries
+  </text>
+
+  <rect
+    class="boundary"
+    x="40"
+    y="120"
+    width="260"
+    height="570"
+    rx="18"
+    stroke="#91caff"
+    stroke-dasharray="8 7"
+  />
+  <rect
+    class="boundary"
+    x="330"
+    y="120"
+    width="500"
+    height="570"
+    rx="18"
+    stroke="#1677ff"
+  />
+  <rect
+    class="boundary"
+    x="860"
+    y="120"
+    width="300"
+    height="570"
+    rx="18"
+    stroke="#b37feb"
+    stroke-dasharray="8 7"
+  />
+
+  <text class="boundary-label" x="62" y="151">CALLERS</text>
+  <text class="boundary-label" x="352" y="151">A AUTH DEPLOYMENT</text>
+  <text class="boundary-label" x="882" y="151">ENTERPRISE + AWS SERVICES</text>
+
+  <g filter="url(#shadow)">
+    <rect x="70" y="190" width="200" height="104" rx="14" fill="#ffffff" stroke="#69b1ff" stroke-width="2"/>
+    <circle cx="102" cy="222" r="16" fill="#e6f4ff"/>
+    <path
+      d="M95 223h14m-7-7v14"
+      fill="none"
+      stroke="#1677ff"
+      stroke-linecap="round"
+      stroke-width="2.5"
+    />
+    <text class="node-title" x="126" y="227">OAuth client</text>
+    <text class="node-title" x="94" y="253">or agent</text>
+    <text class="node-detail" x="94" y="276">user or workload flow</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="70" y="485" width="200" height="112" rx="14" fill="#ffffff" stroke="#69b1ff" stroke-width="2"/>
+    <path
+      d="M94 516h20v16H94zm4-5h12v5H98z"
+      fill="#1677ff"
+      opacity="0.85"
+    />
+    <text class="node-title" x="126" y="526">MCP / OAuth</text>
+    <text class="node-title" x="94" y="552">resource server</text>
+    <text class="node-detail" x="94" y="577">protected APIs and tools</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="380" y="184" width="400" height="92" rx="14" fill="#e6f4ff" stroke="#1677ff" stroke-width="2.5"/>
+    <path
+      d="M408 216h30v23h-30zm5-7h20v7h-20z"
+      fill="none"
+      stroke="#1677ff"
+      stroke-linejoin="round"
+      stroke-width="2.2"
+    />
+    <text class="node-title" x="458" y="222">Public edge</text>
+    <text class="node-detail" x="458" y="247">CloudFront + API Gateway</text>
+    <rect x="662" y="207" width="88" height="30" rx="15" fill="#1677ff"/>
+    <text x="706" y="227" fill="#ffffff" font-size="12" font-weight="750" text-anchor="middle">
+      HTTPS
+    </text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="390" y="340" width="380" height="136" rx="16" fill="#001529" stroke="#1677ff" stroke-width="2.5"/>
+    <path
+      d="M422 378 435 365l13 13-13 13zm0 32h26m-13-13v26"
+      fill="none"
+      stroke="#69b1ff"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      stroke-width="2.4"
+    />
+    <text x="470" y="382" fill="#ffffff" font-size="20" font-weight="750">
+      Rust protocol + HTTP runtime
+    </text>
+    <text x="470" y="409" fill="#adc6ff" font-size="14">
+      OAuth / OIDC protocol and policy core
+    </text>
+    <line x1="414" y1="435" x2="746" y2="435" stroke="#315477" stroke-width="1"/>
+    <rect x="414" y="447" width="110" height="24" rx="12" fill="#15395b"/>
+    <rect x="532" y="447" width="104" height="24" rx="12" fill="#15395b"/>
+    <rect x="644" y="447" width="102" height="24" rx="12" fill="#15395b"/>
+    <text class="pill" x="469" y="464" fill="#bae7ff" text-anchor="middle">protocols</text>
+    <text class="pill" x="584" y="464" fill="#bae7ff" text-anchor="middle">policy</text>
+    <text class="pill" x="695" y="464" fill="#bae7ff" text-anchor="middle">AWS adapters</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="410" y="550" width="340" height="92" rx="14" fill="#f6ffed" stroke="#52c41a" stroke-width="2"/>
+    <rect x="438" y="575" width="34" height="26" rx="3" fill="none" stroke="#389e0d" stroke-width="2"/>
+    <circle cx="455" cy="588" r="5" fill="#b7eb8f" stroke="#389e0d" stroke-width="1.5"/>
+    <text class="node-title" x="492" y="586">React UI</text>
+    <text class="node-detail" x="492" y="611">login · consent · account · admin</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="890" y="184" width="240" height="108" rx="14" fill="#f9f0ff" stroke="#9254de" stroke-width="2"/>
+    <circle cx="922" cy="218" r="15" fill="#efdbff"/>
+    <path
+      d="M915 218h14m-7-7v14"
+      fill="none"
+      stroke="#722ed1"
+      stroke-linecap="round"
+      stroke-width="2.2"
+    />
+    <text class="node-title" x="948" y="223">Enterprise IdP</text>
+    <text class="node-detail" x="914" y="253">OIDC · SAML · SCIM</text>
+    <text class="node-detail" x="914" y="274">identity and lifecycle source</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="890" y="386" width="240" height="100" rx="14" fill="#fff7e6" stroke="#fa8c16" stroke-width="2"/>
+    <ellipse cx="922" cy="416" rx="16" ry="7" fill="none" stroke="#d46b08" stroke-width="2"/>
+    <path
+      d="M906 416v19c0 4 7 7 16 7s16-3 16-7v-19m-32 9c0 4 7 7 16 7s16-3 16-7"
+      fill="none"
+      stroke="#d46b08"
+      stroke-width="2"
+    />
+    <text class="node-title" x="952" y="424">DynamoDB</text>
+    <text class="node-detail" x="914" y="461">authority, sessions, replay state</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="890" y="542" width="240" height="100" rx="14" fill="#fff1f0" stroke="#ff7875" stroke-width="2"/>
+    <circle cx="922" cy="576" r="14" fill="none" stroke="#cf1322" stroke-width="2"/>
+    <path
+      d="M933 585l14 14m-6-8 7-7m-2 9 5-5"
+      fill="none"
+      stroke="#cf1322"
+      stroke-linecap="round"
+      stroke-width="2.2"
+    />
+    <text class="node-title" x="952" y="582">AWS KMS</text>
+    <text class="node-detail" x="914" y="617">signing and encryption keys</text>
+  </g>
+
+  <path
+    d="M270 236 H380"
+    fill="none"
+    stroke="#1677ff"
+    stroke-width="3"
+    marker-end="url(#arrow-blue)"
+  />
+  <rect x="288" y="205" width="76" height="22" rx="11" fill="#ffffff"/>
+  <text class="flow-label" x="326" y="220" text-anchor="middle">OAuth</text>
+
+  <path
+    d="M580 276 V340"
+    fill="none"
+    stroke="#1677ff"
+    stroke-width="3"
+    marker-end="url(#arrow-blue)"
+  />
+  <rect x="593" y="296" width="106" height="22" rx="11" fill="#ffffff"/>
+  <text class="flow-label" x="646" y="311" text-anchor="middle">API requests</text>
+
+  <path
+    d="M580 550 V476"
+    fill="none"
+    stroke="#389e0d"
+    stroke-width="3"
+    marker-start="url(#arrow-green)"
+    marker-end="url(#arrow-green)"
+  />
+  <rect x="600" y="502" width="116" height="22" rx="11" fill="#ffffff"/>
+  <text class="flow-label" x="658" y="517" text-anchor="middle">browser flows</text>
+
+  <path
+    d="M170 294 V485"
+    fill="none"
+    stroke="#1677ff"
+    stroke-width="3"
+    marker-end="url(#arrow-blue)"
+  />
+  <rect x="113" y="372" width="114" height="23" rx="11.5" fill="#ffffff"/>
+  <text class="flow-label" x="170" y="388" text-anchor="middle">access token</text>
+
+  <path
+    d="M270 544 H340 V426 H390"
+    fill="none"
+    stroke="#486581"
+    stroke-width="2.5"
+    stroke-dasharray="8 6"
+    marker-end="url(#arrow-slate)"
+  />
+  <rect x="282" y="477" width="174" height="43" rx="11" fill="#ffffff" stroke="#bcccdc"/>
+  <text class="flow-label" x="369" y="494" text-anchor="middle">JWKS · metadata</text>
+  <text class="flow-label" x="369" y="511" text-anchor="middle">resource-server SDK</text>
+
+  <path
+    d="M770 380 H824 V238 H890"
+    fill="none"
+    stroke="#722ed1"
+    stroke-width="3"
+    marker-start="url(#arrow-purple)"
+    marker-end="url(#arrow-purple)"
+  />
+  <rect x="786" y="292" width="96" height="55" rx="11" fill="#ffffff" stroke="#d3adf7"/>
+  <text class="flow-label" x="834" y="311" text-anchor="middle">federation</text>
+  <text class="flow-label" x="834" y="329" text-anchor="middle">provisioning</text>
+
+  <path
+    d="M770 422 H890"
+    fill="none"
+    stroke="#d46b08"
+    stroke-width="3"
+    marker-end="url(#arrow-slate)"
+  />
+  <rect x="785" y="391" width="88" height="22" rx="11" fill="#ffffff"/>
+  <text class="flow-label" x="829" y="406" text-anchor="middle">state</text>
+
+  <path
+    d="M770 456 H824 V592 H890"
+    fill="none"
+    stroke="#cf1322"
+    stroke-width="3"
+    marker-end="url(#arrow-slate)"
+  />
+  <rect x="784" y="506" width="102" height="42" rx="11" fill="#ffffff" stroke="#ffa39e"/>
+  <text class="flow-label" x="835" y="523" text-anchor="middle">sign</text>
+  <text class="flow-label" x="835" y="540" text-anchor="middle">encrypt</text>
+
+  <g transform="translate(365 714)">
+    <line x1="0" y1="0" x2="36" y2="0" stroke="#1677ff" stroke-width="3" marker-end="url(#arrow-blue)"/>
+    <text class="node-detail" x="48" y="5">request or data flow</text>
+    <line
+      x1="230"
+      y1="0"
+      x2="266"
+      y2="0"
+      stroke="#486581"
+      stroke-width="2.5"
+      stroke-dasharray="8 6"
+      marker-end="url(#arrow-slate)"
+    />
+    <text class="node-detail" x="278" y="5">validation material</text>
+  </g>
+</svg>

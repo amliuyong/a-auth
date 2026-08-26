@@ -77,17 +77,11 @@ For the precise status and evidence for each capability, use
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    Client["OAuth client / agent"] --> Edge["CloudFront + API Gateway"]
-    Edge --> AS["Agent Auth<br/>Rust protocol and HTTP runtime"]
-    AS <--> IdP["Enterprise IdP<br/>OIDC / SAML / SCIM"]
-    AS --> Store["DynamoDB<br/>clients, grants, sessions, replay state"]
-    AS --> Keys["AWS KMS<br/>signing and encryption"]
-    AS --> UI["React UI<br/>login, consent, account, admin"]
-    Client --> RS["MCP / OAuth resource server"]
-    RS -. "JWKS, metadata, or RS SDK" .-> AS
-```
+<img
+  src="docs/assets/architecture.svg"
+  alt="A Auth architecture showing OAuth clients, the AWS edge and Rust runtime, the React UI, enterprise identity providers, DynamoDB, KMS, and resource servers"
+  width="1200"
+/>
 
 The protocol and policy logic is separated from AWS adapters. The same core can
 run locally with in-memory stores, as a self-hosted single-tenant deployment,
