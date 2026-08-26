@@ -108,6 +108,7 @@ jobs:
 
   conformance-exact:
     name: Exact conformance selectors
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 150
     steps:
@@ -182,6 +183,7 @@ jobs:
             "$GITHUB_WORKSPACE/sdk/python/tests"
 
       - name: Run exact SDK conformance selectors
+        if: github.event_name != 'pull_request'
         run: ./scripts/run_sdk_conformance_exact_tests.sh
 
   infra-tests:
@@ -211,6 +213,7 @@ jobs:
         run: npm test
 
       - name: Run exact infrastructure conformance selectors
+        if: github.event_name != 'pull_request'
         working-directory: .
         run: ./scripts/run_infra_conformance_exact_tests.sh
 
@@ -252,9 +255,11 @@ jobs:
         run: npm run build
 
       - name: Install Chromium for exact Web conformance selectors
+        if: github.event_name != 'pull_request'
         run: npx playwright install --with-deps chromium
 
       - name: Run exact Web conformance selectors
+        if: github.event_name != 'pull_request'
         working-directory: .
         run: ./scripts/run_web_conformance_exact_tests.sh
 
@@ -271,6 +276,7 @@ jobs:
 
   conformance-tooling:
     name: Conformance tooling
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
