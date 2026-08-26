@@ -1,0 +1,10 @@
+{
+  "name": "agent-auth-repository-tooling",
+  "private": true,
+  "scripts": {
+    "lint:markdown": "markdownlint-cli2"
+  },
+  "devDependencies": {
+    "markdownlint-cli2": "0.23.2"
+  }
+}

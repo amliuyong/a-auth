@@ -1,0 +1,518 @@
+name: Release conformance gate
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      issuer:
+        description: Stable deployed issuer to test
+        required: true
+        type: string
+      deployment_version:
+        description: Full Git commit deployed at the issuer
+        required: true
+        type: string
+permissions: {}
+
+concurrency:
+  group: >-
+    release-conformance-${{
+      github.event_name
+    }}-${{
+      inputs.issuer || 'scheduled'
+    }}-${{
+      inputs.deployment_version || 'configured'
+    }}
+  cancel-in-progress: false
+
+jobs:
+  external-conformance:
+    name: OIDC Basic OP and selected RFC 9700
+    if: >-
+      github.event_name != 'schedule' ||
+      vars.CONFORMANCE_SCHEDULE_ENABLED == 'true'
+    runs-on:
+      - self-hosted
+      - Linux
+      - ARM64
+      - agent-auth-conformance
+    timeout-minutes: 120
+    environment: conformance
+    permissions:
+      contents: read
+      issues: read # Validate repository-bound exception approvals.
+    outputs:
+      deployment_version_b64: >-
+        ${{ steps.release_context.outputs.deployment_version_b64 }}
+      issuer_b64: ${{ steps.release_context.outputs.issuer_b64 }}
+    env:
+      CONFORMANCE_SERVER: https://www.certification.openid.net/
+      DEPLOYMENT_VERSION: >-
+        ${{ inputs.deployment_version || vars.CONFORMANCE_DEPLOYMENT_VERSION }}
+      ISSUER: ${{ inputs.issuer || vars.CONFORMANCE_ISSUER }}
+      CONFIGURED_ISSUER: ${{ vars.CONFORMANCE_ISSUER }}
+      OIDF_RUNNER_COMMIT: 932b46f1e507871eb0b34621aaef65ff04442e6f
+      OIDF_RUNNER_REF: release-v5.2.1
+      OIDF_SOURCE_URL: https://gitlab.com/openid/conformance-suite/-/tree/release-v5.2.1
+      WORKFLOW_REF: ${{ github.workflow_ref }}
+    steps:
+      - name: Export non-secret release context
+        id: release_context
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'issuer_b64=%s\n' \
+            "$(printf '%s' "$ISSUER" | base64 --wrap=0)" \
+            >> "$GITHUB_OUTPUT"
+          printf 'deployment_version_b64=%s\n' \
+            "$(printf '%s' "$DEPLOYMENT_VERSION" | base64 --wrap=0)" \
+            >> "$GITHUB_OUTPUT"
+
+      - name: Verify dedicated runner isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          for variable in \
+            AWS_ACCESS_KEY_ID \
+            AWS_SECRET_ACCESS_KEY \
+            AWS_SESSION_TOKEN \
+            AWS_PROFILE \
+            AWS_WEB_IDENTITY_TOKEN_FILE
+          do
+            test -z "${!variable:-}" || {
+              echo "self-hosted runner exposes ambient AWS credentials" >&2
+              exit 1
+            }
+          done
+          if curl --fail --silent --connect-timeout 1 --max-time 2 \
+            --noproxy "*" \
+            --request PUT \
+            --header "X-aws-ec2-metadata-token-ttl-seconds: 60" \
+            http://169.254.169.254/latest/api/token \
+            >/dev/null
+          then
+            echo "self-hosted runner can reach AWS instance metadata" >&2
+            exit 1
+          fi
+
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+
+      - name: Validate immutable release inputs
+        id: release_inputs
+        shell: bash
+        run: |
+          python3 scripts/release_conformance.py validate-inputs \
+            --issuer "$ISSUER" \
+            --conformance-server "$CONFORMANCE_SERVER" \
+            --deployment-version "$DEPLOYMENT_VERSION" \
+            --workflow-sha "$GITHUB_SHA" \
+            --event-name "$GITHUB_EVENT_NAME" \
+            --github-ref "$GITHUB_REF" \
+            --workflow-ref "$WORKFLOW_REF" \
+            --repository "$GITHUB_REPOSITORY"
+
+      - name: Preflight live deployment commit before suites
+        id: deployment_commit_preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/deployment_commit_preflight.py \
+            --issuer "$ISSUER" \
+            --allowed-issuer "$CONFIGURED_ISSUER" \
+            --expected-deployment-version "$DEPLOYMENT_VERSION" \
+            --phase start \
+            --summary conformance-results/deployment-commit-preflight-start.json
+
+      - name: Validate secret OIDF plan configuration
+        env:
+          OIDF_CONFIG_JSON: ${{ secrets.OIDF_BASIC_OP_CONFIG_JSON }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$OIDF_CONFIG_JSON" || {
+            echo "OIDF_BASIC_OP_CONFIG_JSON is not configured" >&2
+            exit 1
+          }
+          umask 077
+          install -d -m 700 "$RUNNER_TEMP/agent-auth-conformance/raw-oidf/exports"
+          install -d -m 700 "$GITHUB_WORKSPACE/conformance-results"
+          printf '%s' "$OIDF_CONFIG_JSON" \
+            > "$RUNNER_TEMP/agent-auth-conformance/oidf-config.json"
+          chmod 600 "$RUNNER_TEMP/agent-auth-conformance/oidf-config.json"
+          python3 scripts/validate_oidf_config.py \
+            --config "$RUNNER_TEMP/agent-auth-conformance/oidf-config.json" \
+            --issuer "$ISSUER" \
+            --summary "$GITHUB_WORKSPACE/conformance-results/oidf-config-manifest.json" \
+            --normalized-config \
+              "$RUNNER_TEMP/agent-auth-conformance/oidf-config.json"
+
+      - name: Preflight protected OIDF initial access tokens
+        id: oidf_iat_preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          callback="${CONFORMANCE_SERVER%/}/test/a/agent-auth-iat-preflight/callback"
+          python3 scripts/oidf_iat_preflight.py \
+            --config "$RUNNER_TEMP/agent-auth-conformance/oidf-config.json" \
+            --issuer "$ISSUER" \
+            --allowed-issuer "$CONFIGURED_ISSUER" \
+            --redirect-uri "$callback" \
+            --summary conformance-results/oidf-iat-preflight.json
+
+      - name: Preflight live OIDF browser assets
+        id: oidf_browser_preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/oidf_browser_preflight.py \
+            --issuer "$ISSUER" \
+            --allowed-issuer "$CONFIGURED_ISSUER" \
+            --summary conformance-results/oidf-browser-preflight.json
+
+      - name: Run agent-auth-owned selected RFC 9700 regression
+        id: rfc9700
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          callback="${CONFORMANCE_SERVER%/}/test/a/agent-auth-rfc9700/callback"
+          install -d -m 700 "$GITHUB_WORKSPACE/conformance-results"
+          python3 scripts/rfc9700_regression.py \
+            --issuer "$ISSUER" \
+            --allowed-issuer "$CONFIGURED_ISSUER" \
+            --redirect-uri "$callback" \
+            --source-version "agent-auth@$GITHUB_SHA" \
+            --source-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/tree/$GITHUB_SHA" \
+            --result-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --output conformance-results/agent-auth-rfc9700.json
+
+      - name: Fetch the pinned official OIDF runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none --no-checkout \
+            https://gitlab.com/openid/conformance-suite.git \
+            "$RUNNER_TEMP/oidf-conformance-suite"
+          git -C "$RUNNER_TEMP/oidf-conformance-suite" \
+            checkout --detach "$OIDF_RUNNER_COMMIT"
+          test "$(
+            git -C "$RUNNER_TEMP/oidf-conformance-suite" rev-parse HEAD
+          )" = "$OIDF_RUNNER_COMMIT"
+          python3 -m pip install \
+            --require-hashes \
+            --requirement scripts/conformance-requirements.txt
+
+      - name: Run official OIDF Basic OP plan
+        id: oidf_runner
+        continue-on-error: true
+        env:
+          CONFORMANCE_TOKEN: ${{ secrets.OIDF_CONFORMANCE_TOKEN }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          test -n "$CONFORMANCE_TOKEN" || {
+            echo "OIDF_CONFORMANCE_TOKEN is not configured" >&2
+            exit 1
+          }
+          if python3 "$RUNNER_TEMP/oidf-conformance-suite/scripts/run-test-plan.py" \
+              --export-dir "$RUNNER_TEMP/agent-auth-conformance/raw-oidf/exports" \
+              --no-parallel \
+              --verbose \
+              "oidcc-basic-certification-test-plan[server_metadata=discovery][client_registration=dynamic_client]" \
+              "$RUNNER_TEMP/agent-auth-conformance/oidf-config.json" \
+              > "$RUNNER_TEMP/agent-auth-conformance/raw-oidf/oidf-runner.log" 2>&1
+          then
+            runner_status=0
+          else
+            runner_status=$?
+          fi
+          echo "exit_code=$runner_status" >> "$GITHUB_OUTPUT"
+          printf 'OIDF runner exited with status %s\n' "$runner_status"
+          exit "$runner_status"
+
+      - name: Download plan manifest and human-readable export
+        id: oidf_plan
+        if: >-
+          ${{
+            always() &&
+            steps.release_inputs.outcome == 'success' &&
+            steps.deployment_commit_preflight.outcome == 'success' &&
+            steps.oidf_iat_preflight.outcome == 'success' &&
+            steps.oidf_browser_preflight.outcome == 'success'
+          }}
+        env:
+          CONFORMANCE_TOKEN: ${{ secrets.OIDF_CONFORMANCE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          plan_id="$(
+            sed -n 's/.*Created test plan, new id: //p' \
+              "$RUNNER_TEMP/agent-auth-conformance/raw-oidf/oidf-runner.log" \
+              | tail -1
+          )"
+          [[ "$plan_id" =~ ^[A-Za-z0-9_-]+$ ]] || {
+            echo "could not recover a valid OIDF plan id" >&2
+            exit 1
+          }
+          echo "plan_id=$plan_id" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$plan_id" > conformance-results/oidf-plan-id.txt
+          base="${CONFORMANCE_SERVER%/}"
+          curl --fail --silent --show-error --retry 3 \
+            -H "Authorization: Bearer $CONFORMANCE_TOKEN" \
+            "$base/api/plan/$plan_id" \
+            -o "$RUNNER_TEMP/agent-auth-conformance/raw-oidf/oidf-plan.json"
+          curl --fail --silent --show-error --retry 3 \
+            -H "Authorization: Bearer $CONFORMANCE_TOKEN" \
+            "$base/api/plan/exporthtml/$plan_id" \
+            -o "$RUNNER_TEMP/agent-auth-conformance/raw-oidf/oidf-basic-op-html.zip"
+          curl --fail --silent --show-error --retry 3 \
+            "$base/jwks" \
+            -o "$RUNNER_TEMP/agent-auth-conformance/raw-oidf/oidf-export-jwks.json"
+
+      - name: Convert OIDF export to gate evidence
+        if: >-
+          ${{
+            always() &&
+            steps.release_inputs.outcome == 'success' &&
+            steps.deployment_commit_preflight.outcome == 'success' &&
+            steps.oidf_iat_preflight.outcome == 'success' &&
+            steps.oidf_browser_preflight.outcome == 'success'
+          }}
+        env:
+          OIDF_RUNNER_EXIT_CODE: >-
+            ${{ steps.oidf_runner.outputs.exit_code || '255' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          export_zip="$(
+            find "$RUNNER_TEMP/agent-auth-conformance/raw-oidf/exports" \
+              -maxdepth 1 -type f -name '*.zip' -print -quit
+          )"
+          test -n "$export_zip" || {
+            echo "official runner produced no JSON plan export" >&2
+            exit 1
+          }
+          python3 scripts/oidf_basic_op_evidence.py \
+            --export "$export_zip" \
+            --plan-info "$RUNNER_TEMP/agent-auth-conformance/raw-oidf/oidf-plan.json" \
+            --jwks "$RUNNER_TEMP/agent-auth-conformance/raw-oidf/oidf-export-jwks.json" \
+            --expected-origin "$CONFORMANCE_SERVER" \
+            --runner-ref "$OIDF_RUNNER_REF" \
+            --runner-commit "$OIDF_RUNNER_COMMIT" \
+            --runner-exit-code "$OIDF_RUNNER_EXIT_CODE" \
+            --source-url "$OIDF_SOURCE_URL" \
+            --output conformance-results/oidf-basic-op-code.json
+
+      - name: Preflight live deployment commit after suites
+        id: deployment_commit_postflight
+        if: >-
+          ${{
+            always() &&
+            steps.release_inputs.outcome == 'success' &&
+            steps.deployment_commit_preflight.outcome == 'success' &&
+            steps.oidf_iat_preflight.outcome == 'success' &&
+            steps.oidf_browser_preflight.outcome == 'success'
+          }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/deployment_commit_preflight.py \
+            --issuer "$ISSUER" \
+            --allowed-issuer "$CONFIGURED_ISSUER" \
+            --expected-deployment-version "$DEPLOYMENT_VERSION" \
+            --phase end \
+            --summary conformance-results/deployment-commit-preflight-end.json
+
+      - name: Build release evidence
+        if: >-
+          ${{
+            always() &&
+            steps.release_inputs.outcome == 'success' &&
+            steps.deployment_commit_preflight.outcome == 'success' &&
+            steps.deployment_commit_postflight.outcome == 'success' &&
+            steps.oidf_iat_preflight.outcome == 'success' &&
+            steps.oidf_browser_preflight.outcome == 'success'
+          }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          generated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          python3 scripts/build_conformance_evidence.py \
+            --issuer "$ISSUER" \
+            --deployment-version "$DEPLOYMENT_VERSION" \
+            --generated-at "$generated_at" \
+            --claim oidc-basic-op-code \
+            --suite conformance-results/agent-auth-rfc9700.json \
+            --suite conformance-results/oidf-basic-op-code.json \
+            --deployment-preflight \
+              conformance-results/deployment-commit-preflight-start.json \
+            --deployment-preflight \
+              conformance-results/deployment-commit-preflight-end.json \
+            --exceptions .github/conformance/exceptions.json \
+            --output conformance-results/evidence.json
+
+      - name: Enforce release conformance policy
+        id: gate
+        if: >-
+          ${{
+            always() &&
+            steps.release_inputs.outcome == 'success' &&
+            steps.deployment_commit_preflight.outcome == 'success' &&
+            steps.deployment_commit_postflight.outcome == 'success' &&
+            steps.oidf_iat_preflight.outcome == 'success' &&
+            steps.oidf_browser_preflight.outcome == 'success'
+          }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          python3 scripts/release_conformance.py verify-exception-issues \
+            --evidence conformance-results/evidence.json \
+            --policy .github/conformance/policy.json \
+            --repository "$GITHUB_REPOSITORY" \
+            --failure-summary conformance-results/gate-summary.md
+          gate_status=$?
+          if [[ "$gate_status" -eq 0 ]]; then
+            python3 scripts/conformance_gate.py \
+              --evidence conformance-results/evidence.json \
+              --policy .github/conformance/policy.json \
+              --expected-issuer "$ISSUER" \
+              --expected-deployment-version "$DEPLOYMENT_VERSION" \
+              --summary conformance-results/gate-summary.md \
+              --approved-claims conformance-results/approved-profile-claims.json
+            gate_status=$?
+          fi
+          if [[ "$gate_status" -eq 0 ]]; then
+            python3 scripts/release_conformance.py validate-promotion \
+              --approved-claims \
+                conformance-results/approved-profile-claims.json \
+              --evidence conformance-results/evidence.json \
+              --policy .github/conformance/policy.json \
+              --expected-issuer "$ISSUER" \
+              --expected-deployment-version "$DEPLOYMENT_VERSION" \
+              --required-claim oidc-basic-op-code \
+              --summary conformance-results/promotion-summary.md
+            gate_status=$?
+          fi
+          if [[ "$gate_status" -ne 0 ]]; then
+            rm -f conformance-results/approved-profile-claims.json
+          fi
+          if [ -f conformance-results/gate-summary.md ]; then
+            cat conformance-results/gate-summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -f conformance-results/promotion-summary.md ]; then
+            cat conformance-results/promotion-summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$gate_status"
+
+      - name: Encrypt raw OIDF evidence
+        id: encrypt_evidence
+        if: >-
+          ${{
+            always() &&
+            steps.release_inputs.outcome == 'success' &&
+            steps.deployment_commit_preflight.outcome == 'success'
+          }}
+        env:
+          ARTIFACT_PASSPHRASE: ${{ secrets.CONFORMANCE_ARTIFACT_PASSPHRASE }}
+        shell: bash
+        run: |
+          python3 scripts/release_conformance.py encrypt-evidence \
+            --raw-dir "$RUNNER_TEMP/agent-auth-conformance/raw-oidf" \
+            --secret-config "$RUNNER_TEMP/agent-auth-conformance/oidf-config.json" \
+            --work-dir "$RUNNER_TEMP/agent-auth-conformance" \
+            --encrypted-archive \
+              "$GITHUB_WORKSPACE/conformance-results/oidf-raw.tar.gpg" \
+            --checksum \
+              "$GITHUB_WORKSPACE/conformance-results/oidf-raw.tar.gpg.sha256"
+
+      - name: Invalidate approval after evidence packaging failure
+        if: >-
+          ${{
+            always() &&
+            steps.release_inputs.outcome == 'success' &&
+            steps.encrypt_evidence.outcome != 'success'
+          }}
+        shell: bash
+        run: rm -f conformance-results/approved-profile-claims.json
+
+      - name: Upload conformance evidence
+        if: ${{ always() && steps.release_inputs.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-conformance-${{ github.run_id }}-${{ github.run_attempt }}
+          path: conformance-results/
+          if-no-files-found: error
+          retention-days: 30
+
+  track-release-gate-failure:
+    name: Track release gate failure
+    if: >-
+      ${{
+        always() &&
+        needs.external-conformance.result != 'success' &&
+        (
+          github.event_name != 'schedule' ||
+          vars.CONFORMANCE_SCHEDULE_ENABLED == 'true'
+        )
+      }}
+    needs: external-conformance
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read # Download evidence produced by this workflow run.
+      contents: read
+      issues: write # Create or update the release failure tracker.
+    env:
+      DEPLOYMENT_VERSION_B64: >-
+        ${{ needs.external-conformance.outputs.deployment_version_b64 }}
+      ISSUER_B64: ${{ needs.external-conformance.outputs.issuer_b64 }}
+      JOB_RESULT: ${{ needs.external-conformance.result }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - name: Install Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+
+      - name: Download conformance evidence
+        continue-on-error: true
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: release-conformance-${{ github.run_id }}-${{ github.run_attempt }}
+          path: conformance-results
+
+      - name: Create or update the failure tracker
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          issuer="$(printf '%s' "$ISSUER_B64" | base64 --decode)"
+          deployment_version="$(
+            printf '%s' "$DEPLOYMENT_VERSION_B64" | base64 --decode
+          )"
+          python3 scripts/release_conformance.py track-failure \
+            --issuer "$issuer" \
+            --deployment-version "$deployment_version" \
+            --job-result "$JOB_RESULT" \
+            --server-url "$GITHUB_SERVER_URL" \
+            --repository "$GITHUB_REPOSITORY" \
+            --run-id "$GITHUB_RUN_ID" \
+            --summary conformance-results/gate-summary.md \
+            --body conformance-results/failure-issue.md

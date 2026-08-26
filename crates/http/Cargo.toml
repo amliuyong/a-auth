@@ -1,0 +1,146 @@
+[package]
+name = "agent-auth-http"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Agent Auth HTTP 面 — axum handler 接纯逻辑 crate,utoipa 从代码派生 OpenAPI;本地 server + Lambda(API Gateway,不用 Function URL)双形态"
+
+[dependencies]
+# 纯逻辑 crate(协议/契约真相在这些里)
+agent-auth-discovery = { path = "../discovery" }
+agent-auth-token = { path = "../token" }
+agent-auth-protocol = { path = "../protocol" }
+agent-auth-client = { path = "../client" }
+agent-auth-infra-core = { path = "../infra-core" }
+agent-auth-authn = { path = "../authn" }
+agent-auth-workload = { path = "../workload" }
+agent-auth-ciba = { path = "../ciba" }
+agent-auth-ema = { path = "../ema" }
+agent-auth-grant = { path = "../grant" }
+agent-auth-authz = { path = "../authz" }
+
+# HTTP / OpenAPI(代码即契约:utoipa 编译期从类型派生 openapi.json)
+axum = "0.8"
+utoipa = { version = "5", features = ["axum_extras"] }
+utoipa-axum = "0.2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+# PAR(RFC 9126,spec 006 §7.3):从存储的授权参数串解析 AuthorizeParams(axum Query 底层同款)。
+serde_urlencoded = "0.7"
+percent-encoding = "2.3"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace", "cors"] }
+
+# 本地/测试签名(进程内 P-256 ES256;真机走 KMS,见 aws 适配器)
+p256 = { version = "0.13", features = ["ecdsa"] }
+base64 = { workspace = true }
+# 授权码 CSPRNG(不可预测、不可逆);getrandom 后端。
+rand = "0.8"
+# client_secret 常量时间比对(C4.2)。
+subtle = { workspace = true }
+# user_lookup 短哈希(恢复码前缀,C9.3)。
+sha2 = { workspace = true }
+# reg_token / admin 哈希(HMAC-SHA256,C4.3 registration_access_token 存储哈希,spec 025)。
+hmac = { workspace = true }
+# Opaque login-session management handles encrypt the cookie credential before exposure.
+aes-gcm = "0.10"
+# RS256 id_token 本地签名(MemorySigner;真机走 KMS RSA)+ KMS SPKI DER 解析出 n/e(spec 001 C2.7)。
+rsa = { version = "0.9", features = ["sha2"] }
+
+# Lambda 形态(feature 门控;触发源 = API Gateway,绝不用 Function URL)
+lambda_http = { version = "1", optional = true }
+# 回收后台任务 Lambda(spec 005 §9.5;触发源 = EventBridge Schedule,非 HTTP)。
+lambda_runtime = { version = "0.13", optional = true }
+
+# AWS 适配器(feature 门控:KMS 签名 + DynamoDB 存储,真机用)
+aws-config = { version = "1", features = ["behavior-version-latest"], optional = true }
+aws-sdk-kms = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio"], optional = true }
+aws-sdk-lambda = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio"], optional = true }
+aws-sdk-resourcegroupstagging = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio"], optional = true }
+aws-sdk-dynamodb = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio"], optional = true }
+aws-sdk-backup = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio"], optional = true }
+aws-sdk-cloudwatchlogs = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio"], optional = true }
+aws-sdk-s3 = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio"], optional = true }
+aws-sdk-sqs = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio"], optional = true }
+# 联邦上游 client_secret 解析(spec 003 §4;引用名→明文,GetSecretValue)。
+aws-sdk-secretsmanager = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio"], optional = true }
+# 授权会话状态迁移事件投影(spec 004 §3.3 / C6.5;PutEvents 到 EventBridge bus → CloudWatch Logs 审计湖)。
+aws-sdk-eventbridge = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio"], optional = true }
+# 平台 JWKS 取用(spec 012 workload_oidc_jwt):HTTP GET jwks_uri。rustls(免 native-tls,arm64 Lambda 干净)。
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"], optional = true }
+# Test-only CIMD TLS harness, isolated from production `aws,lambda` builds.
+rcgen = { version = "0.14", default-features = false, features = ["ring"], optional = true }
+tokio-rustls = { version = "0.26", optional = true }
+time = { version = "0.3", features = ["formatting"] }
+url = "2"
+httpdate = "1"
+
+[features]
+default = []
+lambda = ["dep:lambda_http", "dep:lambda_runtime"]
+aws = ["dep:aws-config", "dep:aws-sdk-kms", "dep:aws-sdk-lambda", "dep:aws-sdk-resourcegroupstagging", "dep:aws-sdk-dynamodb", "dep:aws-sdk-backup", "dep:aws-sdk-cloudwatchlogs", "dep:aws-sdk-s3", "dep:aws-sdk-sqs", "dep:aws-sdk-secretsmanager", "dep:aws-sdk-eventbridge", "dep:reqwest"]
+transport-test = ["aws", "dep:rcgen", "dep:tokio-rustls"]
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+agent-auth-client = { path = "../client" }
+aws-smithy-http-client = { version = "1", features = ["test-util"] }
+aws-smithy-runtime-api = "1"
+aws-smithy-types = "1"
+syn = { version = "2", features = ["full", "visit"] }
+# id_token RS256 验签(e2e:用 /jwks.json 的 RSA 公钥独立验 id_token 签名,spec 001 C2.7)。
+agent-auth-workload = { path = "../workload" }
+# passkey e2e:进程内造 mock authenticator(P-256 签 assertion + CBOR encode attestation)。
+p256 = { workspace = true }
+sha2 = { workspace = true }
+ciborium = { workspace = true }
+base64 = { workspace = true }
+serde_json = { workspace = true }
+# X.509-mTLS e2e(spec 012 §1.4/C5.7):进程内造带 SAN=spiffe:// 的叶子证书 PEM(builder 仅 dev)。
+x509-cert = { version = "0.2", features = ["pem", "builder"] }
+
+[[bin]]
+name = "agent-auth-server"        # 本地 axum server(开发/e2e 联调)
+path = "src/bin/server.rs"
+
+[[bin]]
+name = "export-openapi"           # 导出 openapi.json 到 repo(CI 校验一致)
+path = "src/bin/export_openapi.rs"
+
+[[bin]]
+name = "agent-auth-lambda"        # Lambda 入口(lambda+aws feature;触发源 = API Gateway)
+path = "src/bin/lambda.rs"
+
+[[bin]]
+name = "agent-auth-reclaim"       # client 回收后台任务(lambda+aws;触发源 = EventBridge Schedule,spec 005 §9.5)
+path = "src/bin/reclaim.rs"
+
+[[bin]]
+name = "agent-auth-recompute"     # 策略重算后台任务(lambda+aws;EventBridge Schedule + bump 即触发,spec 005 §7)
+path = "src/bin/recompute.rs"
+
+[[bin]]
+name = "agent-auth-migrate-credentials" # 独立 post-deploy 栈的一次性 client/DCR 凭据迁移
+path = "src/bin/migrate_credentials.rs"
+
+[[bin]]
+name = "agent-auth-security-event-archive" # DynamoDB Stream → S3 七年归档 + SQS dead-letter 状态回写
+path = "src/bin/security_event_archive.rs"
+
+[[bin]]
+name = "agent-auth-ssf-delivery" # SecurityEvents Stream → SSF outbox + EventBridge due-delivery pass
+path = "src/bin/ssf_delivery.rs"
+
+[[bin]]
+name = "agent-auth-tenant-key-provisioner" # SQS/EventBridge → per-tenant EC+RSA KMS lifecycle
+path = "src/bin/tenant_key_provisioner.rs"
+
+[[bin]]
+name = "agent-auth-governance-worker" # SQS → resumable privacy erasure/offboarding checkpoints
+path = "src/bin/governance_worker.rs"
+
+[[bin]]
+name = "agent-auth-restored-tenant-signer-probe" # DR-only read path: restored registry → production signer
+path = "src/bin/restored_tenant_signer_probe.rs"

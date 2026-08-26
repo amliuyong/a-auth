@@ -1,0 +1,53 @@
+# === 敏感信息:绝不进 Git(见 SECURITY.md 安全底线) ===
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+# 例外:mTLS truststore 的**占位 CA 公开证书**(spec 012 §1.4;仅公钥证书、无私钥,是 CDK asset 必须入库
+# 才能可复现部署;运维/e2e onboarding 时上传真 CA bundle 覆盖同 S3 key)。仅此一个公开 .pem 允许提交。
+!infra/assets/mtls-truststore/truststore.pem
+credentials
+aws-exports.js
+secrets.*
+
+# === AWS / 部署本地状态 ===
+.aws-sam/
+cdk.out/
+cdk.context.json
+
+# === Rust(倾向语言,见 DESIGN §8) ===
+/target/
+**/target/
+**/*.rs.bk
+Cargo.lock.orig
+
+# === Node(备选 / SDK TS) ===
+node_modules/
+dist/
+*.tsbuildinfo
+
+# === Playwright(web/ e2e) ===
+test-results/
+playwright-report/
+playwright/.cache/
+
+# === Python(SDK) ===
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+
+# === 个人本地目录(草稿/scratch,不进 Git) ===
+_my/
+.kiro/
+
+# === 通用 ===
+.DS_Store
+*.log
+.idea/
+.vscode/
+*.swp

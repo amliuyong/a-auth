@@ -1,0 +1,25 @@
+[project]
+name = "agent-auth-rs-sdk"
+version = "0.0.0"
+description = "Agent Auth RS 校验 SDK(spec 010 P1b):MCP 资源服务器侧 access token 校验 — aud 强校验、命名空间 sub_type 策略、kid 强制 alg、未知 kid 重取限流+负缓存、WWW-Authenticate 发现头。"
+requires-python = ">=3.10"
+dependencies = [
+    "pyjwt>=2.8",
+    "cryptography>=41",
+]
+license = { text = "MIT" }
+
+[project.optional-dependencies]
+test = [
+    "build>=1.2",
+    "pytest>=7",
+    "setuptools>=61",
+    "wheel>=0.45",
+]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["agent_auth_rs*"]

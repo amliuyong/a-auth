@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <title>Agent Auth</title>
+  <rect width="32" height="32" rx="7" fill="#001529"/>
+  <path
+    d="M7.5 24.5 14.4 8.8C15 7.4 17 7.4 17.6 8.8l6.9 15.7"
+    fill="none"
+    stroke="#fff"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-width="3.5"
+  />
+  <path d="M11.3 19.3h9.4" fill="none" stroke="#1677ff" stroke-linecap="round" stroke-width="3.5"/>
+  <circle cx="16" cy="19.3" r="1.35" fill="#fff"/>
+  <path d="M16 20.5v2.3" fill="none" stroke="#fff" stroke-linecap="round" stroke-width="1.7"/>
+</svg>

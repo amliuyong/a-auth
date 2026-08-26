@@ -1,0 +1,10 @@
+[package]
+name = "agent-auth-protocol"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Agent Auth spec 006 — 协议面结构契约(resource 绑定/audience 选择/MCP RS 判定//userinfo 隔离,纯逻辑零 AWS)"
+
+[dependencies]
+agent-auth-discovery = { path = "../discovery" }

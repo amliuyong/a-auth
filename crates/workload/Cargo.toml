@@ -1,0 +1,26 @@
+[package]
+name = "agent-auth-workload"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Agent Auth spec 012 [a] — workload 机器身份认证纯逻辑(client_type 模型/信任绑定匹配 精确+glob 前缀/SigV4 SignedHeaders 解析+audience 头绑定/WorkloadIdentity 输出,零 AWS 依赖)"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+base64 = { workspace = true }
+# 平台 OIDC token 本地验签(C5.1):平台多为 RS256(GitHub Actions/K8s/Cognito)。RustCrypto 系,
+# 与既有 p256/sha2/hmac 同族。**仅本地验签**(给定 JWKS n/e),不做 JWKS 抓取(IO 层)。
+# ⚠️ 安全说明:RUSTSEC-2023-0071(Marvin 攻击)是 rsa crate PKCS#1 v1.5 **解密**(私钥操作)的时序
+# 侧信道;本处**只做公钥签名验证**(verify),不触及易受影响的解密路径,故不受此 advisory 影响。
+rsa = { version = "0.9", features = ["sha2"] }
+sha2 = { workspace = true }
+# SPIFFE JWT-SVID(spec 012 §1.4)默认 ES256(EC P-256);**仅本地验签**(给定 JWK x/y),与 dpop/verify 同族。
+p256 = { workspace = true }
+x509-cert = { version = "0.2", features = ["pem"] }
+
+[dev-dependencies]
+rand = "0.8"
+# 测试造 X.509-SVID 样本证书(SAN=spiffe://)——`builder` 仅 dev(生产构建不含,保持 x509-cert 精简)。
+x509-cert = { version = "0.2", features = ["pem", "builder"] }

@@ -1,0 +1,37 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/discovery",
+    "crates/token",
+    "crates/client",
+    "crates/protocol",
+    "crates/infra-core",
+    "crates/authn",
+    "crates/workload",
+    "crates/ciba",
+    "crates/ema",
+    "crates/grant",
+    "crates/authz",
+    "crates/http",
+]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2021"
+license = "Apache-2.0"
+rust-version = "1.85"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+hmac = "0.12"
+sha2 = "0.10"
+subtle = "2"
+base64 = "0.22"
+p256 = { version = "0.13", features = ["ecdsa"] }
+# WebAuthn attestationObject / COSE 公钥 CBOR 解析(spec 003 §3 passkey 注册,fmt=none)。
+ciborium = "0.2"
+ipnet = "2"
+argon2 = "0.5"
+rand_core = { version = "0.6", features = ["getrandom"] }
+zeroize = "1"

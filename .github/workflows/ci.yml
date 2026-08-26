@@ -1,0 +1,318 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  markdownlint:
+    name: Markdown lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install repository tooling
+        run: npm ci
+
+      - name: Lint Markdown
+        run: npm run lint:markdown
+
+  rust-quality:
+    name: Rust quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal \
+            --component clippy,rustfmt
+          rustup default stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run Clippy
+        run: cargo clippy --workspace --all-targets --locked
+
+      - name: Run AWS and Lambda Clippy
+        run: cargo clippy -p agent-auth-http --all-targets --features aws,lambda --locked
+
+  rust-tests:
+    name: Rust unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+
+      - name: Run unit tests
+        run: cargo test --workspace --lib --locked
+
+      - name: Run AWS adapter unit tests
+        run: cargo test -p agent-auth-http --lib --features aws --locked
+
+      - name: Run data-governance integration tests
+        run: cargo test -p agent-auth-http --test data_governance_e2e --locked
+
+      - name: Run AWS refresh stack regressions
+        run: |
+          source ./scripts/rust_test_stack.sh
+          cargo test -p agent-auth-http --features aws \
+            --test code_flow_e2e --locked refresh \
+            -- --test-threads=1
+
+      - name: Run CIMD transport test
+        run: >-
+          cargo test -p agent-auth-http --lib --features transport-test
+          cimd::tests::http_transport_pins_tls_and_enforces_redirect_size_and_timeout
+          --locked -- --exact
+
+  conformance-exact:
+    name: Exact conformance selectors
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+
+      - name: Run exact conformance selectors
+        run: ./scripts/run_conformance_exact_tests.sh
+
+  sdk-checks:
+    name: Resource server SDKs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: sdk/ts/package-lock.json
+
+      - name: Install TypeScript SDK dependencies
+        working-directory: sdk/ts
+        run: npm ci
+
+      - name: Check TypeScript SDK
+        working-directory: sdk/ts
+        run: |
+          npm run lint
+          npm test
+          npm run build
+
+      - name: Install Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: sdk/python/test-requirements.txt
+
+      - name: Install Python SDK test dependencies
+        run: >-
+          python3 -m pip install --require-hashes
+          --requirement sdk/python/test-requirements.txt
+
+      - name: Build and install Python SDK
+        run: |
+          python3 -m build --wheel --no-isolation \
+            --outdir /tmp/agent-auth-rs-sdk-dist sdk/python
+          python3 -m pip install --no-deps \
+            /tmp/agent-auth-rs-sdk-dist/agent_auth_rs_sdk-*.whl
+
+      - name: Test Python SDK
+        working-directory: /tmp
+        run: |
+          python3 -c 'import agent_auth_rs, pathlib, sysconfig; module = pathlib.Path(agent_auth_rs.__file__).resolve(); purelib = pathlib.Path(sysconfig.get_paths()["purelib"]).resolve(); assert module.is_relative_to(purelib), module'
+          python3 -m pytest --import-mode=importlib -q \
+            "$GITHUB_WORKSPACE/sdk/python/tests"
+
+      - name: Run exact SDK conformance selectors
+        run: ./scripts/run_sdk_conformance_exact_tests.sh
+
+  infra-tests:
+    name: Infrastructure tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: infra
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: infra/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run infrastructure tests
+        run: npm test
+
+      - name: Run exact infrastructure conformance selectors
+        working-directory: .
+        run: ./scripts/run_infra_conformance_exact_tests.sh
+
+  web-checks:
+    name: Web checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify generated API types
+        run: |
+          npm run gen:api
+          git diff --exit-code -- src/api/schema.d.ts
+
+      - name: Run type checks
+        run: npm run lint
+
+      - name: Run unit tests
+        run: npm run test:unit
+
+      - name: Build production bundle
+        run: npm run build
+
+      - name: Install Chromium for exact Web conformance selectors
+        run: npx playwright install --with-deps chromium
+
+      - name: Run exact Web conformance selectors
+        working-directory: .
+        run: ./scripts/run_web_conformance_exact_tests.sh
+
+      - name: Install Java for OIDF HtmlUnit compatibility
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: web/htmlunit-smoke/pom.xml
+
+      - name: Run OIDF HtmlUnit browser smoke
+        run: ./scripts/run-oidf-htmlunit-smoke.sh
+
+  conformance-tooling:
+    name: Conformance tooling
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - name: Install Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+
+      - name: Install conformance tooling dependencies
+        run: >-
+          python3 -m pip install --require-hashes
+          --requirement scripts/conformance-dev-requirements.txt
+
+      - name: Run exact Python conformance selectors
+        run: ./scripts/run_python_conformance_exact_tests.sh
+
+      - name: Check conformance tooling formatting and lint
+        run: |
+          ruff check scripts
+          ruff format --check scripts
+
+      - name: Validate conformance requirement inventory
+        run: |
+          python3 scripts/conformance_inventory.py \
+            --document docs/CONFORMANCE.md \
+            --inventory .github/conformance/requirements.json \
+            --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Validate conformance evidence map
+        run: |
+          python3 scripts/conformance_evidence_map.py \
+            --root . \
+            --document docs/CONFORMANCE.md \
+            --inventory .github/conformance/requirements.json \
+            --map .github/conformance/evidence-map.json \
+            --workflow .github/workflows/ci.yml \
+            --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Run conformance tooling tests
+        run: python3 -m unittest discover -s scripts/tests -p "test_*.py" -v

@@ -1,0 +1,11 @@
+[package]
+name = "agent-auth-ciba"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Agent Auth spec 013 [a] — CIBA/device flow 异步授权纯逻辑(轮询 slow_down 判定/状态→错误码矩阵/login_hint 归一/user_code 生成校验,零 AWS 依赖)"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }

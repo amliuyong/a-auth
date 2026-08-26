@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+if ! command -v cargo >/dev/null 2>&1; then
+    echo "pre-commit: cargo is required to check Rust formatting." >&2
+    exit 1
+fi
+
+echo "pre-commit: checking Rust formatting..."
+if ! cargo fmt --all -- --check; then
+    echo "pre-commit: Rust formatting failed. Run 'cargo fmt --all', stage the changes, and retry." >&2
+    exit 1
+fi

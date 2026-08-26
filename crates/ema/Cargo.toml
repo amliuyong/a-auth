@@ -1,0 +1,22 @@
+[package]
+name = "agent-auth-ema"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Agent Auth spec 031 - MCP Enterprise-Managed Authorization pure policy and ID-JAG logic"
+
+[dependencies]
+agent-auth-ciba = { path = "../ciba" }
+agent-auth-workload = { path = "../workload" }
+base64 = { workspace = true }
+hmac = { workspace = true }
+http = "1"
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+
+[dev-dependencies]
+p256 = { workspace = true }
+rand = "0.8"
+rsa = { version = "0.9", features = ["sha2"] }

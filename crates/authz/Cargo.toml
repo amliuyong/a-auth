@@ -1,0 +1,14 @@
+[package]
+name = "agent-auth-authz"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Agent Auth spec 005 §7 / C10.17 — Cedar 授权判定纯逻辑(evaluate 授权∩策略→effective、CIDR 匹配、声明式 RAR 交集;cedar 依赖隔离于此,零 AWS)"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+ipnet = { workspace = true }
+cedar-policy = "4"

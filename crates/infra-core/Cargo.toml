@@ -1,0 +1,15 @@
+[package]
+name = "agent-auth-infra-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Agent Auth spec 005 [a] — 架构面纯逻辑(DER↔JOSE/JWK thumbprint/ES256 不变量/生命周期时钟/令牌桶/lease 状态机/CSRF/CORS+安全头,零 AWS 依赖)"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+hmac = { workspace = true }
+sha2 = { workspace = true }
+subtle = { workspace = true }
+base64 = { workspace = true }

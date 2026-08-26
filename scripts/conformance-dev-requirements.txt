@@ -1,0 +1,5 @@
+--requirement conformance-requirements.txt
+
+ruff==0.15.11 \
+    --hash=sha256:1bef2cb556d509259f1fe440bb9cd33c756222cf0a7afe90d15edf0866702431 \
+    --hash=sha256:3b17c886fb88203ced3afe7f14e8d5ae96e9d2f4ccc0ee66aa19f2c2675a27e4

@@ -1,0 +1,28 @@
+[package]
+name = "agent-auth-authn"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Agent Auth spec 003 [a] — 用户认证层纯逻辑(magic-link per-email 冷却/session nonce 绑定防 login-CSRF/短命一次性,零 AWS 依赖)"
+
+[dependencies]
+agent-auth-infra-core = { path = "../infra-core" }
+hmac = { workspace = true }
+sha2 = { workspace = true }
+subtle = { workspace = true }
+base64 = { workspace = true }
+# WebAuthn passkey assertion 验签(ES256/P-256,C9.4)。
+p256 = { workspace = true }
+# WebAuthn 注册 attestationObject / COSE 公钥 CBOR 解析(fmt=none,C9.4)。
+ciborium = { workspace = true }
+# 联邦上游断言 acr/amr 提取(C9.5b);JSON 值处理。
+serde_json = { workspace = true }
+# FederationConfig 持久化(Dynamo adapter 存 JSON;config 非 secret,secret 只存引用名)。
+serde = { workspace = true }
+argon2 = { workspace = true }
+rand_core = { workspace = true }
+zeroize = { workspace = true }
+
+[dev-dependencies]
+static_assertions = "1"

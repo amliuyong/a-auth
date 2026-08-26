@@ -1,0 +1,33 @@
+{
+  "name": "@agent-auth/rs-sdk",
+  "version": "0.0.0",
+  "description": "Agent Auth RS 校验 SDK(spec 010 P1b):MCP 资源服务器侧 access token 校验中间件 — aud 强校验、命名空间 sub_type 策略、kid 强制 alg、未知 kid 重取限流+负缓存、WWW-Authenticate 发现头。",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "lint": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "jose": "^5.9.6"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "@types/node": "^26.1.1",
+    "typescript": "^5.6.0",
+    "vitest": "^4.1.10"
+  },
+  "license": "MIT"
+}

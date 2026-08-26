@@ -1,0 +1,121 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Transient authenticated SSF interoperability receiver for Agent Auth E2E
+
+Parameters:
+  CodeBucket:
+    Type: String
+  CodeKey:
+    Type: String
+
+Resources:
+  ReceiverTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: jti
+          AttributeType: S
+      KeySchema:
+        - AttributeName: jti
+          KeyType: HASH
+      SSESpecification:
+        SSEEnabled: true
+      TimeToLiveSpecification:
+        AttributeName: expires_at
+        Enabled: true
+
+  ReceiverRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ReceiverData
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                Resource: !GetAtt ReceiverTable.Arn
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${AWS::StackName}-receiver:*
+
+  ReceiverFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: ReceiverLogGroup
+    Properties:
+      FunctionName: !Sub ${AWS::StackName}-receiver
+      Runtime: nodejs22.x
+      Architectures:
+        - arm64
+      Handler: index.handler
+      Role: !GetAtt ReceiverRole.Arn
+      MemorySize: 256
+      Timeout: 20
+      Code:
+        S3Bucket: !Ref CodeBucket
+        S3Key: !Ref CodeKey
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref ReceiverTable
+
+  ReceiverLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${AWS::StackName}-receiver
+      RetentionInDays: 1
+
+  ReceiverApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub ${AWS::StackName}-api
+      ProtocolType: HTTP
+      Description: SET-authenticated SSF E2E receiver
+
+  ReceiverIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref ReceiverApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt ReceiverFunction.Arn
+      PayloadFormatVersion: "2.0"
+      TimeoutInMillis: 29000
+
+  ReceiverRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ReceiverApi
+      RouteKey: $default
+      Target: !Sub integrations/${ReceiverIntegration}
+
+  ReceiverStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref ReceiverApi
+      StageName: $default
+      AutoDeploy: true
+
+  ReceiverInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ReceiverFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ReceiverApi}/*
+
+Outputs:
+  ReceiverUrl:
+    Value: !Sub https://${ReceiverApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}
+  ReceiverTableName:
+    Value: !Ref ReceiverTable

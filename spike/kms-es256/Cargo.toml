@@ -1,0 +1,18 @@
+[package]
+name = "spike-kms-es256"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "P-1 spike(DESIGN §10,P0 开工 gate):KMS ES256 Sign → DER→JOSE → JWKS → 独立验签,实测延迟。非 workspace 成员、不进生产。"
+
+# 独立于 crates/ 的纯逻辑 workspace(那些零 AWS 依赖);spike 才引 AWS SDK。
+[workspace]
+
+[dependencies]
+agent-auth-infra-core = { path = "../../crates/infra-core" }
+aws-config = "1"
+aws-sdk-kms = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+base64 = "0.22"
+serde_json = "1"
+anyhow = "1"

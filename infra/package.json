@@ -1,0 +1,26 @@
+{
+  "name": "agent-auth-infra",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Agent Auth AWS 基础设施(CDK-TS)——只做资源编排,不写业务逻辑(业务在 crates/)。",
+  "bin": {
+    "agent-auth-infra": "bin/agent-auth-infra.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "npm run build && node --test test/*.test.js",
+    "synth": "cdk synth",
+    "deploy": "cdk deploy --profile default",
+    "destroy": "cdk destroy --profile default"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.6"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.266.0",
+    "cdk-nag": "^2.38.2",
+    "constructs": "^10.8.1"
+  }
+}

@@ -1,0 +1,16 @@
+[package]
+name = "agent-auth-token"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Agent Auth spec 001 — token 设计与生命周期(claim 形状/命名空间/aud/refresh 复用检测/宽限窗指纹,纯逻辑零 AWS)"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+hmac = { workspace = true }
+sha2 = { workspace = true }
+subtle = { workspace = true }
+# pairwise sub 派生的 base64url 输出(C2.11 / §2.8)。
+base64 = { workspace = true }

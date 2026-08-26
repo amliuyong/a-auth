@@ -1,0 +1,11 @@
+[package]
+name = "agent-auth-grant"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Agent Auth spec 011 §5.1 — Grant 授权记录对象 + 委托约束校验纯逻辑(per_resource/constraints/status;resource∈grant·scope⊆·actor_allowlist·max_act_chain·active 判定,零 AWS 依赖)"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }

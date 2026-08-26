@@ -1,0 +1,8 @@
+{
+  "client_id": "https://gist.githubusercontent.com/amliuyong/80ef76c59dd32bf244c5ba1ca0715dd2/raw/cimd-client.json",
+  "client_name": "Agent Auth CIMD Live Validation",
+  "redirect_uris": [
+    "https://client.example.com/callback"
+  ],
+  "token_endpoint_auth_method": "none"
+}

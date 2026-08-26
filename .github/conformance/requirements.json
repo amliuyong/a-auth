@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "document": "docs/CONFORMANCE.md",
+  "requirement_ids_sha256": "a3c5eae8b56b7c01fe1ecd9a9de0fdf8c33a065945f5fc4f5907346610270071",
+  "expected_counts": {
+    "total": 149,
+    "complete": 144,
+    "partial": 2,
+    "missing": 3
+  },
+  "incomplete_requirements": [
+    {
+      "id": "10.15",
+      "status": "missing",
+      "applicability": "not_applicable",
+      "classification": "disabled_not_applicable",
+      "tracking_issues": [],
+      "reason": "Optional ES256/RS256 pressure routing is not enabled in the published profile."
+    },
+    {
+      "id": "10.18",
+      "status": "missing",
+      "applicability": "not_applicable",
+      "classification": "disabled_not_applicable",
+      "tracking_issues": [],
+      "reason": "Refresh-path algorithm routing is not applicable while optional pressure routing is disabled."
+    },
+    {
+      "id": "10.22b",
+      "status": "partial",
+      "applicability": "not_applicable",
+      "classification": "disabled_not_applicable",
+      "tracking_issues": [],
+      "reason": "The claims-tier shared-key profile is not enabled in the default per-tenant-CMK SaaS deployment."
+    },
+    {
+      "id": "12.2",
+      "status": "missing",
+      "applicability": "required_for_claimed_profile",
+      "classification": "externally_blocked",
+      "tracking_issues": [
+        "https://github.com/amliuyong/a-auth/issues/1"
+      ],
+      "reason": "Real Okta provisioning, deprovisioning, and reprovisioning evidence is outstanding."
+    },
+    {
+      "id": "13.8",
+      "status": "partial",
+      "applicability": "required_for_claimed_profile",
+      "classification": "externally_blocked",
+      "tracking_issues": [
+        "https://github.com/amliuyong/a-auth/issues/2"
+      ],
+      "reason": "Real third-party ID-JAG interoperability evidence is outstanding for Dev and SaaS."
+    }
+  ]
+}

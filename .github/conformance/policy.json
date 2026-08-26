@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "policy_version": "2026-08-08",
+  "required_suites": {
+    "agent-auth-rfc9700": {
+      "kind": "project-regression",
+      "all_tests_required": true,
+      "standard_url": "https://www.rfc-editor.org/rfc/rfc9700.html",
+      "non_certification_statement": "Project regression for selected RFC 9700 requirements; not an OIDF certification suite.",
+      "non_waivable_tests": ["dynamic-client-cleanup"]
+    },
+    "oidf-basic-op-code": {
+      "kind": "oidf-plan",
+      "all_tests_required": true,
+      "plan_name": "oidcc-basic-certification-test-plan",
+      "variants": {
+        "server_metadata": "discovery",
+        "client_registration": "dynamic_client"
+      },
+      "runner_ref": "release-v5.2.1",
+      "runner_commit": "932b46f1e507871eb0b34621aaef65ff04442e6f",
+      "source_url": "https://gitlab.com/openid/conformance-suite/-/tree/release-v5.2.1",
+      "export_origin": "https://www.certification.openid.net/"
+    }
+  },
+  "required_claims": ["oidc-basic-op-code"],
+  "allowed_claims": ["oidc-basic-op-code"],
+  "explicit_non_claims": [
+    "fapi",
+    "openid-federation",
+    "rfc9700-certification",
+    "scim-third-party-interoperability",
+    "ema-third-party-interoperability"
+  ],
+  "exception_issue_repository": "amliuyong/a-auth",
+  "exception_approval_label": "conformance-waiver-approved",
+  "exception_approvers": ["amliuyong"],
+  "max_evidence_age_hours": 24,
+  "max_exception_days": 30
+}

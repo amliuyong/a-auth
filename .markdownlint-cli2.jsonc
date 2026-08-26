@@ -1,0 +1,31 @@
+{
+  "config": {
+    "default": true,
+
+    // Long CJK prose, URLs, code, and specification tables are kept intact.
+    // Structural Markdown rules remain enabled.
+    "MD013": false,
+
+    // Existing compact and aligned tables are both accepted; column count and
+    // delimiter structure are still enforced by MD055/MD056.
+    "MD060": false,
+
+    // The README favicon is intentionally rendered with size attributes.
+    "MD033": {
+      "allowed_elements": [
+        "img"
+      ]
+    }
+  },
+  "globs": [
+    "**/*.md"
+  ],
+  "ignores": [
+    "**/node_modules/**",
+    "**/target/**",
+    "**/dist/**",
+    "**/cdk.out/**",
+    "**/.venv/**",
+    "_my/**"
+  ]
+}
