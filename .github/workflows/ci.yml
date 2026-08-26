@@ -108,7 +108,6 @@ jobs:
 
   conformance-exact:
     name: Exact conformance selectors
-    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 150
     steps:
@@ -183,7 +182,6 @@ jobs:
             "$GITHUB_WORKSPACE/sdk/python/tests"
 
       - name: Run exact SDK conformance selectors
-        if: github.event_name != 'pull_request'
         run: ./scripts/run_sdk_conformance_exact_tests.sh
 
   infra-tests:
@@ -213,7 +211,6 @@ jobs:
         run: npm test
 
       - name: Run exact infrastructure conformance selectors
-        if: github.event_name != 'pull_request'
         working-directory: .
         run: ./scripts/run_infra_conformance_exact_tests.sh
 
@@ -255,11 +252,9 @@ jobs:
         run: npm run build
 
       - name: Install Chromium for exact Web conformance selectors
-        if: github.event_name != 'pull_request'
         run: npx playwright install --with-deps chromium
 
       - name: Run exact Web conformance selectors
-        if: github.event_name != 'pull_request'
         working-directory: .
         run: ./scripts/run_web_conformance_exact_tests.sh
 
@@ -302,7 +297,6 @@ jobs:
 
   conformance-tooling:
     name: Conformance tooling
-    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -348,3 +342,36 @@ jobs:
 
       - name: Run conformance tooling tests
         run: python3 -m unittest discover -s scripts/tests -p "test_*.py" -v
+
+  required-ci:
+    name: Required CI
+    if: ${{ always() }}
+    needs:
+      - markdownlint
+      - rust-quality
+      - rust-tests
+      - conformance-exact
+      - sdk-checks
+      - infra-tests
+      - web-checks
+      - oidf-htmlunit-smoke
+      - conformance-tooling
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - name: Validate required CI policy
+        run: python3 -m unittest scripts.tests.test_ci_required_gate -v
+
+      - name: Enforce required CI results
+        env:
+          CI_EVENT_NAME: ${{ github.event_name }}
+          CI_NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          python3 scripts/ci_required_gate.py \
+            --event-name "$CI_EVENT_NAME" \
+            --needs-json "$CI_NEEDS_JSON"
