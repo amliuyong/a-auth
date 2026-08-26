@@ -504,12 +504,13 @@ test('c8_12_federation_mapping_revisioned_crud_uses_active_canonical_targets', a
 
   await page.getByRole('button', { name: /^Edit$/ }).click();
   dialog = page.getByRole('dialog');
-  const mode = dialog.getByRole('combobox', { name: /Mode$/ });
-  await mode.focus();
-  await mode.press('ArrowDown');
-  await mode.press('ArrowDown');
-  await mode.press('Enter');
-  await dialog.getByLabel(/required source value/i).fill('engineering');
+  await dialog.getByTitle('Copy string').click();
+  const modeDropdown = page.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden)');
+  await expect(modeDropdown).toBeVisible();
+  await modeDropdown.getByText('Exact membership', { exact: true }).click();
+  const requiredSourceValue = dialog.getByLabel(/required source value/i);
+  await expect(requiredSourceValue).toBeVisible();
+  await requiredSourceValue.fill('engineering');
   await dialog.getByLabel(/target key/i).fill('role');
   await dialog.getByLabel(/target value/i).fill('developer');
   await dialog.getByRole('button', { name: /^Save$/ }).click();
