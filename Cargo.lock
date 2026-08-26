@@ -39,7 +39,7 @@ dependencies = [
 
 [[package]]
 name = "agent-auth-authn"
-version = "0.0.0"
+version = "0.5.0"
 dependencies = [
  "agent-auth-infra-core",
  "argon2",
@@ -58,7 +58,7 @@ dependencies = [
 
 [[package]]
 name = "agent-auth-authz"
-version = "0.0.0"
+version = "0.5.0"
 dependencies = [
  "cedar-policy",
  "ipnet",
@@ -69,7 +69,7 @@ dependencies = [
 
 [[package]]
 name = "agent-auth-ciba"
-version = "0.0.0"
+version = "0.5.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -77,7 +77,7 @@ dependencies = [
 
 [[package]]
 name = "agent-auth-client"
-version = "0.0.0"
+version = "0.5.0"
 dependencies = [
  "base64",
  "sha2 0.10.9",
@@ -85,7 +85,7 @@ dependencies = [
 
 [[package]]
 name = "agent-auth-discovery"
-version = "0.0.0"
+version = "0.5.0"
 dependencies = [
  "agent-auth-client",
  "agent-auth-ema",
@@ -95,7 +95,7 @@ dependencies = [
 
 [[package]]
 name = "agent-auth-ema"
-version = "0.0.0"
+version = "0.5.0"
 dependencies = [
  "agent-auth-ciba",
  "agent-auth-workload",
@@ -112,7 +112,7 @@ dependencies = [
 
 [[package]]
 name = "agent-auth-grant"
-version = "0.0.0"
+version = "0.5.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -120,7 +120,7 @@ dependencies = [
 
 [[package]]
 name = "agent-auth-http"
-version = "0.0.0"
+version = "0.5.0"
 dependencies = [
  "aes-gcm",
  "agent-auth-authn",
@@ -180,7 +180,7 @@ dependencies = [
 
 [[package]]
 name = "agent-auth-infra-core"
-version = "0.0.0"
+version = "0.5.0"
 dependencies = [
  "base64",
  "hmac 0.12.1",
@@ -192,14 +192,14 @@ dependencies = [
 
 [[package]]
 name = "agent-auth-protocol"
-version = "0.0.0"
+version = "0.5.0"
 dependencies = [
  "agent-auth-discovery",
 ]
 
 [[package]]
 name = "agent-auth-token"
-version = "0.0.0"
+version = "0.5.0"
 dependencies = [
  "base64",
  "hmac 0.12.1",
@@ -211,7 +211,7 @@ dependencies = [
 
 [[package]]
 name = "agent-auth-workload"
-version = "0.0.0"
+version = "0.5.0"
 dependencies = [
  "base64",
  "p256",
