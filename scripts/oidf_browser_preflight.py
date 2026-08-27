@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 REQUIRED_MARKERS = (
+    "agent-auth-login-ready",
     "agent-auth-login-email",
     "agent-auth-login-password",
     "agent-auth-login-submit",

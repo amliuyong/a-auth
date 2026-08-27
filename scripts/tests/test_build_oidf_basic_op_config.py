@@ -95,11 +95,15 @@ class BuildOidfBasicOpConfigCliTests(unittest.TestCase):
             ],
         )
         self.assertEqual(
-            config["browser"][1]["tasks"][0]["commands"][3],
+            config["browser"][1]["tasks"][0]["commands"][4],
             ["text", "id", "agent-auth-login-password", PASSWORD],
         )
         self.assertEqual(
-            config["browser"][1]["tasks"][0]["commands"][1][-1],
+            config["browser"][1]["tasks"][0]["commands"][0],
+            ["wait", "id", "agent-auth-login-ready", 30],
+        )
+        self.assertEqual(
+            config["browser"][1]["tasks"][0]["commands"][2][-1],
             "update-image-placeholder-optional",
         )
         self.assertEqual(

@@ -264,17 +264,18 @@ def validate_basic_op_automation(
     )
     login_commands = general_tasks[0].get("commands", [])
     require(
-        len(login_commands) == 6
-        and len(login_commands[3]) == 4
-        and login_commands[3][:3] == ["text", "id", "agent-auth-login-password"]
-        and isinstance(login_commands[3][3], str)
-        and bool(login_commands[3][3]),
+        len(login_commands) == 7
+        and len(login_commands[4]) == 4
+        and login_commands[4][:3] == ["text", "id", "agent-auth-login-password"]
+        and isinstance(login_commands[4][3], str)
+        and bool(login_commands[4][3]),
         "config.browser login task must contain the generated command sequence",
     )
-    password = login_commands[3][3]
+    password = login_commands[4][3]
     require(
         login_commands
         == [
+            ["wait", "id", "agent-auth-login-ready", 30],
             ["wait", "id", "agent-auth-login-email", 30],
             [
                 "wait",

@@ -52,6 +52,7 @@ async function serveStatic(pathname, response) {
 const server = createServer(async (request, response) => {
   try {
     const url = new URL(request.url ?? '/', `http://${request.headers.host}`);
+    process.stdout.write(`fixture request: ${request.method} ${url.pathname}\n`);
     if (request.method === 'GET' && url.pathname === '/health') {
       send(response, 200, 'text/plain', 'ok');
       return;

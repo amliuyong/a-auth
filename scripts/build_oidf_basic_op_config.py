@@ -127,6 +127,7 @@ def build_config(
                         "match": f"{issuer}/login*",
                         "optional": True,
                         "commands": [
+                            ["wait", "id", "agent-auth-login-ready", 30],
                             ["wait", "id", "agent-auth-login-email", 30],
                             [
                                 "wait",

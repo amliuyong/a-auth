@@ -124,6 +124,7 @@ async function mockRegister(page: Page, challenge: string, onFinish?: (body: Rec
 test('login uses email and password by default with passkey and magic-link alternatives', async ({ page }) => {
   await page.goto('/login');
 
+  await expect(page.locator('#agent-auth-login-ready')).toHaveCount(1);
   await expect(page.getByLabel(/email|邮箱/i)).toHaveCount(1);
   await expect(page.getByLabel(/^password$|^密码$/i)).toHaveCount(1);
   const password = page.getByRole('button', { name: /^sign in$|^登录$/i });
@@ -143,6 +144,30 @@ test('login uses email and password by default with passkey and magic-link alter
   await expect(magicLink).toBeVisible();
   await expect(magicLink).toHaveAttribute('type', 'button');
   await expect(magicLink).not.toHaveClass(/ant-btn-primary/);
+});
+
+test('login validates email and password at the submit boundary', async ({ page }) => {
+  let requestCount = 0;
+  await page.route('**/login/password', (route) => {
+    requestCount += 1;
+    return route.fulfill({
+      status: 500,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'unexpected request' }),
+    });
+  });
+
+  await page.goto('/login');
+  await page.getByRole('button', { name: /^sign in$|^登录$/i }).click();
+
+  await expect(page.getByText(/enter your email address|请输入邮箱地址/i)).toBeVisible();
+  await expect(page.getByText(/enter your password|请输入密码/i)).toBeVisible();
+
+  await page.getByLabel(/email|邮箱/i).fill('not-an-email');
+  await page.getByRole('button', { name: /^sign in$|^登录$/i }).click();
+
+  await expect(page.getByText(/enter a valid email address|请输入有效的邮箱地址/i)).toBeVisible();
+  expect(requestCount).toBe(0);
 });
 
 test('password sign-in continues after an active credential', async ({ page }) => {

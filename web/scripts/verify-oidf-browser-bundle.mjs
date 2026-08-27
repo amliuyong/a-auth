@@ -36,6 +36,7 @@ const legacyEntry = await readFile(
 );
 requireBundle(legacyEntry.includes('System.register'), 'legacy SystemJS module is missing');
 for (const marker of [
+  'agent-auth-login-ready',
   'agent-auth-login-email',
   'agent-auth-login-password',
   'agent-auth-login-submit',
