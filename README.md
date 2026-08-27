@@ -25,6 +25,28 @@ agents, machine identities, delegation chains, and MCP resources.
 > assumptions before using it in a production environment. Project tests are
 > not a certification by the OpenID Foundation or another standards body.
 
+## Current Status
+
+- **Release** — [`v0.5.0`](https://github.com/amliuyong/a-auth/releases/tag/v0.5.0)
+  is the current public pre-1.0 source release. Release assets are source
+  archives; the Rust crates and resource-server SDKs are not published to
+  external package registries.
+- **Repository evidence** — every completed row in the
+  [conformance matrix](docs/CONFORMANCE.md) must map to exact automated
+  selectors that CI actually runs. Broad suites, comments, and historical
+  results do not count as exact evidence.
+- **External release gate** — the
+  [external conformance contract](docs/EXTERNAL_CONFORMANCE.md) runs the fixed
+  OIDF Basic OP code-flow plan plus project-owned selected RFC 9700
+  regressions. Non-`PASSED` official outcomes require explicit,
+  repository-bound, time-limited exceptions; a green gate is not
+  standards-body certification.
+- **Outstanding interoperability** — real
+  [Okta SCIM validation](https://github.com/amliuyong/a-auth/issues/1) and
+  [third-party MCP EMA/ID-JAG validation](https://github.com/amliuyong/a-auth/issues/2)
+  remain open. Agent Auth does not claim those external interoperability
+  results until their sanitized evidence is recorded.
+
 [简体中文简介](#简体中文简介) ·
 [Getting started](docs/GETTING_STARTED.md) ·
 [Deployment guide](docs/INSTALL_DEPLOY.md) ·
@@ -79,7 +101,7 @@ For the precise status and evidence for each capability, use
 
 <img
   src="docs/assets/architecture.svg"
-  alt="A Auth architecture showing OAuth clients, the AWS edge and Rust runtime, the React UI, enterprise identity providers, DynamoDB, KMS, and resource servers"
+  alt="Agent Auth architecture showing OAuth clients, the AWS edge and Rust runtime, the React UI, enterprise identity providers, DynamoDB, KMS, and resource servers"
   width="1200"
 />
 
@@ -196,6 +218,8 @@ OpenAPI surface, specification, and conformance evidence together. See
 | [`DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Understand issuer, tenant, key, migration, and topology boundaries |
 | [`INSTALL_DEPLOY.md`](docs/INSTALL_DEPLOY.md) | Build and deploy the AWS infrastructure |
 | [`CONFORMANCE.md`](docs/CONFORMANCE.md) | Check normative requirements and their automated evidence |
+| [`EXTERNAL_CONFORMANCE.md`](docs/EXTERNAL_CONFORMANCE.md) | Review the official OIDF and project regression release-gate contract |
+| [`CHANGELOG.md`](docs/CHANGELOG.md) | Check release history and user-visible changes |
 
 ## Security
 
