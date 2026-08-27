@@ -8,7 +8,11 @@ configuration, APIs, deployment resources, or SDKs.
 
 ## [Unreleased]
 
-No user-facing changes have been recorded after `0.5.0`.
+### Documentation
+
+- The README now surfaces the current release, enforced conformance evidence,
+  external release-gate semantics, and outstanding third-party
+  interoperability work.
 
 ## [0.5.0] - 2026-08-26
 
