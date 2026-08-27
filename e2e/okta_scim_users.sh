@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Real Okta directory provisioning acceptance for Issue #18 / C12.2.
+# Real Okta directory provisioning acceptance for Issue #1 / C12.2.
 #
 # Prerequisite: an active Okta private SCIM integration configured with the
 # Agent Auth SCIM base URL, bearer credential, Create Users, and Deactivate

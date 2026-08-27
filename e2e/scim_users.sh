@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Live SCIM Users acceptance for issue #18.
+# Live SCIM Users acceptance for issue #1.
 #
 # Required:
 #   BASE_URL=https://tenant.example.com
