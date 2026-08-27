@@ -1,6 +1,6 @@
 # Tenant-scoped SCIM 2.0 Users profile
 
-This document is the normative Agent Auth contract for C12.2 and issue #18. It narrows
+This document is the normative Agent Auth contract for C12.2 and issue #1. It narrows
 RFC 7643/7644 to an interoperable Users slice without claiming Bulk, sorting,
 password changes, or the full filter grammar. The independently authorized Groups
 and tenant-role mapping profile is [`SCIM_GROUPS.md`](SCIM_GROUPS.md).

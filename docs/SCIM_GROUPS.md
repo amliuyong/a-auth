@@ -170,5 +170,5 @@ OTHER_ADMIN_SECRET_ARN=arn:aws:secretsmanager:us-east-1:123456789012:secret:t2-a
 ./e2e/scim_groups.sh
 ```
 
-The combined Groups and Admin SSO slices close C12.3. The separate C12.2/#18
+The combined Groups and Admin SSO slices close C12.3. The separate C12.2/#1
 requirement still needs real Entra or Okta Users-job evidence.
