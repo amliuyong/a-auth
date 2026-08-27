@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Alert, Button, Divider, Form, Input, Space, Typography, message } from 'antd';
+import type { InputRef } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
 import { Layout } from '../Layout';
@@ -47,10 +48,20 @@ type LoginForm = {
   confirmPassword: string;
 };
 
+type LoginCredentials = Pick<LoginForm, 'email' | 'password'>;
+
 export function Login() {
   const { t } = useTranslation();
   const [params] = useSearchParams();
   const [form] = Form.useForm<LoginForm>();
+  // OIDF BrowserControl uses HtmlUnit clear()+sendKeys(); AntD Form field
+  // subscriptions can block that event loop, so read login values at submit.
+  const emailInput = useRef<InputRef>(null);
+  const passwordInput = useRef<InputRef>(null);
+  const [ready, setReady] = useState(false);
+  const [loginFieldErrors, setLoginFieldErrors] = useState<
+    Partial<Record<keyof LoginCredentials, string>>
+  >({});
   const [sent, setSent] = useState(false);
   const [passwordBusy, setPasswordBusy] = useState(false);
   const [magicBusy, setMagicBusy] = useState(false);
@@ -63,6 +74,10 @@ export function Login() {
     password: string;
   } | null>(null);
   const passkeyAvailable = webauthnSupported() && !passkeyOff;
+
+  useEffect(() => {
+    setReady(true);
+  }, []);
 
   // authorize 上下文 = 除 next 外的全部 query(next 单列发送,不混入 authorize_query)。
   const authorizeParams = new URLSearchParams(params);
@@ -156,7 +171,30 @@ export function Login() {
     return t('error.generic');
   };
 
-  const signInWithPassword = async (values: LoginForm) => {
+  const readLoginCredentials = (passwordRequired: boolean): LoginCredentials | null => {
+    const emailElement = emailInput.current?.input;
+    const passwordElement = passwordInput.current?.input;
+    const values = {
+      email: emailElement?.value ?? '',
+      password: passwordElement?.value ?? '',
+    };
+    const fieldErrors: Partial<Record<keyof LoginCredentials, string>> = {};
+
+    if (!values.email) {
+      fieldErrors.email = t('login.emailRequired');
+    } else if (emailElement && !emailElement.validity.valid) {
+      fieldErrors.email = t('login.emailInvalid');
+    }
+    if (passwordRequired && !values.password) {
+      fieldErrors.password = t('login.passwordRequired');
+    }
+
+    setError(null);
+    setLoginFieldErrors(fieldErrors);
+    return Object.keys(fieldErrors).length === 0 ? values : null;
+  };
+
+  const signInWithPassword = async (values: LoginCredentials) => {
     setPasswordBusy(true);
     setError(null);
     try {
@@ -180,6 +218,13 @@ export function Login() {
       setError(t('error.network'));
     } finally {
       setPasswordBusy(false);
+    }
+  };
+
+  const submitPassword = async () => {
+    const values = readLoginCredentials(true);
+    if (values) {
+      await signInWithPassword(values);
     }
   };
 
@@ -248,25 +293,22 @@ export function Login() {
   };
 
   const submitPasskey = async () => {
-    try {
-      const values = await form.validateFields(['email']);
+    const values = readLoginCredentials(false);
+    if (values) {
       await onPasskey({ email: values.email });
-    } catch {
-      // Ant Design 已在字段旁显示校验错误。
     }
   };
 
   const submitMagicLink = async () => {
-    try {
-      const values = await form.validateFields(['email']);
+    const values = readLoginCredentials(false);
+    if (values) {
       await requestMagicLink({ email: values.email });
-    } catch {
-      // Ant Design 已在字段旁显示校验错误。
     }
   };
 
   return (
     <Layout>
+      {ready && <span id="agent-auth-login-ready" hidden aria-hidden="true" />}
       <Typography.Title level={3}>{t('login.title')}</Typography.Title>
       <Typography.Paragraph type="secondary">{t('login.subtitle')}</Typography.Paragraph>
       {sent && !changeRequired ? (
@@ -280,11 +322,12 @@ export function Login() {
         <Form
           form={form}
           layout="vertical"
-          onFinish={changeRequired ? changePassword : signInWithPassword}
-          onValuesChange={(changed) => {
-            if ('email' in changed) {
-              setError(null);
+          noValidate
+          onFinish={(values) => {
+            if (changeRequired) {
+              return changePassword(values);
             }
+            return submitPassword();
           }}
           requiredMark={false}
         >
@@ -347,28 +390,51 @@ export function Login() {
           ) : (
             <>
               <Form.Item
-                name="email"
                 label={t('login.email')}
                 htmlFor="agent-auth-login-email"
-                rules={[{ required: true, type: 'email' }]}
+                validateStatus={loginFieldErrors.email ? 'error' : undefined}
+                help={
+                  loginFieldErrors.email
+                    ? <span id="agent-auth-login-email-error">{loginFieldErrors.email}</span>
+                    : undefined
+                }
               >
                 <Input
+                  ref={emailInput}
                   id="agent-auth-login-email"
+                  type="email"
                   size="large"
                   autoComplete="username webauthn"
                   placeholder="you@example.com"
+                  required
+                  status={loginFieldErrors.email ? 'error' : undefined}
+                  aria-invalid={Boolean(loginFieldErrors.email)}
+                  aria-describedby={
+                    loginFieldErrors.email ? 'agent-auth-login-email-error' : undefined
+                  }
                 />
               </Form.Item>
               <Form.Item
-                name="password"
                 label={t('login.password')}
                 htmlFor="agent-auth-login-password"
-                rules={[{ required: true }]}
+                validateStatus={loginFieldErrors.password ? 'error' : undefined}
+                help={
+                  loginFieldErrors.password
+                    ? <span id="agent-auth-login-password-error">{loginFieldErrors.password}</span>
+                    : undefined
+                }
               >
                 <Input.Password
+                  ref={passwordInput}
                   id="agent-auth-login-password"
                   size="large"
                   autoComplete="current-password"
+                  required
+                  status={loginFieldErrors.password ? 'error' : undefined}
+                  aria-invalid={Boolean(loginFieldErrors.password)}
+                  aria-describedby={
+                    loginFieldErrors.password ? 'agent-auth-login-password-error' : undefined
+                  }
                 />
               </Form.Item>
               <Button

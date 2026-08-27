@@ -16,7 +16,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-for command in curl java mvn node; do
+for command in curl java mvn node timeout; do
   command -v "$command" >/dev/null || {
     printf 'missing command: %s\n' "$command" >&2
     exit 1
@@ -45,7 +45,17 @@ curl --fail --silent "$BASE_URL/health" >/dev/null || {
   exit 1
 }
 
-mvn --batch-mode --no-transfer-progress \
-  --file "$ROOT/htmlunit-smoke/pom.xml" \
-  -Doidf.base-url="$BASE_URL" \
-  test
+if timeout --signal=TERM --kill-after=10s 120s \
+  mvn --batch-mode --no-transfer-progress \
+    --file "$ROOT/htmlunit-smoke/pom.xml" \
+    -Doidf.base-url="$BASE_URL" \
+    test; then
+  :
+else
+  status=$?
+  if [[ "$status" -eq 124 || "$status" -eq 137 ]]; then
+    printf 'OIDF HtmlUnit Maven stage exceeded 120 seconds\n' >&2
+  fi
+  cat "$LOG" >&2
+  exit "$status"
+fi

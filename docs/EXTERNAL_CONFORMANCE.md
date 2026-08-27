@@ -219,7 +219,7 @@ redirect URI instead of incorrectly requiring a callback.
 OIDF BrowserControl uses HtmlUnit rather than a full Chrome process. The
 production web build therefore emits a `nomodule` legacy bundle with a Fetch
 polyfill in addition to the normal module bundle. Removing that build path,
-the stable DOM ids, or the ready marker breaks unattended hosted execution
+the stable DOM ids, or the ready markers break unattended hosted execution
 even if Playwright remains green. CI runs a driver-level SPA smoke from login
 through consent and callback with the Selenium and HtmlUnit versions used by
 the official `release-v5.2.1` BrowserControl image. The pinned hosted workflow
@@ -248,6 +248,7 @@ remains the end-to-end BrowserControl acceptance path. The local smoke is
           "task": "Authenticate and decide consent",
           "match": "https://issuer.example.com/*",
           "commands": [
+            ["wait", "id", "agent-auth-login-ready", 30],
             ["text", "id", "agent-auth-login-email", "<dedicated-test-email>"],
             ["text", "id", "agent-auth-login-password", "<replaceable-test-password>"],
             ["click", "id", "agent-auth-login-submit"]

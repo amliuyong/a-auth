@@ -73,6 +73,7 @@ def valid_config() -> dict:
                         "match": "https://issuer.example.com/login*",
                         "optional": True,
                         "commands": [
+                            ["wait", "id", "agent-auth-login-ready", 30],
                             ["wait", "id", "agent-auth-login-email", 30],
                             [
                                 "wait",
@@ -192,14 +193,14 @@ class ValidateOidfConfigCliTests(unittest.TestCase):
 
     def test_validates_without_reproducing_browser_commands(self) -> None:
         config = valid_config()
-        config["browser"][1]["tasks"][0]["commands"][3][3] = "secret-value"
+        config["browser"][1]["tasks"][0]["commands"][4][3] = "secret-value"
 
         completed, summary = self.run_validator(config)
 
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertEqual(summary["issuer"], ISSUER)
         self.assertEqual(summary["browser_rule_count"], 2)
-        self.assertEqual(summary["browser_command_count"], 11)
+        self.assertEqual(summary["browser_command_count"], 12)
         self.assertEqual(summary["browser_override_count"], 2)
         self.assertEqual(summary["browser_override_command_count"], 2)
         self.assertEqual(

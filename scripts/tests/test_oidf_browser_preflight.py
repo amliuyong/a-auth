@@ -13,6 +13,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 PREFLIGHT = REPO_ROOT / "scripts" / "oidf_browser_preflight.py"
 
 REQUIRED_MARKERS = (
+    "agent-auth-login-ready",
     "agent-auth-login-email",
     "agent-auth-login-password",
     "agent-auth-login-submit",
