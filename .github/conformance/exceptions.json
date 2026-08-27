@@ -1,1 +1,128 @@
-[]
+[
+  {
+    "suite_id": "oidf-basic-op-code",
+    "test_id": "oidcc-idtoken-unsigned[client_auth_type=client_secret_basic][response_mode=default][response_type=code]",
+    "approved_by": "@amliuyong",
+    "approved_at": "2026-08-27T03:35:48Z",
+    "reason": "Unsigned ID tokens are intentionally unsupported; the OIDF module is SKIPPED.",
+    "issue_url": "https://github.com/amliuyong/a-auth/issues/20",
+    "expires_at": "2026-09-05T00:00:00Z"
+  },
+  {
+    "suite_id": "oidf-basic-op-code",
+    "test_id": "oidcc-scope-profile[client_auth_type=client_secret_basic][response_mode=default][response_type=code]",
+    "approved_by": "@amliuyong",
+    "approved_at": "2026-08-27T03:35:48Z",
+    "reason": "The optional profile scope is not advertised; the OIDF module is SKIPPED.",
+    "issue_url": "https://github.com/amliuyong/a-auth/issues/20",
+    "expires_at": "2026-09-05T00:00:00Z"
+  },
+  {
+    "suite_id": "oidf-basic-op-code",
+    "test_id": "oidcc-scope-email[client_auth_type=client_secret_basic][response_mode=default][response_type=code]",
+    "approved_by": "@amliuyong",
+    "approved_at": "2026-08-27T03:35:48Z",
+    "reason": "The optional email scope is not advertised; the OIDF module is SKIPPED.",
+    "issue_url": "https://github.com/amliuyong/a-auth/issues/20",
+    "expires_at": "2026-09-05T00:00:00Z"
+  },
+  {
+    "suite_id": "oidf-basic-op-code",
+    "test_id": "oidcc-scope-address[client_auth_type=client_secret_basic][response_mode=default][response_type=code]",
+    "approved_by": "@amliuyong",
+    "approved_at": "2026-08-27T03:35:48Z",
+    "reason": "The optional address scope is not advertised; the OIDF module is SKIPPED.",
+    "issue_url": "https://github.com/amliuyong/a-auth/issues/20",
+    "expires_at": "2026-09-05T00:00:00Z"
+  },
+  {
+    "suite_id": "oidf-basic-op-code",
+    "test_id": "oidcc-scope-phone[client_auth_type=client_secret_basic][response_mode=default][response_type=code]",
+    "approved_by": "@amliuyong",
+    "approved_at": "2026-08-27T03:35:48Z",
+    "reason": "The optional phone scope is not advertised; the OIDF module is SKIPPED.",
+    "issue_url": "https://github.com/amliuyong/a-auth/issues/20",
+    "expires_at": "2026-09-05T00:00:00Z"
+  },
+  {
+    "suite_id": "oidf-basic-op-code",
+    "test_id": "oidcc-scope-all[client_auth_type=client_secret_basic][response_mode=default][response_type=code]",
+    "approved_by": "@amliuyong",
+    "approved_at": "2026-08-27T03:35:48Z",
+    "reason": "The optional profile, email, address, and phone scopes are not advertised; the OIDF module is SKIPPED.",
+    "issue_url": "https://github.com/amliuyong/a-auth/issues/20",
+    "expires_at": "2026-09-05T00:00:00Z"
+  },
+  {
+    "suite_id": "oidf-basic-op-code",
+    "test_id": "oidcc-alternate-happy-flow[client_auth_type=client_secret_basic][response_mode=default][response_type=code]",
+    "approved_by": "@amliuyong",
+    "approved_at": "2026-08-27T03:35:48Z",
+    "reason": "The flow depends on the optional email scope, so the OIDF module is SKIPPED.",
+    "issue_url": "https://github.com/amliuyong/a-auth/issues/20",
+    "expires_at": "2026-09-05T00:00:00Z"
+  },
+  {
+    "suite_id": "oidf-basic-op-code",
+    "test_id": "oidcc-prompt-login[client_auth_type=client_secret_basic][response_mode=default][response_type=code]",
+    "approved_by": "@amliuyong",
+    "approved_at": "2026-08-27T03:35:48Z",
+    "reason": "The official module requires second-login screenshot review and ends in REVIEW.",
+    "issue_url": "https://github.com/amliuyong/a-auth/issues/20",
+    "expires_at": "2026-09-05T00:00:00Z"
+  },
+  {
+    "suite_id": "oidf-basic-op-code",
+    "test_id": "oidcc-max-age-1[client_auth_type=client_secret_basic][response_mode=default][response_type=code]",
+    "approved_by": "@amliuyong",
+    "approved_at": "2026-08-27T03:35:48Z",
+    "reason": "The official module requires second-login screenshot review and ends in REVIEW.",
+    "issue_url": "https://github.com/amliuyong/a-auth/issues/20",
+    "expires_at": "2026-09-05T00:00:00Z"
+  },
+  {
+    "suite_id": "oidf-basic-op-code",
+    "test_id": "oidcc-ensure-registered-redirect-uri[client_auth_type=client_secret_basic][response_mode=default][response_type=code]",
+    "approved_by": "@amliuyong",
+    "approved_at": "2026-08-27T03:35:48Z",
+    "reason": "The official module reviews the captured local invalid redirect error page.",
+    "issue_url": "https://github.com/amliuyong/a-auth/issues/20",
+    "expires_at": "2026-09-05T00:00:00Z"
+  },
+  {
+    "suite_id": "oidf-basic-op-code",
+    "test_id": "oidcc-request-uri-unsigned-supported-correctly-or-rejected-as-unsupported[client_auth_type=client_secret_basic][response_mode=default][response_type=code]",
+    "approved_by": "@amliuyong",
+    "approved_at": "2026-08-27T03:35:48Z",
+    "reason": "External request_uri is intentionally rejected as unsupported; the OIDF module is SKIPPED.",
+    "issue_url": "https://github.com/amliuyong/a-auth/issues/20",
+    "expires_at": "2026-09-05T00:00:00Z"
+  },
+  {
+    "suite_id": "oidf-basic-op-code",
+    "test_id": "oidcc-unsigned-request-object-supported-correctly-or-rejected-as-unsupported[client_auth_type=client_secret_basic][response_mode=default][response_type=code]",
+    "approved_by": "@amliuyong",
+    "approved_at": "2026-08-27T03:35:48Z",
+    "reason": "By-value Request Objects are intentionally rejected as unsupported; the OIDF module is SKIPPED.",
+    "issue_url": "https://github.com/amliuyong/a-auth/issues/20",
+    "expires_at": "2026-09-05T00:00:00Z"
+  },
+  {
+    "suite_id": "oidf-basic-op-code",
+    "test_id": "oidcc-claims-essential[client_auth_type=client_secret_basic][response_mode=default][response_type=code]",
+    "approved_by": "@amliuyong",
+    "approved_at": "2026-08-27T03:35:48Z",
+    "reason": "The optional name claim is not returned, so the official module ends in WARNING.",
+    "issue_url": "https://github.com/amliuyong/a-auth/issues/20",
+    "expires_at": "2026-09-05T00:00:00Z"
+  },
+  {
+    "suite_id": "oidf-basic-op-code",
+    "test_id": "oidcc-ensure-request-object-with-redirect-uri[client_auth_type=client_secret_basic][response_mode=default][response_type=code]",
+    "approved_by": "@amliuyong",
+    "approved_at": "2026-08-27T03:35:48Z",
+    "reason": "The official module reviews the local unsupported Request Object error page because the outer redirect is untrusted.",
+    "issue_url": "https://github.com/amliuyong/a-auth/issues/20",
+    "expires_at": "2026-09-05T00:00:00Z"
+  }
+]
