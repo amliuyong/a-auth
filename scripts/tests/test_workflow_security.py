@@ -1,6 +1,9 @@
 import re
+import tempfile
 import unittest
 from pathlib import Path
+
+from scripts.workflow_security import validate_runner_scope
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_ROOT = REPO_ROOT / ".github" / "workflows"
@@ -11,6 +14,84 @@ PINNED_CONTAINER = re.compile(r"^docker://[^@\s]+@sha256:[0-9a-f]{64}$")
 class WorkflowSecurityTests(unittest.TestCase):
     def workflow_files(self) -> list[Path]:
         return sorted([*WORKFLOW_ROOT.glob("*.yml"), *WORKFLOW_ROOT.glob("*.yaml")])
+
+    def test_committed_workflows_keep_self_hosted_runner_dedicated(self) -> None:
+        validate_runner_scope(WORKFLOW_ROOT)
+
+    def test_another_workflow_cannot_select_self_hosted_runner(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            workflow_root = Path(directory)
+            (workflow_root / "release-conformance.yml").write_text(
+                """
+jobs:
+  external-conformance:
+    runs-on:
+      - self-hosted
+      - Linux
+      - ARM64
+      - agent-auth-conformance
+  report:
+    runs-on: ubuntu-latest
+""".lstrip(),
+                encoding="utf-8",
+            )
+            (workflow_root / "ci.yml").write_text(
+                """
+jobs:
+  build:
+    runs-on:
+      - self-hosted
+      - Linux
+""".lstrip(),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(
+                ValueError,
+                r"ci\.yml:3 must use ubuntu-latest",
+            ):
+                validate_runner_scope(workflow_root)
+
+    def test_release_workflow_requires_exactly_one_dedicated_runner(self) -> None:
+        fixtures = {
+            "missing": (
+                """
+jobs:
+  report:
+    runs-on: ubuntu-latest
+""",
+                "found 0",
+            ),
+            "duplicate": (
+                """
+jobs:
+  external-conformance:
+    runs-on:
+      - self-hosted
+      - Linux
+      - ARM64
+      - agent-auth-conformance
+  second-conformance:
+    runs-on:
+      - self-hosted
+      - Linux
+      - ARM64
+      - agent-auth-conformance
+""",
+                "found 2",
+            ),
+        }
+
+        for name, (workflow, expected) in fixtures.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                workflow_root = Path(directory)
+                (workflow_root / "release-conformance.yml").write_text(
+                    workflow.lstrip(),
+                    encoding="utf-8",
+                )
+
+                with self.assertRaisesRegex(ValueError, expected):
+                    validate_runner_scope(workflow_root)
 
     def test_external_actions_are_pinned_to_full_commit_shas(self) -> None:
         for path in self.workflow_files():
