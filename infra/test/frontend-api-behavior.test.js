@@ -308,10 +308,35 @@ test('c10_16_jwks_cloudfront_ttl_matches_frozen_max_age', () => {
   );
   assert.deepEqual(jwksBehavior.AllowedMethods, ['GET', 'HEAD', 'OPTIONS']);
   assert.deepEqual(jwksBehavior.CachedMethods, ['GET', 'HEAD']);
+  const originPolicy =
+    resources[jwksBehavior.OriginRequestPolicyId.Ref];
   assert.equal(
-    jwksBehavior.OriginRequestPolicyId,
-    '59781a5b-3903-41f3-afcb-af62929ccde1',
-    '/jwks.json must forward only the standard custom-origin CORS request headers',
+    originPolicy?.Type,
+    'AWS::CloudFront::OriginRequestPolicy',
+    '/jwks.json must explicitly forward the edge-injected authentication headers',
+  );
+  const originConfig = originPolicy.Properties.OriginRequestPolicyConfig;
+  assert.deepEqual(
+    originConfig.HeadersConfig,
+    {
+      HeaderBehavior: 'whitelist',
+      Headers: [
+        'Origin',
+        'X-Agent-Auth-Origin-Auth',
+        'X-Agent-Auth-Origin-Auth-Primary',
+        'X-Agent-Auth-Origin-Auth-Secondary',
+        'X-Agent-Auth-Origin-Auth-Revision',
+      ],
+    },
+    'forward managed origin credentials without viewer Authorization or unrelated headers',
+  );
+  assert.deepEqual(
+    originConfig.CookiesConfig,
+    { CookieBehavior: 'none' },
+  );
+  assert.deepEqual(
+    originConfig.QueryStringsConfig,
+    { QueryStringBehavior: 'none' },
   );
   assert.equal(jwksBehavior.FunctionAssociations?.length, 1);
   assert.equal(
@@ -332,6 +357,34 @@ test('c10_16_jwks_cloudfront_ttl_matches_frozen_max_age', () => {
     jwksBehavior.LambdaFunctionAssociations,
     config.DefaultCacheBehavior.LambdaFunctionAssociations,
     '/jwks.json must preserve managed SaaS origin authentication',
+  );
+});
+
+test('self-hosted JWKS keeps the standard CORS origin request policy', () => {
+  const app = new App();
+  const stack = new Stack(app, 'SelfHostedJwksOriginPolicyTest', {
+    env: { account: '123456789012', region: 'us-east-1' },
+  });
+  new FrontendConstruct(stack, 'Frontend', {
+    apiDomain: 'api.example.com',
+    assetPath: path.resolve(__dirname),
+  });
+  const resources = Template.fromStack(stack).toJSON().Resources;
+  const distribution = Object.values(resources).find(
+    (resource) => resource.Type === 'AWS::CloudFront::Distribution',
+  );
+  const behavior = distribution.Properties.DistributionConfig.CacheBehaviors.find(
+    (candidate) => candidate.PathPattern.replace(/^\/+/, '') === 'jwks.json',
+  );
+  assert.equal(
+    behavior.OriginRequestPolicyId,
+    '59781a5b-3903-41f3-afcb-af62929ccde1',
+  );
+  assert.equal(
+    Object.values(resources).filter(
+      (resource) => resource.Type === 'AWS::CloudFront::OriginRequestPolicy',
+    ).length,
+    0,
   );
 });
 

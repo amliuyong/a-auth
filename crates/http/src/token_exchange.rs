@@ -1,22 +1,21 @@
 //! `POST /token` 的 `grant_type=urn:ietf:params:oauth:grant-type:token-exchange`(RFC 8693 委托,spec 011)。
 //!
 //! agent 代表用户拿下游 RS 的委托 token。**双闸**(C7.2)+ 权限 ⊆ Grant(C7.3/4)+ subject 解析(C7.8)。
-//! P1 载体 = **refresh-family 前身**(Task 1.4/§5.1):family 提供 user_id/resources/scope;
-//! 前身退化的委托约束(评审收敛):`actor_allowlist = {family.client_id}`、`max_act_chain = 1`。
+//! Grant 提供授权，refresh family 提供主体生命周期绑定。默认深度 1；
+//! 显式多跳使用持久 JTI lineage，并继续受每个父跳的权限、深度和有效期约束。
 //!
 //! 编排(不重述规则):
 //! 1. **actor 身份** = 已认证 workload(复用 workload_flow 的 workload_oidc_jwt 认证,`actor_token` 承载平台
 //!    OIDC JWT)。actor **不是**客户端自称(C7.2);裸 RS-bound access token **不可**作 actor(token 转用面)。
 //! 2. **subject_token 先验签再信 jti**(评审真缺口):本 AS 签 + iss=本AS + 未过期,通过才取 jti → JtiStore
 //!    反查 {user_id, family_id}(**绝不解 pairwise sub**,C7.8;HMAC 单向)。
-//! 3. **双闸**:深度 ≤ max_act_chain(前身=1,即入站不得已带 act)+ 发起 actor ∈ actor_allowlist(前身=
-//!    {family owning client})。
+//! 3. **双闸**:深度 ≤ max_act_chain + 发起 actor ∈ actor_allowlist；父链快照也是上限。
 //! 4. **权限 ⊆ family**:换发 resource ∈ family.resources、scope ⊆ family.scope;超出拒(不内联补授权,C7.3)。
 //! 5. **复核 family active**(C7.8/评审 M4:AS 在线操作,不因 subject_token 表面未过期就换发)。
 //! 6. 签**委托 token**:sub = 用户在**目标 resource sector** 的 pairwise sub;`act.sub` = 发起 agent;
 //!    命名空间 actor_types 记 agent 类型。**按 tenant 分区**查 jti(SaaS 隔离)。
 //!
-//! 决策真相源 docs §5.1/§5.2/§2.8 + spec 011 C7.1–C7.8 + CONFORMANCE C7。
+//! 决策真相源 docs/BOUNDED_DELEGATION.md + DESIGN §5.1/§5.2/§2.8 + CONFORMANCE C7。
 
 use axum::{
     http::{HeaderMap, StatusCode},
@@ -26,7 +25,7 @@ use axum::{
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 
-use crate::ports::{ClientStore, GrantStore, RefreshStore, Signer};
+use crate::ports::{ClientStore, GrantStore, JtiStore, RefreshStore, Signer};
 use crate::state::AppState;
 use crate::token::{err, TokenRequest, TokenResponse};
 use agent_auth_discovery::derive_issuer;
@@ -288,6 +287,77 @@ pub async fn handle(
             .into_response()
         }
     };
+    let inbound_depth = subject_token_act_depth(subject_token);
+    let parent_lineage = if inbound_depth > 0 {
+        let claims = subject_token_claims(subject_token).expect("verified claims");
+        match crate::delegation::validate(state, &tenant, &tenant_id, subject_token, &claims).await
+        {
+            Ok(Some(lineage)) => Some(lineage),
+            Ok(None) => {
+                return err(
+                    StatusCode::BAD_REQUEST,
+                    "invalid_grant",
+                    "invalid delegation lineage",
+                )
+                .into_response()
+            }
+            Err(_) => {
+                return err(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "temporarily_unavailable",
+                    "delegation authority unavailable",
+                )
+                .into_response()
+            }
+        }
+    } else {
+        if jrec.delegation.is_some() {
+            return err(
+                StatusCode::BAD_REQUEST,
+                "invalid_grant",
+                "missing actor lineage",
+            )
+            .into_response();
+        }
+        None
+    };
+    if let Some(lineage) = parent_lineage.as_ref() {
+        let parent = lineage.parent();
+        if req
+            .grant_ref
+            .as_deref()
+            .is_some_and(|value| !value.is_empty())
+            || !parent.authorization_details.is_empty()
+            || parent.cnf_jkt.is_some()
+            || !parent.allowed_ip_cidrs.is_empty()
+            || !parent.allowed_vpce.is_empty()
+            || delegation_cnf_jkt.is_some()
+            || req.authorization_details.is_some()
+        {
+            return err(
+                StatusCode::BAD_REQUEST,
+                "invalid_grant",
+                "unsupported multi-hop authorization constraints",
+            )
+            .into_response();
+        }
+        if !lineage.permits_actor(&actor.client_id) {
+            return err(
+                StatusCode::BAD_REQUEST,
+                "invalid_grant",
+                "ancestor delegation constraints reject actor or depth",
+            )
+            .into_response();
+        }
+        if req.resource.as_deref() != Some(parent.resource.as_str()) {
+            return err(
+                StatusCode::BAD_REQUEST,
+                "invalid_target",
+                "multi-hop resource projection is unsupported",
+            )
+            .into_response();
+        }
+    }
     // C7.8a:access/ID token 同口径，必须由签发时落下的 jti→grant_id 单指针消歧。
     // 缺指针时绝不能按 family/resource 猜选 Grant。
     if jrec.grant_id.is_none() {
@@ -479,6 +549,36 @@ pub async fn handle(
         )
         .into_response();
     }
+    let source_grant_expires_at = grant.constraints.expires_at;
+    // First-hop grant-ref may select a different Grant. Subsequent hops retain
+    // that exact authority instead of reverting to the root authorization.
+    if let Some(lineage) = parent_lineage.as_ref() {
+        if lineage.parent().auth_grant != grant.grant_id {
+            grant = match state
+                .grants
+                .get(&tenant, &lineage.parent().auth_grant)
+                .await
+            {
+                Ok(Some(selected)) => selected,
+                Ok(None) => {
+                    return err(
+                        StatusCode::BAD_REQUEST,
+                        "invalid_grant",
+                        "delegation Grant missing",
+                    )
+                    .into_response()
+                }
+                Err(_) => {
+                    return err(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "temporarily_unavailable",
+                        "delegation authority unavailable",
+                    )
+                    .into_response()
+                }
+            };
+        }
+    }
 
     // 6.6 **grant-ref 跨 Grant 换发**(spec 011 §4,C7.7):带 `grant_ref` 时**改用** grant_ref 指向的 Grant
     // (而非 jti 单指针的源 Grant),用于"用 Grant A 的 subject_token 换 Grant B 的 resource"。仍走下方双闸。
@@ -604,7 +704,14 @@ pub async fn handle(
     //    ① 深度闸 + ② 身份闸:Grant.authorize_delegation(actor∈allowlist +
     //       入站链深+本跳≤max_act_chain)。入站链深按真实嵌套计
     //       (act_chain_depth,RFC 8693 nested;u32::MAX 哨兵表解码失败 fail-closed)。
-    let inbound_depth = subject_token_act_depth(subject_token);
+    if inbound_depth >= crate::delegation::MAX_DEPTH {
+        return err(
+            StatusCode::BAD_REQUEST,
+            "invalid_grant",
+            "delegation chain exceeds service limit",
+        )
+        .into_response();
+    }
     if let Err(e) = grant.authorize_delegation(&actor.client_id, inbound_depth) {
         return match e {
             agent_auth_grant::GrantError::ActorNotAllowed => err(
@@ -644,11 +751,27 @@ pub async fn handle(
         )
         .into_response();
     };
-    let requested_scopes: Vec<String> = req
+    let mut requested_scopes: Vec<String> = req
         .scope
         .as_deref()
         .map(|s| s.split_whitespace().map(str::to_string).collect())
         .unwrap_or_default();
+    if let Some(lineage) = parent_lineage.as_ref() {
+        let parent = lineage.parent();
+        if requested_scopes.is_empty() {
+            requested_scopes = parent.scope.clone();
+        } else if requested_scopes
+            .iter()
+            .any(|scope| !parent.scope.contains(scope))
+        {
+            return err(
+                StatusCode::BAD_REQUEST,
+                "invalid_scope",
+                "scope exceeds parent delegation",
+            )
+            .into_response();
+        }
+    }
     // T7.4 热路径 fail-safe 闸(C10.17):选中 Grant 若 policy stale → 503 拒(不签超策略 token);
     // ip/vpc 不匹配 → access_denied。flag 关 no-op。零 Cedar(只 u64 比较 + CIDR)。
     if let Err(resp) =
@@ -656,7 +779,7 @@ pub async fn handle(
     {
         return resp;
     }
-    let granted_scope: Vec<String> = match grant.authorize_target(
+    let mut granted_scope: Vec<String> = match grant.authorize_target(
         target_resource,
         &requested_scopes,
         now,
@@ -682,6 +805,13 @@ pub async fn handle(
             return err(StatusCode::BAD_REQUEST, "invalid_grant", "Grant 不可用").into_response();
         }
     };
+    // An empty parent scope is a real ceiling, not Grant's omitted-scope sentinel.
+    if parent_lineage
+        .as_ref()
+        .is_some_and(|lineage| lineage.parent().scope.is_empty())
+    {
+        granted_scope.clear();
+    }
 
     // 9. 委托 token 的 sub:用户在**目标 resource sector** 的派生 sub(pairwise 下按 aud 派生;public=user_id)。
     let mode = crate::token::subject_mode(state.subject_type_for_tenant(&tenant_id));
@@ -708,6 +838,41 @@ pub async fn handle(
         .resource_grant(target_resource)
         .map(|rg| rg.authorization_details.clone())
         .unwrap_or_default();
+    if parent_lineage.is_some() && !rar_for_target.is_empty() {
+        return err(
+            StatusCode::BAD_REQUEST,
+            "invalid_grant",
+            "multi-hop RAR is unsupported",
+        )
+        .into_response();
+    }
+    let Some(parent_expiry) =
+        subject_token_claim(subject_token, "exp").and_then(|value| value.as_i64())
+    else {
+        return err(
+            StatusCode::BAD_REQUEST,
+            "invalid_grant",
+            "subject expiry missing",
+        )
+        .into_response();
+    };
+    let expires_at = (now + crate::token::ACCESS_TTL)
+        .min(parent_expiry)
+        .min(jrec.expires_at)
+        .min(source_grant_expires_at)
+        .min(grant.constraints.expires_at);
+    if expires_at <= crate::token::current_unix_secs_pub()
+        || subject_token_claim(subject_token, "nbf")
+            .and_then(|value| value.as_i64())
+            .is_some_and(|not_before| not_before > crate::token::current_unix_secs_pub())
+    {
+        return err(
+            StatusCode::BAD_REQUEST,
+            "invalid_grant",
+            "delegation authority expired",
+        )
+        .into_response();
+    }
     let scope_str = granted_scope.join(" ");
     let delegated_jti = crate::token::new_jti(state);
     let jwt = match crate::token::sign_tenant_delegation_token_with_delivery(
@@ -729,6 +894,7 @@ pub async fn handle(
         inherited_acr.as_deref(),
         &delegated_jti,
         now,
+        expires_at,
         state.phase.at_least(agent_auth_discovery::Phase::P3),
         crate::security_event::SecurityActor::system("token-exchange"),
     )
@@ -770,6 +936,45 @@ pub async fn handle(
             .into_response()
         }
     };
+    let delegation = crate::delegation::DelegationRecord {
+        version: 1,
+        revoked: false,
+        credential_epoch: fam.credential_epoch,
+        token_sha256: crate::delegation::token_digest(&jwt),
+        issuer: as_issuer.to_string(),
+        subject: deleg_sub,
+        resource: target_resource.to_string(),
+        scope: granted_scope,
+        actor: actor.client_id.clone(),
+        parent_jti: jti,
+        auth_grant: effective_auth_grant,
+        depth: inbound_depth + 1,
+        constraints: grant.constraints.clone(),
+        authorization_details: rar_for_target,
+        cnf_jkt: delegation_cnf_jkt.clone(),
+        allowed_ip_cidrs: grant.allowed_ip_cidrs.clone(),
+        allowed_vpce: grant.allowed_vpce.clone(),
+    };
+    if jti_store
+        .put(crate::ports::JtiRecord {
+            jti: delegated_jti,
+            tenant_id: tenant_id.clone(),
+            user_id: jrec.user_id.clone(),
+            family_id: jrec.family_id.clone(),
+            grant_id: jrec.grant_id.clone(),
+            expires_at,
+            delegation: Some(delegation),
+        })
+        .await
+        .is_err()
+    {
+        return err(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "temporarily_unavailable",
+            "delegation persistence failed",
+        )
+        .into_response();
+    }
 
     // 记 actor client 最后使用日(spec 005 §9.2,C10.5;发起委托也算 actor client 的"使用")。
     crate::token::touch_client_last_used(state, &tenant, &actor.client_id, now).await;
@@ -820,14 +1025,32 @@ pub async fn handle(
         .into_response();
     }
 
-    // 注(评审 LOW#5):委托 token **不落 jti 映射**——它已带 act,再作 subject_token 会被深度闸拒
-    // (前身 max_act_chain=1),故落映射无消费者;放开深链(P2 Grant)时再按需补委托 token 的映射写。
+    let signed_claims = subject_token_claims(&jwt).expect("locally signed claims");
+    match crate::delegation::validate(state, &tenant, &tenant_id, &jwt, &signed_claims).await {
+        Ok(Some(_)) if expires_at > crate::token::current_unix_secs_pub() => {}
+        Ok(_) => {
+            return err(
+                StatusCode::BAD_REQUEST,
+                "invalid_grant",
+                "delegation authority changed during issuance",
+            )
+            .into_response()
+        }
+        Err(_) => {
+            return err(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "temporarily_unavailable",
+                "delegation authority unavailable",
+            )
+            .into_response()
+        }
+    }
 
     Json(TokenResponse {
         access_token: jwt,
         // 带 cnf(DPoP 重绑)→ `DPoP`,否则 `Bearer`(RFC 9449 §5;评审 Kiro L2,复用 token_type_for)。
         token_type: crate::token::token_type_for(delegation_cnf_jkt.as_deref()),
-        expires_in: crate::token::ACCESS_TTL,
+        expires_in: expires_at - crate::token::current_unix_secs_pub(),
         scope: (!scope_str.is_empty()).then_some(scope_str),
         refresh_token: None, // 委托 token 不发 refresh(P1;委托是短时下游访问)
         id_token: None,
@@ -978,12 +1201,13 @@ fn may_act_permits(may_act: Option<&serde_json::Value>, actor_id: &str) -> bool 
 
 /// 读 subject_token payload 的某 claim(已验签;仅解码 payload 段)。
 fn subject_token_claim(token: &str, key: &str) -> Option<serde_json::Value> {
+    subject_token_claims(token)?.get(key).cloned()
+}
+
+fn subject_token_claims(token: &str) -> Option<serde_json::Value> {
     let payload = token.split('.').nth(1)?;
     let bytes = URL_SAFE_NO_PAD.decode(payload).ok()?;
-    serde_json::from_slice::<serde_json::Value>(&bytes)
-        .ok()?
-        .get(key)
-        .cloned()
+    serde_json::from_slice::<serde_json::Value>(&bytes).ok()
 }
 
 #[cfg(test)]

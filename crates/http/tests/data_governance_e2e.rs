@@ -264,6 +264,7 @@ async fn seed_offboarding_orphans(state: &AppState, now: i64) {
             .as_ref()
             .unwrap()
             .put(JtiRecord {
+                delegation: None,
                 jti: format!("{prefix}-orphan-jti"),
                 tenant_id: logical_tenant.into(),
                 user_id: user_id.clone(),
@@ -2050,6 +2051,7 @@ async fn seed_user_erasure_jti(state: &AppState, now: i64, user_id: &str) {
         .as_ref()
         .unwrap()
         .put(JtiRecord {
+            delegation: None,
             jti: "erase-jti".into(),
             tenant_id: "default".into(),
             user_id: user_id.into(),

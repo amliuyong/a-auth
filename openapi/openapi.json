@@ -4836,10 +4836,20 @@
         },
         "responses": {
           "200": {
-            "description": "RFC 7662 introspection 响应({active:true,...} 或 {active:false})"
+            "description": "RFC 7662 introspection 响应({active:true,...} 或 {active:false})",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntrospectionResponse"
+                }
+              }
+            }
           },
           "401": {
             "description": "调用方认证失败 / 无 introspect 权限"
+          },
+          "503": {
+            "description": "Authoritative token, delegation, or user state unavailable"
           }
         }
       }
@@ -8251,6 +8261,98 @@
           }
         }
       },
+      "DelegationHop": {
+        "type": "object",
+        "required": [
+          "jti",
+          "actor",
+          "parent_jti",
+          "auth_grant",
+          "resource",
+          "scope",
+          "expires_at"
+        ],
+        "properties": {
+          "actor": {
+            "type": "string"
+          },
+          "auth_grant": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "jti": {
+            "type": "string"
+          },
+          "parent_jti": {
+            "type": "string"
+          },
+          "resource": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "DelegationLineage": {
+        "type": "object",
+        "description": "Authenticated introspection extension. Actor and hop order is oldest-first.",
+        "required": [
+          "version",
+          "issuer",
+          "subject",
+          "resource",
+          "current_actor",
+          "actors",
+          "source_grant",
+          "checked_at",
+          "hops"
+        ],
+        "properties": {
+          "actors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "checked_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "current_actor": {
+            "type": "string"
+          },
+          "hops": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DelegationHop"
+            }
+          },
+          "issuer": {
+            "type": "string"
+          },
+          "resource": {
+            "type": "string"
+          },
+          "source_grant": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "DeviceApproveRequest": {
         "type": "object",
         "description": "device 批准动作请求体(用户在浏览器输入 user_code + approve/deny)。",
@@ -9550,6 +9652,29 @@
           }
         }
       },
+      "IntrospectionResponse": {
+        "type": "object",
+        "description": "RFC 7662 fields plus the optional, online-validated delegation extension.",
+        "required": [
+          "active"
+        ],
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "delegation_lineage": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DelegationLineage"
+              }
+            ]
+          }
+        },
+        "additionalProperties": {}
+      },
       "InvitationSecretResponse": {
         "type": "object",
         "required": [
@@ -10804,7 +10929,7 @@
           },
           "token": {
             "type": "string",
-            "description": "被吊销 token(RFC 7009;P1 受理 refresh token,access token 输入 no-op)。"
+            "description": "Refresh token or a delegated access token owned by the original OAuth client."
           },
           "token_type_hint": {
             "type": [
