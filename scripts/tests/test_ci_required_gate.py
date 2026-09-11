@@ -12,10 +12,15 @@ class RequiredCiGateTests(unittest.TestCase):
     def successful_results(self) -> dict[str, dict[str, str]]:
         return {job: {"result": "success"} for job in EXPECTED_JOBS}
 
-    def test_pull_request_requires_every_job_to_succeed(self) -> None:
+    def test_pull_request_allows_only_full_conformance_to_be_skipped(self) -> None:
         validate_results("pull_request", self.successful_results())
+        results = self.successful_results()
+        results["conformance-exact"]["result"] = "skipped"
+        validate_results("pull_request", results)
 
         for job in EXPECTED_JOBS:
+            if job == "conformance-exact":
+                continue
             with self.subTest(job=job):
                 results = self.successful_results()
                 results[job]["result"] = "skipped"
@@ -38,15 +43,17 @@ class RequiredCiGateTests(unittest.TestCase):
                     validate_results(event_name, results)
 
     def test_failure_cancellation_missing_and_extra_jobs_fail_closed(self) -> None:
-        for result in ("failure", "cancelled"):
-            with self.subTest(result=result):
-                results = self.successful_results()
-                results["rust-tests"]["result"] = result
-                with self.assertRaisesRegex(
-                    ValueError,
-                    "rust-tests must conclude success",
-                ):
-                    validate_results("push", results)
+        for event_name in ("pull_request", "push", "workflow_dispatch"):
+            for job in EXPECTED_JOBS:
+                for result in ("failure", "cancelled"):
+                    with self.subTest(event=event_name, job=job, result=result):
+                        results = self.successful_results()
+                        results[job]["result"] = result
+                        with self.assertRaisesRegex(
+                            ValueError,
+                            f"{job} must conclude success",
+                        ):
+                            validate_results(event_name, results)
 
         missing = self.successful_results()
         missing.pop("web-checks")
@@ -72,9 +79,18 @@ class RequiredCiGateTests(unittest.TestCase):
             "python3 scripts/ci_required_gate.py",
             required_job,
         )
-        self.assertNotIn("github.event_name != 'pull_request'", workflow)
         for job in EXPECTED_JOBS:
             self.assertIn(f"      - {job}\n", required_job)
+
+    def test_only_full_selectors_run_after_merge_or_manual_dispatch(self) -> None:
+        workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+        exact_job = workflow.split("\n  conformance-exact:\n", maxsplit=1)[1].split(
+            "\n  sdk-checks:\n", maxsplit=1
+        )[0]
+        condition = "    if: ${{ github.event_name != 'pull_request' }}\n"
+        self.assertIn(condition, exact_job)
+        self.assertEqual(workflow.count(condition), 1)
+        self.assertIn("run: ./scripts/run_conformance_exact_tests.sh", exact_job)
 
 
 if __name__ == "__main__":

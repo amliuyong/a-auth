@@ -1792,6 +1792,14 @@ pub enum JtiStoreImpl {
 }
 
 impl crate::ports::JtiStore for JtiStoreImpl {
+    async fn revoke_delegation(&self, tenant_id: &str, jti: &str) -> Result<bool, StoreError> {
+        match self {
+            JtiStoreImpl::Memory(store) => store.revoke_delegation(tenant_id, jti).await,
+            #[cfg(feature = "aws")]
+            JtiStoreImpl::Dynamo(store) => store.revoke_delegation(tenant_id, jti).await,
+        }
+    }
+
     async fn put(&self, record: crate::ports::JtiRecord) -> Result<(), StoreError> {
         match self {
             JtiStoreImpl::Memory(s) => s.put(record).await,

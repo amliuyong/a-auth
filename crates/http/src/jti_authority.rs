@@ -44,6 +44,14 @@ mod tests {
     }
 
     impl JtiStore for AdvancingJtiStore<'_> {
+        async fn revoke_delegation(
+            &self,
+            _tenant_id: &str,
+            _jti: &str,
+        ) -> Result<bool, StoreError> {
+            Ok(false)
+        }
+
         async fn put(&self, _record: JtiRecord) -> Result<(), StoreError> {
             Ok(())
         }
@@ -72,6 +80,7 @@ mod tests {
         let store = AdvancingJtiStore {
             now: &now,
             record: JtiRecord {
+                delegation: None,
                 jti: "jti-1".into(),
                 tenant_id: "tenant-a".into(),
                 user_id: "user-1".into(),

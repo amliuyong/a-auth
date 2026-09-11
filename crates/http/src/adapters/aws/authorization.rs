@@ -1238,6 +1238,7 @@ impl crate::ports::PolicyVersionStore for DynamoPolicyVersionStore {
             .get_item()
             .table_name(&self.table)
             .key("grant_id", AttributeValue::S(Self::pk(tenant)))
+            .consistent_read(true)
             .send()
             .await
             .map_err(ddb_err)?;
@@ -1431,12 +1432,47 @@ pub(super) fn jti_pk(tenant_id: &str, jti: &str) -> String {
     format!("{tenant_id}\u{1f}{jti}")
 }
 
+fn delegation_pk(tenant_id: &str, jti: &str) -> String {
+    // Old AS versions must never interpret this as an unconstrained root JTI.
+    format!("delegation-v1\u{1f}{tenant_id}\u{1f}{jti}")
+}
+
 impl crate::ports::JtiStore for DynamoJtiStore {
+    async fn revoke_delegation(&self, tenant_id: &str, jti: &str) -> Result<bool, StoreError> {
+        match self
+            .db
+            .update_item()
+            .table_name(&self.table)
+            .key("pk", AttributeValue::S(delegation_pk(tenant_id, jti)))
+            .condition_expression("attribute_exists(pk)")
+            .update_expression("SET delegation_revoked = :yes")
+            .expression_attribute_values(":yes", AttributeValue::Bool(true))
+            .send()
+            .await
+        {
+            Ok(_) => Ok(true),
+            Err(error)
+                if error
+                    .code()
+                    .unwrap_or("")
+                    .contains("ConditionalCheckFailed") =>
+            {
+                Ok(false)
+            }
+            Err(error) => Err(ddb_err(error)),
+        }
+    }
+
     async fn put(&self, r: crate::ports::JtiRecord) -> Result<(), StoreError> {
+        let delegated = r.delegation.is_some();
         let mut item = HashMap::from([
             (
                 "pk".to_string(),
-                AttributeValue::S(jti_pk(&r.tenant_id, &r.jti)),
+                AttributeValue::S(if r.delegation.is_some() {
+                    delegation_pk(&r.tenant_id, &r.jti)
+                } else {
+                    jti_pk(&r.tenant_id, &r.jti)
+                }),
             ),
             ("jti".to_string(), AttributeValue::S(r.jti)),
             ("tenant_id".to_string(), AttributeValue::S(r.tenant_id)),
@@ -1452,13 +1488,25 @@ impl crate::ports::JtiStore for DynamoJtiStore {
         if let Some(gid) = r.grant_id {
             item.insert("grant_id".to_string(), AttributeValue::S(gid));
         }
-        self.db
+        if let Some(delegation) = r.delegation {
+            item.insert(
+                "delegation".to_string(),
+                AttributeValue::S(
+                    serde_json::to_string(&delegation).map_err(|_| {
+                        StoreError::Permanent("invalid delegation authority".into())
+                    })?,
+                ),
+            );
+        }
+        let mut request = self
+            .db
             .put_item()
             .table_name(&self.table)
-            .set_item(Some(item))
-            .send()
-            .await
-            .map_err(ddb_err)?;
+            .set_item(Some(item));
+        if delegated {
+            request = request.condition_expression("attribute_not_exists(pk)");
+        }
+        request.send().await.map_err(ddb_err)?;
         Ok(())
     }
 
@@ -1467,18 +1515,52 @@ impl crate::ports::JtiStore for DynamoJtiStore {
         tenant_id: &str,
         jti: &str,
     ) -> Result<Option<crate::ports::JtiRecord>, StoreError> {
-        let out = self
+        let mut out = self
             .db
             .get_item()
             .table_name(&self.table)
             .key("pk", AttributeValue::S(jti_pk(tenant_id, jti)))
+            .consistent_read(true)
             .send()
             .await
             .map_err(ddb_err)?;
+        if out.item().is_none() {
+            out = self
+                .db
+                .get_item()
+                .table_name(&self.table)
+                .key("pk", AttributeValue::S(delegation_pk(tenant_id, jti)))
+                .consistent_read(true)
+                .send()
+                .await
+                .map_err(ddb_err)?;
+        }
         let Some(item) = out.item() else {
             return Ok(None);
         };
         Ok(Some(crate::ports::JtiRecord {
+            delegation: match item.get("delegation") {
+                None => None,
+                Some(AttributeValue::S(value)) => {
+                    let mut delegation: crate::delegation::DelegationRecord =
+                        serde_json::from_str(value).map_err(|_| {
+                            StoreError::Permanent("invalid delegation authority".into())
+                        })?;
+                    match item.get("delegation_revoked") {
+                        None => {}
+                        Some(AttributeValue::Bool(revoked)) => delegation.revoked |= revoked,
+                        Some(_) => {
+                            return Err(StoreError::Permanent(
+                                "invalid delegation revocation".into(),
+                            ))
+                        }
+                    }
+                    Some(delegation)
+                }
+                Some(_) => {
+                    return Err(StoreError::Permanent("invalid delegation authority".into()))
+                }
+            },
             jti: s(item.get("jti")).unwrap_or_default(),
             tenant_id: s(item.get("tenant_id")).unwrap_or_default(),
             user_id: s(item.get("user_id")).unwrap_or_default(),

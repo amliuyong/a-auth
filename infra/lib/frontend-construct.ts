@@ -257,12 +257,26 @@ export class FrontendConstruct extends Construct {
         enableAcceptEncodingGzip: true,
         enableAcceptEncodingBrotli: true,
       });
+      const jwksOriginRequestPolicy = props.apiOriginAuth
+        ? new cloudfront.OriginRequestPolicy(this, 'JwksOriginRequestPolicy', {
+            comment: 'Forward managed SaaS edge credentials outside the JWKS cache key',
+            headerBehavior: cloudfront.OriginRequestHeaderBehavior.allowList(
+              'Origin',
+              'X-Agent-Auth-Origin-Auth',
+              'X-Agent-Auth-Origin-Auth-Primary',
+              'X-Agent-Auth-Origin-Auth-Secondary',
+              'X-Agent-Auth-Origin-Auth-Revision',
+            ),
+            cookieBehavior: cloudfront.OriginRequestCookieBehavior.none(),
+            queryStringBehavior: cloudfront.OriginRequestQueryStringBehavior.none(),
+          })
+        : cloudfront.OriginRequestPolicy.CORS_CUSTOM_ORIGIN;
       additionalBehaviors['/jwks.json'] = {
         origin: apiOrigin,
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         responseHeadersPolicy: securityHeaders,
         cachePolicy: jwksCachePolicy,
-        originRequestPolicy: cloudfront.OriginRequestPolicy.CORS_CUSTOM_ORIGIN,
+        originRequestPolicy: jwksOriginRequestPolicy,
         allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
         cachedMethods: cloudfront.CachedMethods.CACHE_GET_HEAD,
         functionAssociations,

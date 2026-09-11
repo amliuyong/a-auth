@@ -39,8 +39,13 @@ def validate_results(event_name: str, needs: dict[str, Any]) -> None:
         detail = needs[job]
         require(isinstance(detail, dict), f"{job} result must be an object")
         result = detail.get("result")
+        expected_post_merge_skip = (
+            event_name == "pull_request"
+            and job == "conformance-exact"
+            and result == "skipped"
+        )
         require(
-            result == "success",
+            result == "success" or expected_post_merge_skip,
             f"{job} must conclude success",
         )
 

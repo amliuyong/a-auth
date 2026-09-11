@@ -897,6 +897,7 @@ async fn ciba_id_token_hint_expired_jti_mapping_rejected() {
         .as_ref()
         .unwrap()
         .put(JtiRecord {
+            delegation: None,
             jti: jti.clone(),
             tenant_id: "default".into(),
             user_id: "user:alice@example.com".into(),
