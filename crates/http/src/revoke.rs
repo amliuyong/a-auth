@@ -12,8 +12,9 @@
 //!   当作未知 token(不吊销、不泄露)。
 //! - **幂等 + 不泄露存在性**(RFC 7009 §2.2):无效/未知/已吊销/非本 client/access_token 输入 → 一律
 //!   `200`;仅认证本身失败才 `invalid_client`。
-//! - **access_token 输入**:P1 无 `jti→family` 反查,no-op 返 `200`(真正失效靠 refresh family 吊销 +
-//!   access 自然过期;离线 RS 残留窗口 = access 剩余 TTL + verifier clock skew)。
+//! - **access_token 输入**:原 OAuth client 可撤销有持久 lineage 的委托 token，
+//!   并使所有后代在在线校验时失活。普通非委托 access token 仍为 no-op `200`。
+//!   离线 RS 残留窗口 = access 剩余 TTL + verifier clock skew。
 //! - **宽限缓存**:family 吊销后按 `family_id` 删除全部缓存版本，避免宽限窗重放继续命中旧响应。
 
 use axum::{
@@ -26,12 +27,12 @@ use serde::Deserialize;
 use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
-use crate::ports::{ClientStore, GraceStore, RefreshStore};
+use crate::ports::{ClientStore, GraceStore, RefreshStore, Signer};
 use crate::state::AppState;
 
 #[derive(Deserialize, ToSchema)]
 pub struct RevokeRequest {
-    /// 被吊销 token(RFC 7009;P1 受理 refresh token,access token 输入 no-op)。
+    /// Refresh token or a delegated access token owned by the original OAuth client.
     pub token: String,
     /// 可选 token_type_hint(`refresh_token`/`access_token`;实现可忽略,不得改变结果)。
     #[serde(default)]
@@ -168,6 +169,55 @@ pub async fn revoke_handler(
             }
         }
     };
+
+    // A source OAuth client may revoke one of its delegated access tokens.
+    // Keep the ancestor row as a tombstone so every descendant fails online.
+    if req.token.split('.').count() == 3 {
+        let signer = match crate::tenant_keys::signer_or_503(&state, &tenant).await {
+            Ok(signer) => signer,
+            Err(response) => return response,
+        };
+        let keys = match signer.public_jwks().await {
+            Ok(keys) => keys,
+            Err(_) => {
+                return (StatusCode::SERVICE_UNAVAILABLE, "signer unavailable").into_response()
+            }
+        };
+        let jwks = keys.iter().map(crate::jwks::to_jwk).collect::<Vec<_>>();
+        if let Ok(verified) = crate::verify::verify_access_token(
+            &req.token,
+            &jwks,
+            crate::token::current_unix_secs_pub(),
+        ) {
+            let issuer = crate::hostutil::issuer_host(&headers)
+                .and_then(|host| agent_auth_discovery::derive_issuer(&host, &state.form).ok());
+            if verified.claims.get("act").is_some()
+                && verified
+                    .claims
+                    .get("iss")
+                    .and_then(serde_json::Value::as_str)
+                    == issuer.as_ref().map(|value| value.as_str())
+            {
+                if crate::delegation::revoke(
+                    &state,
+                    &tenant,
+                    &caller.client_id,
+                    &req.token,
+                    &verified.claims,
+                )
+                .await
+                .is_err()
+                {
+                    return (
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "delegation authority unavailable",
+                    )
+                        .into_response();
+                }
+            }
+        }
+        return StatusCode::OK.into_response();
+    }
 
     // 2. 定位 family 并做归属校验 + 吊销。任何"无法吊销"的情形(格式非法/未知/非本 client/access_token)
     //    一律走幂等 200,不泄露存在性(RFC 7009 §2.2)。

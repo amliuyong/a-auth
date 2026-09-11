@@ -12,6 +12,8 @@
 //!   2LO 前身)回退按签名判;store 瞬时 → fail-closed 503。无 aud 输入(refresh token)→ active:false。
 //! - **回带字段(C8.7a,P1)**:命名空间 `sub_type`/`auth_grant`;`act`/`actor_types` if present
 //!   (P1 非委托 token 无,不编造)。RAR(C8.7a',P2)、cnf(C8.7b,P3)后续。
+//! - **委托 lineage**:Issue #45 的委托 token 必须通过持久父链与当前授权校验；
+//!   成功附加 versioned `delegation_lineage`，失败只回 inactive 或存储错误。
 
 use agent_auth_token::claims::NAMESPACE;
 use axum::{
@@ -47,6 +49,16 @@ pub struct IntrospectRequest {
     pub client_assertion: Option<String>,
 }
 
+/// RFC 7662 fields plus the optional, online-validated delegation extension.
+#[derive(serde::Serialize, ToSchema)]
+pub struct IntrospectionResponse {
+    pub active: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delegation_lineage: Option<crate::delegation::DelegationLineage>,
+    #[serde(flatten)]
+    pub claims: std::collections::BTreeMap<String, serde_json::Value>,
+}
+
 /// RFC 7662:token 不 active 时**只**回 `{"active": false}`,不泄露任何其它信息。
 fn inactive() -> Json<serde_json::Value> {
     Json(serde_json::json!({ "active": false }))
@@ -59,8 +71,9 @@ fn inactive() -> Json<serde_json::Value> {
     tag = "mcp",
     request_body(content = IntrospectRequest, content_type = "application/x-www-form-urlencoded"),
     responses(
-        (status = 200, description = "RFC 7662 introspection 响应({active:true,...} 或 {active:false})"),
-        (status = 401, description = "调用方认证失败 / 无 introspect 权限")
+        (status = 200, description = "RFC 7662 introspection 响应({active:true,...} 或 {active:false})", body = IntrospectionResponse),
+        (status = 401, description = "调用方认证失败 / 无 introspect 权限"),
+        (status = 503, description = "Authoritative token, delegation, or user state unavailable")
     )
 )]
 pub async fn introspect_handler(
@@ -173,6 +186,38 @@ pub async fn introspect_handler(
     if !caller.resource_ids.iter().any(|r| r == &aud) {
         return inactive().into_response();
     }
+    let expected_issuer = crate::hostutil::issuer_host(&headers)
+        .and_then(|host| agent_auth_discovery::derive_issuer(&host, &state.form).ok());
+    if verified
+        .claims
+        .get("iss")
+        .and_then(serde_json::Value::as_str)
+        != expected_issuer.as_ref().map(|issuer| issuer.as_str())
+    {
+        return inactive().into_response();
+    }
+    let lineage = if verified.claims.get("act").is_some() {
+        let tenant_id = if tenant.is_empty() {
+            "default"
+        } else {
+            &tenant
+        };
+        match crate::delegation::validate(&state, &tenant, tenant_id, &req.token, &verified.claims)
+            .await
+        {
+            Ok(Some(lineage)) => Some(lineage),
+            Ok(None) => return inactive().into_response(),
+            Err(_) => {
+                return (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "delegation authority unavailable",
+                )
+                    .into_response()
+            }
+        }
+    } else {
+        None
+    };
 
     // 3b. **吊销即时反映(P2,C7.6b / spec 011 §5.1)**:签名有效 ≠ 授权仍在。
     // UserInfo 与 introspection 共用 Grant/family/user authority 判定，避免两个在线验证面漂移。
@@ -230,6 +275,20 @@ pub async fn introspect_handler(
     let c = &verified.claims;
     let mut out = serde_json::Map::new();
     out.insert("active".into(), serde_json::Value::Bool(true));
+    if let Some(lineage) = lineage {
+        let checked_at = crate::token::current_unix_secs_pub();
+        if lineage
+            .records
+            .iter()
+            .any(|record| record.expires_at <= checked_at)
+        {
+            return inactive().into_response();
+        }
+        out.insert(
+            "delegation_lineage".into(),
+            serde_json::to_value(lineage.response(checked_at)).expect("serializable lineage"),
+        );
+    }
     // RFC 7662 可选 token_type(SDK 据此判定);本 AS access token 恒 Bearer。
     out.insert(
         "token_type".into(),

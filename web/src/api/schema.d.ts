@@ -2471,6 +2471,30 @@ export interface components {
             owner: string;
             status: string;
         };
+        DelegationHop: {
+            actor: string;
+            auth_grant: string;
+            /** Format: int64 */
+            expires_at: number;
+            jti: string;
+            parent_jti: string;
+            resource: string;
+            scope: string[];
+        };
+        /** @description Authenticated introspection extension. Actor and hop order is oldest-first. */
+        DelegationLineage: {
+            actors: string[];
+            /** Format: int64 */
+            checked_at: number;
+            current_actor: string;
+            hops: components["schemas"]["DelegationHop"][];
+            issuer: string;
+            resource: string;
+            source_grant: string;
+            subject: string;
+            /** Format: int32 */
+            version: number;
+        };
         /** @description device 批准动作请求体(用户在浏览器输入 user_code + approve/deny)。 */
         DeviceApproveRequest: {
             approve: boolean;
@@ -2826,6 +2850,13 @@ export interface components {
             token: string;
             /** @description 可选 token_type_hint(RFC 7662;本实现只受理 access token,hint 不改行为)。 */
             token_type_hint?: string | null;
+        };
+        /** @description RFC 7662 fields plus the optional, online-validated delegation extension. */
+        IntrospectionResponse: {
+            active: boolean;
+            delegation_lineage?: null | components["schemas"]["DelegationLineage"];
+        } & {
+            [key: string]: unknown;
         };
         InvitationSecretResponse: {
             /** Format: int64 */
@@ -3195,7 +3226,7 @@ export interface components {
             client_id?: string | null;
             /** @description client_secret_post 认证时的 secret(client_secret_basic 走 Authorization 头)。 */
             client_secret?: string | null;
-            /** @description 被吊销 token(RFC 7009;P1 受理 refresh token,access token 输入 no-op)。 */
+            /** @description Refresh token or a delegated access token owned by the original OAuth client. */
             token: string;
             /** @description 可选 token_type_hint(`refresh_token`/`access_token`;实现可忽略,不得改变结果)。 */
             token_type_hint?: string | null;
@@ -8518,10 +8549,19 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["IntrospectionResponse"];
+                };
             };
             /** @description 调用方认证失败 / 无 introspect 权限 */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authoritative token, delegation, or user state unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

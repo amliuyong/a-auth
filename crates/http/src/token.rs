@@ -444,6 +444,7 @@ async fn sign_delegation_token(
         acr,
         jti,
         now,
+        now + ACCESS_TTL_SECS,
         false,
     )
     .await
@@ -470,6 +471,7 @@ pub(crate) async fn sign_tenant_delegation_token_with_delivery(
     acr: Option<&str>,
     jti: &str,
     now: i64,
+    expires_at: i64,
     grant_backed_rar_enabled: bool,
     actor: crate::security_event::SecurityActor,
 ) -> Result<SignedAccessToken, TokenSignError> {
@@ -493,6 +495,7 @@ pub(crate) async fn sign_tenant_delegation_token_with_delivery(
         acr,
         jti,
         now,
+        expires_at,
         grant_backed_rar_enabled,
     )
     .await
@@ -516,6 +519,7 @@ async fn sign_delegation_token_with_delivery(
     acr: Option<&str>,
     jti: &str,
     now: i64,
+    expires_at: i64,
     grant_backed_rar_enabled: bool,
 ) -> Result<SignedAccessToken, TokenSignError> {
     // act:本跳 actor 在最外层;入站旧链(若有)嵌套进 `act.act`(RFC 8693 nested,链深 +1)。
@@ -540,7 +544,7 @@ async fn sign_delegation_token_with_delivery(
         "sub": sub,
         "aud": encode_aud(aud),
         "iat": now,
-        "exp": now + ACCESS_TTL_SECS,
+        "exp": expires_at,
         "jti": jti,
         "client_id": client_id,
         "scope": scope,
@@ -1879,6 +1883,7 @@ async fn token_handler_inner(
     if let Some(jti_store) = &state.jti_store {
         let _ = jti_store
             .put(crate::ports::JtiRecord {
+                delegation: None,
                 jti: access_jti.clone(),
                 tenant_id: tenant_id.clone(),
                 user_id: record.user_id.clone(),
@@ -1924,6 +1929,7 @@ async fn token_handler_inner(
                 if let Some(jti_store) = &state.jti_store {
                     let _ = jti_store
                         .put(crate::ports::JtiRecord {
+                            delegation: None,
                             jti: id_jti,
                             tenant_id: tenant_id.clone(),
                             user_id: record.user_id.clone(),
@@ -2276,6 +2282,7 @@ mod tests {
             None,
             "delegated-jti",
             claims.now,
+            claims.now + ACCESS_TTL_SECS,
             false,
             crate::security_event::SecurityActor::system("c10.22a-delegation-test"),
         )

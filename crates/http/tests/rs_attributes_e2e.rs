@@ -489,6 +489,7 @@ async fn rs_attributes_strict_token_jti_and_user_gates_fail_closed() {
             .as_ref()
             .unwrap()
             .put(JtiRecord {
+                delegation: None,
                 jti: jti.to_string(),
                 tenant_id: "default".to_string(),
                 user_id: user_id.to_string(),
@@ -504,6 +505,7 @@ async fn rs_attributes_strict_token_jti_and_user_gates_fail_closed() {
         .as_ref()
         .unwrap()
         .put(JtiRecord {
+            delegation: None,
             jti: "rs-expired-jti".to_string(),
             tenant_id: "default".to_string(),
             user_id: USER_ID.to_string(),
@@ -728,6 +730,7 @@ async fn rs_attributes_strict_token_jti_and_user_gates_fail_closed() {
         .as_ref()
         .unwrap()
         .put(JtiRecord {
+            delegation: None,
             jti: "rs-valid-jti".to_string(),
             tenant_id: "default".to_string(),
             user_id: USER_ID.to_string(),

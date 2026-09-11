@@ -70,6 +70,11 @@ jobs:
     name: Rust unit tests
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    services:
+      dynamodb:
+        image: amazon/dynamodb-local@sha256:ff89bd48ff32cd8d9be5fee8873b65b8854dc408f1afe881be6eb00247bc0dab
+        ports:
+          - 8000:8000
     steps:
       - name: Check out repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -89,6 +94,19 @@ jobs:
 
       - name: Run AWS adapter unit tests
         run: cargo test -p agent-auth-http --lib --features aws --locked
+
+      - name: Run bounded delegation HTTP acceptance
+        run: |
+          source ./scripts/rust_test_stack.sh
+          cargo test -p agent-auth-http --features aws --test workload_e2e --locked multi_hop_
+
+      - name: Verify durable delegation across HTTP runtime restart
+        env:
+          A_AUTH_TEST_DYNAMODB_ENDPOINT: http://127.0.0.1:8000
+        run: |
+          source ./scripts/rust_test_stack.sh
+          cargo test -p agent-auth-http --features aws --test workload_e2e --locked \
+            multi_hop_dynamodb_authority_survives_runtime_restart -- --exact --ignored --nocapture
 
       - name: Run data-governance integration tests
         run: cargo test -p agent-auth-http --test data_governance_e2e --locked
