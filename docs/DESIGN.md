@@ -587,6 +587,13 @@ Grant {
    - **换发时比对 Grant 白名单**：请求的 `resource`/`scope` 必须 ∈ **Grant 的 `per_resource[]` 白名单**(§5.1),不能静默扩权——委托 token 的权限恒 ⊆ 原 Grant。**超出白名单时的行为写死**:token-exchange 是静默/用户不在场路径,**默认直接拒**(返回 `invalid_scope`/`access_denied`);"补授权"**不在 token-exchange 内联发起**——需要扩权时由 agent 平台改走 §5.2 路径 2 的**异步 consent(CIBA/device)**重新征得用户同意、生成新 Grant,再回来换发。(即:token-exchange 只认已有 Grant,不自造授权。)
    - **`cnf` 传播(策略已定;机制随 P3 DPoP 落地)**:*是否继承*的决策(C7.9 要求"须明确")在此固化——**① 默认不继承**:委托 token 默认为 bearer(不带 `cnf`),因为 sender-constraint 的强制点在 RS、AS 侧签 `cnf` 需先做 DPoP proof 校验(读 `DPoP` 头 + RFC 7638 jkt 计算 + 校 htu/htm/iat/ath),这套 AS 侧签发机制属 P3(见 §8 P3 硬化、`P0 不做` 清单)。**② 不静默降级(不可谈判的安全不变量,现在即成立)**:若入站 `subject_token` 本身已 sender-constrained(带 `cnf`),下游委托 token **MUST** 也 sender-constrained 或**直接拒**,**MUST NOT** 悄悄签出丢 `cnf` 的 bearer(那会把整条委托链从 sender-constrained 降级为 bearer,破坏上游已建立的安全属性);"不带 cnf" 仅适用于入站本就非 sender-constrained 的情形。**③ 继承机制(P3)**:P3 上 DPoP 时,发起 agent 以其 DPoP key 证明持有,下游 `cnf.jkt` 绑定该 key;无有效 proof 时按策略拒或不带 `cnf`(绝不声称 sender-constrained 却不绑 key)。⚠️ P3 若要允许"入站 sender-constrained 但**有意**降级为 bearer 换发给不要求 sender-constraint 的下游 RS",MUST 走**每-RS 显式 opt-in**(不得默认放开 ② 的红线)——否则默认无条件拒的 fail-safe 被悄悄削弱。**当前状态**:P0–P2 无任何签发路径产出带 `cnf` 的 token,故 ①②③ 中唯 ② 需在 token-exchange 受理侧作为红线守住(入站带 cnf → 现阶段只能拒,不能降级),继承机制待 P3。
 
+Issue #45 的可恢复多跳契约见 [BOUNDED_DELEGATION.md](./BOUNDED_DELEGATION.md)：
+已委托的 subject token 只允许同 resource 继续换发，省略 scope 继承父跳有效权限；
+每个父跳的 scope、有效期、深度和 actor allowlist 快照均为上限。
+后续跳的 grant-ref、RAR、PoP 和 network-restricted Grant 组合暂不支持并明确拒绝。
+AS 从持久 JTI 链复核授权可用性，`/introspect` 仅在复核成功时返回 versioned lineage；
+RS 的授权输入仍是当前 actor 和有效 scope，不能把历史 actor 名称当授权证明。
+
 ### 5.3 与 AgentCore 的互操作
 
 本系统作为 AgentCore `CustomOauth2` provider 的对端时：

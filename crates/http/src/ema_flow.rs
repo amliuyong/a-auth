@@ -474,6 +474,7 @@ pub async fn handle(state: &AppState, headers: &HeaderMap, req: &TokenRequest) -
     };
     if let Err(error) = jti_store
         .put(crate::ports::JtiRecord {
+            delegation: None,
             jti: access_jti,
             tenant_id: jti_tenant,
             user_id: user_id.clone(),

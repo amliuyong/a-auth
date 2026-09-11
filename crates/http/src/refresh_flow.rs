@@ -1474,6 +1474,7 @@ async fn issue_leased(state: &AppState, leased: LeasedRefresh) -> Response {
         };
         let _ = jti_store
             .put(crate::ports::JtiRecord {
+                delegation: None,
                 jti: access_jti.clone(),
                 // jti tenant(codex M1):本请求派生 tenant;空(flag 关)沿用 "default" 后向兼容。
                 tenant_id: if tenant.is_empty() {

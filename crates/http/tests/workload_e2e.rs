@@ -2551,6 +2551,7 @@ async fn setup_token_exchange_with_jti_phase_and_region(
     for jti in [jti_of(&subject_token), jti_of(&id_subject_token)] {
         jti_store
             .put(agent_auth_http::ports::JtiRecord {
+                delegation: None,
                 jti,
                 tenant_id: "default".into(),
                 user_id: "alice".into(),
@@ -2665,6 +2666,15 @@ async fn post_te(router: &axum::Router, form: String) -> (StatusCode, serde_json
 }
 
 async fn introspect_rs2(router: &axum::Router, token: &str) -> serde_json::Value {
+    let (status, body) = introspect_rs2_response(router, token).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    body
+}
+
+async fn introspect_rs2_response(
+    router: &axum::Router,
+    token: &str,
+) -> (StatusCode, serde_json::Value) {
     let basic = base64::engine::general_purpose::STANDARD.encode("rs2-introspect:sekret-rs2");
     let form = format!("token={token}&client_id=rs2-introspect");
     let resp = router
@@ -2681,11 +2691,11 @@ async fn introspect_rs2(router: &axum::Router, token: &str) -> serde_json::Value
         )
         .await
         .unwrap();
-    assert_eq!(resp.status(), StatusCode::OK);
+    let status = resp.status();
     let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
         .await
         .unwrap();
-    serde_json::from_slice(&body).expect("introspection response JSON")
+    (status, serde_json::from_slice(&body).unwrap_or_default())
 }
 
 // C7.1/C7.2/C7.3:合法委托 → 委托 token(sub=用户 RS2 sector、act.sub=actor、aud=RS2、scope⊆family)。
@@ -3126,33 +3136,13 @@ async fn sign_id_subject_token(jti: &str) -> String {
     format!("{signing_input}.{}", B64.encode(sig))
 }
 
-async fn sign_subject_token_with_prior_actor(jti: &str) -> String {
-    sign_subject_token_with_extra_claims(
-        jti,
-        serde_json::json!({
-            "act": {
-                "sub": "middle-actor",
-                "act": { "sub": "earliest-actor" }
-            },
-            "https://a-auth.com/c": {
-                "sub_type": "user",
-                "auth_grant": "authorization_code",
-                "actor_types": {
-                    "middle-actor": "agent",
-                    "earliest-actor": "agent"
-                }
-            }
-        }),
-    )
-    .await
-}
-
 async fn map_exchange_subject_jti(
     jti_store: &agent_auth_http::adapters::memory::MemoryJtiStore,
     jti: &str,
 ) {
     jti_store
         .put(agent_auth_http::ports::JtiRecord {
+            delegation: None,
             jti: jti.into(),
             tenant_id: "default".into(),
             user_id: "alice".into(),
@@ -3168,19 +3158,33 @@ async fn map_exchange_subject_jti(
 async fn token_exchange_nests_prior_actor_inside_current_actor() {
     use agent_auth_http::ports::GrantStore;
 
-    let (router, _subject, actor, _refresh, grants, _id, jti_store) =
+    let (router, subject, actor, _refresh, grants, _id, _jti_store) =
         setup_token_exchange_with_jti(agent_auth_http::SubjectType::Public).await;
     let mut grant = grants
         .get("", "fam-te")
         .await
         .unwrap()
         .expect("setup must seed fam-te");
-    grant.constraints.max_act_chain = 3;
+    grant.constraints.max_act_chain = 2;
+    grant.constraints.actor_allowlist.push("wl-other".into());
     grants.put("", grant).await.unwrap();
 
-    let jti = "jti-with-prior-actor";
-    let subject = sign_subject_token_with_prior_actor(jti).await;
-    map_exchange_subject_jti(&jti_store, jti).await;
+    let first_form = format!(
+        "grant_type={TE_GRANT}&subject_token={subject}&subject_token_type={TT_ACCESS}\
+         &actor_token={actor}&actor_token_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer\
+         &resource={RS2}&scope=kb:read"
+    );
+    let (first_status, first_body) = post_te(&router, first_form).await;
+    assert_eq!(first_status, StatusCode::OK, "{first_body}");
+    let subject = first_body["access_token"].as_str().unwrap();
+    let now = agent_auth_http::current_unix_secs();
+    let (actor, _) = make_platform_jwt(
+        "kb",
+        serde_json::json!({
+            "iss": PLATFORM_ISS, "sub": "repo:acme/other:ref:main",
+            "aud": format!("https://{HOST}"), "iat": now, "exp": now + 300,
+        }),
+    );
 
     let form = format!(
         "grant_type={TE_GRANT}&subject_token={subject}&subject_token_type={TT_ACCESS}\
@@ -3200,19 +3204,15 @@ async fn token_exchange_nests_prior_actor_inside_current_actor() {
     assert_eq!(
         claims["act"],
         serde_json::json!({
-            "sub": "wl-actor",
-            "act": {
-                "sub": "middle-actor",
-                "act": { "sub": "earliest-actor" }
-            }
+            "sub": "wl-other",
+            "act": { "sub": "wl-actor" }
         }),
         "RFC 8693 requires the current actor outside and the prior chain inside"
     );
     assert_eq!(
         claims["https://a-auth.com/c"]["actor_types"],
         serde_json::json!({
-            "earliest-actor": "agent",
-            "middle-actor": "agent",
+            "wl-other": "agent",
             "wl-actor": "agent"
         }),
         "the actor type view must retain prior actors and add the current actor"
@@ -3227,6 +3227,638 @@ async fn token_exchange_nests_prior_actor_inside_current_actor() {
         introspection["https://a-auth.com/c"], claims["https://a-auth.com/c"],
         "introspection must preserve the complete nested actor type namespace"
     );
+    assert_eq!(introspection["delegation_lineage"]["version"], 1);
+    assert_eq!(
+        introspection["delegation_lineage"]["actors"],
+        serde_json::json!(["wl-actor", "wl-other"])
+    );
+    assert_eq!(
+        introspection["delegation_lineage"]["current_actor"],
+        "wl-other"
+    );
+    assert_eq!(
+        introspection["delegation_lineage"]["subject"],
+        claims["sub"]
+    );
+}
+
+async fn multi_hop_fixture() -> (
+    axum::Router,
+    String,
+    String,
+    String,
+    AppState,
+    agent_auth_http::adapters::memory::MemoryJtiStore,
+) {
+    use agent_auth_http::ports::GrantStore;
+    let (router, subject, actor_a, _, grants, _, jtis, _, _, _, state) =
+        setup_token_exchange_with_jti_phase(
+            agent_auth_http::SubjectType::Pairwise,
+            Phase::P3,
+            false,
+        )
+        .await;
+    let mut grant = grants.get("", "fam-te").await.unwrap().unwrap();
+    grant.constraints.max_act_chain = 2;
+    grant.constraints.actor_allowlist = vec!["wl-actor".into(), "wl-other".into()];
+    grant.per_resource[0].scopes = vec!["kb:read".into(), "kb:write".into()];
+    grants.put("", grant).await.unwrap();
+    let now = agent_auth_http::current_unix_secs();
+    let (actor_b, _) = make_platform_jwt(
+        "kb",
+        serde_json::json!({
+            "iss": PLATFORM_ISS, "sub": "repo:acme/other:ref:main",
+            "aud": format!("https://{HOST}"), "iat": now, "exp": now + 300,
+        }),
+    );
+    (router, subject, actor_a, actor_b, state, jtis)
+}
+
+async fn multi_hop_exchange(
+    router: &axum::Router,
+    subject: &str,
+    actor: &str,
+    parameters: &str,
+) -> (StatusCode, serde_json::Value) {
+    post_te(router, format!(
+        "grant_type={TE_GRANT}&subject_token={subject}&subject_token_type={TT_ACCESS}\
+         &actor_token={actor}&actor_token_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer\
+         &resource={RS2}{parameters}"
+    )).await
+}
+
+#[tokio::test]
+async fn multi_hop_parent_scope_and_depth_are_ceilings() {
+    let (router, subject, actor_a, actor_b, _state, _) = multi_hop_fixture().await;
+    let (status, first) = multi_hop_exchange(&router, &subject, &actor_a, "&scope=kb:read").await;
+    assert_eq!(status, StatusCode::OK, "{first}");
+    let parent = first["access_token"].as_str().unwrap();
+    for scope in ["kb:write", "kb:read+kb:write"] {
+        let (status, body) =
+            multi_hop_exchange(&router, parent, &actor_b, &format!("&scope={scope}")).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(body["error"], "invalid_scope");
+        assert!(body.get("access_token").is_none());
+    }
+    let (status, second) = multi_hop_exchange(&router, parent, &actor_b, "").await;
+    assert_eq!(status, StatusCode::OK, "{second}");
+    assert_eq!(second["scope"], "kb:read");
+    let child = second["access_token"].as_str().unwrap();
+    let first_status = introspect_rs2(&router, parent).await;
+    let second_status = introspect_rs2(&router, child).await;
+    assert_eq!(
+        first_status["sub"], second_status["sub"],
+        "same-resource pairwise subject must be stable"
+    );
+    assert!(second_status["exp"].as_i64().unwrap() <= first_status["exp"].as_i64().unwrap());
+    assert_eq!(
+        second_status["delegation_lineage"]["hops"][0]["scope"],
+        serde_json::json!(["kb:read"])
+    );
+    assert_eq!(
+        second_status["delegation_lineage"]["hops"][1]["scope"],
+        serde_json::json!(["kb:read"])
+    );
+    let (status, body) = multi_hop_exchange(&router, child, &actor_a, "&scope=kb:read").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(
+        body.get("access_token").is_none(),
+        "third hop must fail at depth two"
+    );
+}
+
+#[tokio::test]
+async fn multi_hop_parent_revocation_blocks_existing_descendants() {
+    let (router, subject, actor_a, actor_b, state, _) = multi_hop_fixture().await;
+    let (status, first) = multi_hop_exchange(&router, &subject, &actor_a, "&scope=kb:read").await;
+    assert_eq!(status, StatusCode::OK, "{first}");
+    let parent = first["access_token"].as_str().unwrap();
+    let (status, second) = multi_hop_exchange(&router, parent, &actor_b, "&scope=kb:read").await;
+    assert_eq!(status, StatusCode::OK, "{second}");
+    let child = second["access_token"].as_str().unwrap();
+    assert_eq!(introspect_rs2(&router, child).await["active"], true);
+    let (_, sibling) = multi_hop_exchange(&router, &subject, &actor_a, "&scope=kb:read").await;
+    state
+        .seed_dev_client("unrelated-client", "https://unrelated.example.com/cb", None)
+        .await;
+    let wrong_owner = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/revoke")
+                .header("host", HOST)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(format!(
+                    "client_id=unrelated-client&token={parent}"
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(wrong_owner.status(), StatusCode::OK);
+    assert_eq!(introspect_rs2(&router, child).await["active"], true);
+    let observation = std::time::Instant::now();
+    let response = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/revoke")
+                .header("host", HOST)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(format!("client_id=app-3lo&token={parent}")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        introspect_rs2(&router, child).await,
+        serde_json::json!({"active": false})
+    );
+    assert!(observation.elapsed().as_secs_f64() < 5.0);
+    println!(
+        "multi-hop memory revocation-to-denial seconds: {:.6}",
+        observation.elapsed().as_secs_f64()
+    );
+    assert_eq!(
+        introspect_rs2(&router, sibling["access_token"].as_str().unwrap()).await["active"],
+        true
+    );
+    let (status, body) = multi_hop_exchange(&router, parent, &actor_b, "&scope=kb:read").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(body.get("access_token").is_none());
+}
+
+#[tokio::test]
+async fn multi_hop_rejects_resource_grant_switch_and_untrusted_lineage() {
+    use agent_auth_http::ports::GrantStore;
+    let (router, subject, actor_a, actor_b, state, _) = multi_hop_fixture().await;
+    let (_, first) = multi_hop_exchange(&router, &subject, &actor_a, "&scope=kb:read").await;
+    let parent = first["access_token"].as_str().unwrap();
+    let mut wide = state.grants.get("", "fam-te").await.unwrap().unwrap();
+    wide.grant_id = "wider-grant".into();
+    state.grants.put("", wide).await.unwrap();
+    let grant_ref =
+        sign_grant_ref_test("wider-grant", "wl-other", "grant-ref+jwt", far_exp()).await;
+    let (status, body) = multi_hop_exchange(
+        &router,
+        parent,
+        &actor_b,
+        &format!("&grant_ref={grant_ref}"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(body.get("access_token").is_none());
+    let (status, body) = post_te(&router, format!(
+        "grant_type={TE_GRANT}&subject_token={parent}&subject_token_type={TT_ACCESS}\
+         &actor_token={actor_b}&actor_token_type={JWT_BEARER}&resource=https://different.example.com&scope=kb:read"
+    )).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["error"], "invalid_target");
+
+    let claims: serde_json::Value =
+        serde_json::from_slice(&B64.decode(parent.split('.').nth(1).unwrap()).unwrap()).unwrap();
+    for (key, value) in [
+        ("scope", serde_json::json!("kb:read kb:write")),
+        ("iss", serde_json::json!("https://foreign.example.com")),
+        ("act", serde_json::json!({"sub":"forged-actor"})),
+        ("jti", serde_json::json!("no-authority-for-this-chain")),
+    ] {
+        let mut forged_claims = claims.clone();
+        forged_claims[key] = value;
+        let forged =
+            sign_subject_token_with_extra_claims(claims["jti"].as_str().unwrap(), forged_claims)
+                .await;
+        let (status, body) = multi_hop_exchange(&router, &forged, &actor_b, "&scope=kb:read").await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{key}: {body}");
+        assert!(body.get("access_token").is_none());
+        assert_eq!(
+            introspect_rs2(&router, &forged).await,
+            serde_json::json!({"active":false}),
+            "{key}"
+        );
+    }
+    let mut missing_authority_state = state.clone();
+    missing_authority_state.jti_store =
+        Some(Arc::new(JtiStoreImpl::Memory(new_shared_jti_store())));
+    let (missing_authority_router, _) = build_router(missing_authority_state);
+    assert_eq!(
+        introspect_rs2(&missing_authority_router, parent).await,
+        serde_json::json!({"active":false})
+    );
+}
+
+#[tokio::test]
+async fn multi_hop_storage_failure_never_returns_a_token_or_active_result() {
+    let (router, subject, actor_a, actor_b, _state, jtis) = multi_hop_fixture().await;
+    jtis.fail_next_put();
+    let (status, body) = multi_hop_exchange(&router, &subject, &actor_a, "&scope=kb:read").await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    assert!(body.get("access_token").is_none());
+    let (_, first) = multi_hop_exchange(&router, &subject, &actor_a, "&scope=kb:read").await;
+    let parent = first["access_token"].as_str().unwrap();
+    jtis.fail_next_get();
+    let (status, body) = multi_hop_exchange(&router, parent, &actor_b, "&scope=kb:read").await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    assert!(body.get("access_token").is_none());
+    jtis.fail_next_get();
+    let (status, body) = introspect_rs2_response(&router, parent).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_ne!(body["active"], true);
+}
+
+#[tokio::test]
+async fn multi_hop_grant_widening_cannot_restore_parent_constraints() {
+    use agent_auth_http::ports::GrantStore;
+    let (router, subject, actor_a, actor_b, state, _) = multi_hop_fixture().await;
+    let mut grant = state.grants.get("", "fam-te").await.unwrap().unwrap();
+    grant.constraints.max_act_chain = 1;
+    state.grants.put("", grant.clone()).await.unwrap();
+    let (_, first) = multi_hop_exchange(&router, &subject, &actor_a, "&scope=kb:read").await;
+    let parent = first["access_token"].as_str().unwrap();
+    grant.constraints.max_act_chain = 2;
+    state.grants.put("", grant.clone()).await.unwrap();
+    let (status, body) = multi_hop_exchange(&router, parent, &actor_b, "&scope=kb:read").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(
+        body.get("access_token").is_none(),
+        "the parent's depth-one ceiling cannot be widened"
+    );
+    grant.constraints.actor_allowlist = vec!["wl-actor".into()];
+    state.grants.put("", grant.clone()).await.unwrap();
+    let (_, first) = multi_hop_exchange(&router, &subject, &actor_a, "&scope=kb:read").await;
+    let parent = first["access_token"].as_str().unwrap();
+    grant.constraints.actor_allowlist.push("wl-other".into());
+    state.grants.put("", grant.clone()).await.unwrap();
+    let (status, body) = multi_hop_exchange(&router, parent, &actor_b, "&scope=kb:read").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(
+        body.get("access_token").is_none(),
+        "an ancestor allowlist cannot be widened"
+    );
+    grant.per_resource[0].scopes.clear();
+    state.grants.put("", grant.clone()).await.unwrap();
+    let (status, first) = multi_hop_exchange(&router, &subject, &actor_a, "").await;
+    assert_eq!(status, StatusCode::OK, "{first}");
+    let parent = first["access_token"].as_str().unwrap();
+    grant.per_resource[0].scopes = vec!["kb:read".into(), "kb:write".into()];
+    state.grants.put("", grant).await.unwrap();
+    let (status, second) = multi_hop_exchange(&router, parent, &actor_b, "").await;
+    assert_eq!(status, StatusCode::OK, "{second}");
+    assert!(
+        second.get("scope").is_none(),
+        "an empty parent scope must remain empty"
+    );
+    let (status, body) = multi_hop_exchange(&router, parent, &actor_b, "&scope=kb:read").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["error"], "invalid_scope");
+}
+
+#[tokio::test]
+async fn multi_hop_grant_ref_retains_selected_grant_and_original_authority() {
+    use agent_auth_http::ports::GrantStore;
+    let (router, subject, actor_a, actor_b, state, _) = multi_hop_fixture().await;
+    let root = state.grants.get("", "fam-te").await.unwrap().unwrap();
+    let mut selected = root.clone();
+    selected.grant_id = "selected-delegation-grant".into();
+    state.grants.put("", selected).await.unwrap();
+    let grant_ref = sign_grant_ref_test(
+        "selected-delegation-grant",
+        "wl-actor",
+        "grant-ref+jwt",
+        far_exp(),
+    )
+    .await;
+    let (status, first) = multi_hop_exchange(
+        &router,
+        &subject,
+        &actor_a,
+        &format!("&scope=kb:read&grant_ref={grant_ref}"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{first}");
+    let parent = first["access_token"].as_str().unwrap();
+    let (status, second) = multi_hop_exchange(&router, parent, &actor_b, "").await;
+    assert_eq!(status, StatusCode::OK, "{second}");
+    let child = second["access_token"].as_str().unwrap();
+    let status = introspect_rs2(&router, child).await;
+    assert_eq!(status["active"], true);
+    assert_eq!(
+        status["https://a-auth.com/c"]["auth_grant"],
+        "selected-delegation-grant"
+    );
+    assert_eq!(status["delegation_lineage"]["source_grant"], "fam-te");
+    state.grants.revoke("", "fam-te").await.unwrap();
+    assert_eq!(
+        introspect_rs2(&router, child).await,
+        serde_json::json!({"active":false})
+    );
+    assert_eq!(
+        multi_hop_exchange(&router, parent, &actor_b, "").await.0,
+        StatusCode::BAD_REQUEST
+    );
+    // Restore this test fixture to isolate the independent family revocation gate.
+    state.grants.put("", root).await.unwrap();
+    assert_eq!(introspect_rs2(&router, child).await["active"], true);
+    state.refresh.revoke("", "fam-te").await.unwrap();
+    assert_eq!(
+        introspect_rs2(&router, child).await,
+        serde_json::json!({"active":false})
+    );
+    assert_eq!(
+        multi_hop_exchange(&router, parent, &actor_b, "").await.0,
+        StatusCode::BAD_REQUEST
+    );
+}
+
+#[tokio::test]
+async fn multi_hop_rar_and_pop_remain_unsupported() {
+    use agent_auth_http::ports::GrantStore;
+    let (router, subject, actor_a, actor_b, state, _) = multi_hop_fixture().await;
+    let original = state.grants.get("", "fam-te").await.unwrap().unwrap();
+    let mut rar = original.clone();
+    rar.per_resource[0].authorization_details = vec![serde_json::json!({
+        "type": "agent_auth_rar_v1", "max_records": 10, "locations": [RS2]
+    })];
+    state.grants.put("", rar).await.unwrap();
+    let (status, first) = multi_hop_exchange(&router, &subject, &actor_a, "&scope=kb:read").await;
+    assert_eq!(status, StatusCode::OK, "{first}");
+    let parent = first["access_token"].as_str().unwrap();
+    let (status, body) = multi_hop_exchange(&router, parent, &actor_b, "&scope=kb:read").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(body.get("access_token").is_none());
+    state.grants.put("", original).await.unwrap();
+    let (key, jwk) = te_dpop_keypair(45);
+    let proof = te_make_proof(&key, &jwk, "issue-45-first-pop");
+    let (status, first) =
+        post_token_dpop(&router, &te_form(&subject, &actor_a), Some(&proof)).await;
+    assert_eq!(status, StatusCode::OK, "{first}");
+    let parent = first["access_token"].as_str().unwrap();
+    let proof = te_make_proof(&key, &jwk, "issue-45-second-pop");
+    let (status, body) = post_token_dpop(&router, &te_form(parent, &actor_b), Some(&proof)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["error"], "invalid_grant");
+    assert!(body.get("access_token").is_none());
+}
+
+#[tokio::test]
+async fn multi_hop_expiry_and_current_authority_are_enforced_online() {
+    use agent_auth_http::ports::GrantStore;
+    let (router, subject, actor_a, actor_b, state, _) = multi_hop_fixture().await;
+    let (_, first) = multi_hop_exchange(&router, &subject, &actor_a, "&scope=kb:read").await;
+    let parent = first["access_token"].as_str().unwrap();
+    let (_, second) = multi_hop_exchange(&router, parent, &actor_b, "&scope=kb:read").await;
+    let child = second["access_token"].as_str().unwrap();
+    let original = state.grants.get("", "fam-te").await.unwrap().unwrap();
+    let mut narrowed = original.clone();
+    narrowed.per_resource[0].scopes.clear();
+    state.grants.put("", narrowed).await.unwrap();
+    assert_eq!(
+        introspect_rs2(&router, child).await,
+        serde_json::json!({"active":false})
+    );
+    let (status, _) = multi_hop_exchange(&router, parent, &actor_b, "&scope=kb:read").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let mut depth = original.clone();
+    depth.constraints.max_act_chain = 1;
+    state.grants.put("", depth).await.unwrap();
+    assert_eq!(
+        introspect_rs2(&router, child).await,
+        serde_json::json!({"active":false})
+    );
+    let mut short = original.clone();
+    short.constraints.expires_at = agent_auth_http::current_unix_secs() + 3;
+    let expiry = short.constraints.expires_at;
+    state.grants.put("", short).await.unwrap();
+    let (status, token) = multi_hop_exchange(&router, &subject, &actor_a, "&scope=kb:read").await;
+    assert_eq!(status, StatusCode::OK, "{token}");
+    let token = token["access_token"].as_str().unwrap();
+    assert_eq!(introspect_rs2(&router, token).await["exp"], expiry);
+    while agent_auth_http::current_unix_secs() < expiry {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert_eq!(
+        introspect_rs2(&router, token).await,
+        serde_json::json!({"active":false})
+    );
+    let (status, _) = multi_hop_exchange(&router, token, &actor_b, "&scope=kb:read").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    state.grants.put("", original).await.unwrap();
+    assert_eq!(introspect_rs2(&router, child).await["active"], true);
+    state
+        .users
+        .set_status(
+            "",
+            "alice",
+            agent_auth_http::ports::UserStatus::Disabled,
+            agent_auth_http::current_unix_secs(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        introspect_rs2(&router, child).await,
+        serde_json::json!({"active":false})
+    );
+    let (status, _) = multi_hop_exchange(&router, parent, &actor_b, "&scope=kb:read").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[cfg(feature = "aws")]
+#[tokio::test]
+#[ignore = "requires A_AUTH_TEST_DYNAMODB_ENDPOINT pointing to local DynamoDB"]
+async fn multi_hop_dynamodb_authority_survives_runtime_restart() {
+    use agent_auth_http::adapters::aws::DynamoJtiStore;
+    use aws_sdk_dynamodb::types::{
+        AttributeDefinition, AttributeValue, BillingMode, KeySchemaElement, KeyType,
+        ScalarAttributeType,
+    };
+    let endpoint = std::env::var("A_AUTH_TEST_DYNAMODB_ENDPOINT").expect("local DynamoDB endpoint");
+    let parsed = url::Url::parse(&endpoint).unwrap();
+    assert_eq!(parsed.scheme(), "http");
+    assert_eq!(
+        parsed.host_str(),
+        Some("127.0.0.1"),
+        "this test only writes to a local DynamoDB emulator"
+    );
+    let new_db = || {
+        aws_sdk_dynamodb::Client::from_conf(
+            aws_sdk_dynamodb::Config::builder()
+                .behavior_version_latest()
+                .region(aws_sdk_dynamodb::config::Region::new("us-east-1"))
+                .credentials_provider(aws_sdk_dynamodb::config::Credentials::for_tests())
+                .endpoint_url(&endpoint)
+                .build(),
+        )
+    };
+    let db = new_db();
+    let table = format!("a-auth-issue-45-{}", rand::random::<u64>());
+    db.create_table()
+        .table_name(&table)
+        .billing_mode(BillingMode::PayPerRequest)
+        .attribute_definitions(
+            AttributeDefinition::builder()
+                .attribute_name("pk")
+                .attribute_type(ScalarAttributeType::S)
+                .build()
+                .unwrap(),
+        )
+        .key_schema(
+            KeySchemaElement::builder()
+                .attribute_name("pk")
+                .key_type(KeyType::Hash)
+                .build()
+                .unwrap(),
+        )
+        .send()
+        .await
+        .unwrap();
+    let (_, subject, actor_a, actor_b, mut state, root_jtis) = multi_hop_fixture().await;
+    let claims: serde_json::Value =
+        serde_json::from_slice(&B64.decode(subject.split('.').nth(1).unwrap()).unwrap()).unwrap();
+    let root = root_jtis
+        .get("default", claims["jti"].as_str().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    let store = DynamoJtiStore::new(db.clone(), &table);
+    store.put(root).await.unwrap();
+    state.jti_store = Some(Arc::new(JtiStoreImpl::Dynamo(store)));
+    async fn start(state: AppState) -> (String, tokio::task::JoinHandle<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = format!("http://{}", listener.local_addr().unwrap());
+        let (router, _) = build_router(state);
+        let task = tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+        (address, task)
+    }
+    async fn exchange(address: &str, subject: &str, actor: &str) -> serde_json::Value {
+        let response = reqwest::Client::new()
+            .post(format!("{address}/token"))
+            .header("host", HOST)
+            .form(&[
+                ("grant_type", TE_GRANT),
+                ("subject_token", subject),
+                ("subject_token_type", TT_ACCESS),
+                ("actor_token", actor),
+                ("actor_token_type", JWT_BEARER),
+                ("resource", RS2),
+                ("scope", "kb:read"),
+            ])
+            .send()
+            .await
+            .unwrap();
+        let status = response.status();
+        let body: serde_json::Value = response.json().await.unwrap();
+        assert_eq!(status.as_u16(), 200, "{body}");
+        body
+    }
+    let (first_address, first_runtime) = start(state.clone()).await;
+    let first = exchange(&first_address, &subject, &actor_a).await;
+    let parent = first["access_token"].as_str().unwrap();
+    first_runtime.abort();
+    let _ = first_runtime.await;
+    // A new HTTP runtime and new production adapter have no delegated-token
+    // process map. Only the external DynamoDB table can recover the first hop.
+    let restarted_store = DynamoJtiStore::new(new_db(), &table);
+    state.jti_store = Some(Arc::new(JtiStoreImpl::Dynamo(restarted_store.clone())));
+    let (second_address, second_runtime) = start(state.clone()).await;
+    let second = exchange(&second_address, parent, &actor_b).await;
+    let child = second["access_token"].as_str().unwrap();
+    let basic = base64::engine::general_purpose::STANDARD.encode("rs2-introspect:sekret-rs2");
+    let active: serde_json::Value = reqwest::Client::new()
+        .post(format!("{second_address}/introspect"))
+        .header("host", HOST)
+        .header("authorization", format!("Basic {basic}"))
+        .form(&[("token", child)])
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(active["active"], true);
+    assert_eq!(
+        active["delegation_lineage"]["actors"],
+        serde_json::json!(["wl-actor", "wl-other"])
+    );
+    let parent_claims: serde_json::Value =
+        serde_json::from_slice(&B64.decode(parent.split('.').nth(1).unwrap()).unwrap()).unwrap();
+    let parent_jti = parent_claims["jti"].as_str().unwrap();
+    assert!(restarted_store
+        .get("foreign-tenant", parent_jti)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(
+        db.get_item()
+            .table_name(&table)
+            .key(
+                "pk",
+                AttributeValue::S(format!("default\u{1f}{parent_jti}"))
+            )
+            .consistent_read(true)
+            .send()
+            .await
+            .unwrap()
+            .item
+            .is_none(),
+        "old AS lookup must not load a delegated record as a root mapping"
+    );
+    let observation = std::time::Instant::now();
+    let response = reqwest::Client::new()
+        .post(format!("{second_address}/revoke"))
+        .header("host", HOST)
+        .form(&[("client_id", "app-3lo"), ("token", parent)])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status().as_u16(), 200);
+    let inactive: serde_json::Value = reqwest::Client::new()
+        .post(format!("{second_address}/introspect"))
+        .header("host", HOST)
+        .header("authorization", format!("Basic {basic}"))
+        .form(&[("token", child)])
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(inactive, serde_json::json!({"active":false}));
+    assert!(observation.elapsed().as_secs_f64() < 5.0);
+    println!(
+        "multi-hop local DynamoDB revocation-to-denial seconds: {:.6}",
+        observation.elapsed().as_secs_f64()
+    );
+    // An unavailable production store cannot emit a successful first-hop token.
+    db.delete_table().table_name(&table).send().await.unwrap();
+    let failed = reqwest::Client::new()
+        .post(format!("{second_address}/token"))
+        .header("host", HOST)
+        .form(&[
+            ("grant_type", TE_GRANT),
+            ("subject_token", subject.as_str()),
+            ("subject_token_type", TT_ACCESS),
+            ("actor_token", actor_a.as_str()),
+            ("actor_token_type", JWT_BEARER),
+            ("resource", RS2),
+            ("scope", "kb:read"),
+        ])
+        .send()
+        .await
+        .unwrap();
+    assert!(failed.status().is_server_error());
+    assert!(failed
+        .json::<serde_json::Value>()
+        .await
+        .unwrap()
+        .get("access_token")
+        .is_none());
+    second_runtime.abort();
+    let _ = second_runtime.await;
 }
 
 // C7.2:may_act 是对 Grant allowlist 的附加收紧闸。仅精确单对象命中可放行,数组/错 actor/通配均拒。
@@ -3619,6 +4251,7 @@ async fn token_exchange_id_token_without_grant_pointer_rejected() {
         setup_token_exchange_with_jti(agent_auth_http::SubjectType::Public).await;
     jti_store
         .put(agent_auth_http::ports::JtiRecord {
+            delegation: None,
             jti: te_jti_of(&id_token),
             tenant_id: "default".into(),
             user_id: "alice".into(),
@@ -3649,6 +4282,7 @@ async fn token_exchange_access_token_without_grant_pointer_rejected() {
         setup_token_exchange_with_jti(agent_auth_http::SubjectType::Public).await;
     jti_store
         .put(agent_auth_http::ports::JtiRecord {
+            delegation: None,
             jti: te_jti_of(&access_subject),
             tenant_id: "default".into(),
             user_id: "alice".into(),
@@ -3763,6 +4397,7 @@ async fn token_exchange_id_token_pointer_selects_distinct_source_grant() {
     let id_token = sign_id_subject_token(jti).await;
     jti_store
         .put(agent_auth_http::ports::JtiRecord {
+            delegation: None,
             jti: jti.into(),
             tenant_id: "default".into(),
             user_id: "alice".into(),
@@ -4180,25 +4815,18 @@ async fn token_exchange_revoked_grant_rejected() {
     assert_eq!(body["error"], "invalid_grant", "Grant 吊销 → invalid_grant");
 }
 
-// C7.2 深度闸(max_act_chain):为带两层 act 的合法签名 subject 建立真实 jti/Grant 映射,
-// 确保请求到达 authorize_delegation 后因 2+1 > 1 被拒,而不是更早因缺 jti 映射失败。
+// C7.2: default depth one rejects a second exchange of a genuinely issued token.
 #[tokio::test]
 async fn token_exchange_depth_chain_exceeded_rejected() {
-    let (router, _subject, actor, _refresh, _grants, _id, jti_store) =
-        setup_token_exchange_with_jti(agent_auth_http::SubjectType::Public).await;
-    let jti = "jti-depth-over-limit";
-    let subject = sign_subject_token_with_prior_actor(jti).await;
-    map_exchange_subject_jti(&jti_store, jti).await;
-    let form = format!(
-        "grant_type={TE_GRANT}&subject_token={subject}&subject_token_type={TT_ACCESS}\
-         &actor_token={actor}&actor_token_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer\
-         &resource={RS2}&scope=kb:read"
-    );
-    let (status, body) = post_te(&router, form).await;
+    let (router, subject, actor, _refresh, _grants, _id) = setup_token_exchange().await;
+    let (status, first) = post_te(&router, te_form(&subject, &actor)).await;
+    assert_eq!(status, StatusCode::OK, "{first}");
+    let parent = first["access_token"].as_str().unwrap();
+    let (status, body) = post_te(&router, te_form(parent, &actor)).await;
     assert_eq!(
         status,
         StatusCode::BAD_REQUEST,
-        "入站 act 深度 2 + 本跳 1 超过 Grant max_act_chain=1,必须由深度闸拒绝: {body}"
+        "a second real hop exceeds the default max_act_chain=1: {body}"
     );
     assert_eq!(body["error"], "invalid_grant");
 }
@@ -5263,6 +5891,11 @@ async fn setup_te_dpop(
     .await;
 
     // 3. jti store + 3LO client(subject 走 code flow 铸)+ RS2 introspect 凭证(供 §5.4 cnf.jkt introspect 断言)。
+    state
+        .users
+        .create_or_get_by_id("", "alice", te_now())
+        .await
+        .unwrap();
     let jti_store = new_shared_jti_store();
     state.jti_store = Some(Arc::new(JtiStoreImpl::Memory(jti_store.clone())));
     state.seed_dev_client("app-3lo", REDIRECT_TE, None).await;
@@ -5322,6 +5955,7 @@ async fn setup_te_dpop(
     let real_now2 = te_now();
     jti_store
         .put(agent_auth_http::ports::JtiRecord {
+            delegation: None,
             jti: te_jti_of(&subject_token),
             tenant_id: "default".into(),
             user_id: "alice".into(),

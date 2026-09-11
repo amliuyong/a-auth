@@ -1513,7 +1513,7 @@
       "coverage_level": "exact",
       "path": "crates/http/tests/workload_e2e.rs",
       "selector": "token_exchange_nests_prior_actor_inside_current_actor",
-      "description": "Token exchange and subsequent introspection preserve a three-hop nested RFC 8693 act chain and its complete actor_types namespace.",
+      "description": "Two real token exchanges and subsequent introspection preserve the two-hop RFC 8693 act chain, complete actor_types namespace, and validated lineage.",
       "runner": "scripts/run_conformance_exact_tests.sh",
       "cargo_target": "integration",
       "ci_target": "ci.conformance.exact"
@@ -3984,7 +3984,7 @@
       "coverage_level": "exact",
       "path": "crates/http/tests/workload_e2e.rs",
       "selector": "token_exchange_depth_chain_exceeded_rejected",
-      "description": "A valid signed subject with a real JTI/Grant mapping reaches the delegation gate and is rejected when inbound act depth plus the new hop exceeds max_act_chain.",
+      "description": "A genuinely issued first-hop token is rejected on a second exchange under the default max_act_chain of one.",
       "runner": "scripts/run_conformance_exact_tests.sh",
       "ci_target": "ci.conformance.exact"
     },

@@ -4860,9 +4860,13 @@ impl crate::ports::PolicyArtifactStore for MemoryPolicyArtifactStore {
 pub struct MemoryJtiStore {
     map: Arc<Mutex<HashMap<String, crate::ports::JtiRecord>>>,
     fail_next_get: Arc<AtomicU8>,
+    fail_next_put: Arc<AtomicU8>,
 }
 
 impl MemoryJtiStore {
+    pub fn fail_next_put(&self) {
+        self.fail_next_put.store(1, Ordering::SeqCst);
+    }
     pub fn fail_next_get(&self) {
         self.fail_next_get.store(1, Ordering::SeqCst);
     }
@@ -4872,10 +4876,39 @@ fn jti_key(tenant_id: &str, jti: &str) -> String {
     format!("{tenant_id}\u{1f}{jti}")
 }
 
+fn delegation_key(tenant_id: &str, jti: &str) -> String {
+    format!("delegation-v1\u{1f}{tenant_id}\u{1f}{jti}")
+}
+
 impl crate::ports::JtiStore for MemoryJtiStore {
+    async fn revoke_delegation(&self, tenant_id: &str, jti: &str) -> Result<bool, StoreError> {
+        let mut map = self.map.lock().await;
+        let Some(record) = map.get_mut(&delegation_key(tenant_id, jti)) else {
+            return Ok(false);
+        };
+        let Some(delegation) = record.delegation.as_mut() else {
+            return Ok(false);
+        };
+        delegation.revoked = true;
+        Ok(true)
+    }
+
     async fn put(&self, record: crate::ports::JtiRecord) -> Result<(), StoreError> {
-        let k = jti_key(&record.tenant_id, &record.jti);
-        self.map.lock().await.insert(k, record);
+        if self.fail_next_put.swap(0, Ordering::SeqCst) != 0 {
+            return Err(StoreError::Transient("injected JTI write failure".into()));
+        }
+        let k = if record.delegation.is_some() {
+            delegation_key(&record.tenant_id, &record.jti)
+        } else {
+            jti_key(&record.tenant_id, &record.jti)
+        };
+        let mut map = self.map.lock().await;
+        if record.delegation.is_some() && map.contains_key(&k) {
+            return Err(StoreError::Permanent(
+                "delegation authority is immutable".into(),
+            ));
+        }
+        map.insert(k, record);
         Ok(())
     }
     async fn get(
@@ -4886,7 +4919,11 @@ impl crate::ports::JtiStore for MemoryJtiStore {
         if self.fail_next_get.swap(0, Ordering::SeqCst) != 0 {
             return Err(StoreError::Transient("injected jti read failure".into()));
         }
-        Ok(self.map.lock().await.get(&jti_key(tenant_id, jti)).cloned())
+        let map = self.map.lock().await;
+        Ok(map
+            .get(&jti_key(tenant_id, jti))
+            .or_else(|| map.get(&delegation_key(tenant_id, jti)))
+            .cloned())
     }
 
     async fn delete_by_user(&self, tenant_id: &str, user_id: &str) -> Result<usize, StoreError> {

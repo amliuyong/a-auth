@@ -29,6 +29,7 @@ pub mod client_auth;
 pub mod consent;
 pub mod credential;
 pub mod data_governance;
+pub mod delegation;
 pub mod device_flow;
 pub mod discovery;
 pub mod dpop;

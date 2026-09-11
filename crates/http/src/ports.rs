@@ -1434,11 +1434,13 @@ pub struct JtiRecord {
     pub grant_id: Option<String>,
     /// 过期(unix 秒;TTL GC,判定走应用层)。
     pub expires_at: i64,
+    /// Versioned authority for a delegated token; absent on ordinary root tokens.
+    pub delegation: Option<crate::delegation::DelegationRecord>,
 }
 
 /// jti 映射存储端口(spec 011 C7.8;token-exchange subject 解析用)。真机 = DynamoDB(短命 TTL);dev = 内存。
 pub trait JtiStore: Send + Sync {
-    /// 签发 3LO token 时落映射(access + id_token;2LO 无 user_id 不落)。
+    /// Persist root mappings or immutable delegated authority before returning a token.
     fn put(&self, record: JtiRecord) -> impl Future<Output = Result<(), StoreError>> + Send;
 
     /// 按 (tenant, jti) 反查(token-exchange 定位 user_id/family_id)。跨租户 MUST 查不到(隔离闸)。
@@ -1447,6 +1449,13 @@ pub trait JtiStore: Send + Sync {
         tenant_id: &str,
         jti: &str,
     ) -> impl Future<Output = Result<Option<JtiRecord>, StoreError>> + Send;
+
+    /// Monotonic revocation of one delegated token; descendants retain its pointer.
+    fn revoke_delegation(
+        &self,
+        tenant_id: &str,
+        jti: &str,
+    ) -> impl Future<Output = Result<bool, StoreError>> + Send;
 
     /// Governance-only physical deletion of subject-linked JTI mappings.
     fn delete_by_user(

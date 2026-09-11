@@ -28,6 +28,13 @@ managed slot. The two values must be distinct and at least 32 bytes.
 The CloudFront distribution stores only the immutable Lambda@Edge version ARN;
 `GetDistributionConfig` cannot disclose either credential.
 
+The cached `/jwks.json` behavior uses a dedicated origin request policy that
+forwards `Origin` and these managed authentication headers. The standard
+`CORS_CUSTOM_ORIGIN` policy filters out the injected credentials and causes
+`403 untrusted_origin`. Viewer `Authorization`, cookies, and query strings are
+not forwarded. Only the tenant host enters the JWKS cache key; the five-minute
+TTL and credential overwrite behavior remain unchanged.
+
 ## Route inventory
 
 Every route is assembled into one router before the global middleware is
