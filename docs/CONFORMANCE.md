@@ -15,6 +15,12 @@ evidence commit/hash 漂移。只有由 CI 实际列出并执行的稳定 select
 历史 live hash 仅作为 `recorded_reference` 留存元数据，不视为可独立重算的 artifact，
 也不提升自动化覆盖等级。
 
+PR 保留单元、AWS adapter、多跳 HTTP 与持久化恢复、Web、SDK、基础设施及
+conformance 工具校验。完整 Rust `Exact conformance selectors` 在合并到 `main`
+后的 push CI 或手动触发时执行，不阻塞 PR。`Required CI` 仅在 PR 中允许该 job
+为 `skipped`；其他 job 仍须成功，main 和手动运行仍检查全部 job 的成功结果。
+项目交付不等待或验证合并后的 main CI；完整协议回归的问题由合并后 CI 报告。
+
 ## 图例
 
 - **状态列**(每条最左):`☐` 未实现 / `◑` 实现中或部分 / `☑` 实现且测试通过。冻结时全部 `☐`,随实现推进逐条勾。
