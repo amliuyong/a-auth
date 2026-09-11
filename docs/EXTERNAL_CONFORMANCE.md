@@ -211,7 +211,14 @@ before that configuration reaches the runner. A higher-priority
 login or consent instead fails the module rather than hiding an
 interactive-response defect. The ordinary rule waits for the consent context
 to finish loading before clicking and satisfies the screenshot placeholders
-used by the `prompt=login` and `max_age=1` modules. The remaining module
+used by the `prompt=login` and `max_age=1` modules. With `--normalized-config`,
+validation also upgrades the exact legacy six-command login sequence by
+inserting the current `agent-auth-login-ready` wait. Other altered or missing
+steps remain invalid, and validation without a normalized output rejects the
+legacy sequence. Deploy the corresponding frontend before running the suite:
+configuration normalization does not add the readiness marker to a deployed
+application. Validation errors appear in stderr and the non-secret manifest;
+credentials and browser commands remain private. The remaining module
 overrides capture the expected local error pages for the unregistered
 `redirect_uri` test and the unsupported Request Object with a conflicting
 redirect URI instead of incorrectly requiring a callback.

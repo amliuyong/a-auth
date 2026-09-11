@@ -234,6 +234,62 @@ class ValidateOidfConfigCliTests(unittest.TestCase):
         self.assertEqual(summary["browser_override_command_count"], 2)
         self.assertEqual(normalized_mode, 0o600)
 
+    def test_normalizes_legacy_login_only_when_writing_runner_config(self) -> None:
+        expected = valid_config()
+        legacy = copy.deepcopy(expected)
+        del legacy["browser"][1]["tasks"][0]["commands"][0]
+
+        completed, summary = self.run_validator(legacy)
+        self.assertEqual(completed.returncode, 1)
+        self.assertFalse(summary["valid"])
+
+        completed, summary, normalized, mode = (
+            self.run_validator_with_normalized_config(legacy)
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(normalized, expected)
+        self.assertEqual(summary["browser_command_count"], 12)
+        self.assertEqual(mode, 0o600)
+        for secret in ("password", "iat_primary.secret", "iat_secondary.secret"):
+            self.assertNotIn(secret, completed.stdout + completed.stderr)
+            self.assertNotIn(secret, json.dumps(summary))
+
+    def test_normalization_rejects_other_missing_login_steps_without_rewriting(
+        self,
+    ) -> None:
+        for index in range(1, 7):
+            with self.subTest(missing_command=index):
+                config = valid_config()
+                del config["browser"][1]["tasks"][0]["commands"][index]
+                completed, summary, unchanged, _mode = (
+                    self.run_validator_with_normalized_config(config)
+                )
+                self.assertEqual(completed.returncode, 1)
+                self.assertFalse(summary["valid"])
+                self.assertEqual(unchanged, config)
+
+    def test_failed_validation_explains_error_without_exposing_credentials(
+        self,
+    ) -> None:
+        config = valid_config()
+        config["browser"][1]["tasks"][0]["commands"][4][3] = "protected-password"
+        del config["browser"][1]["tasks"][0]["commands"][0]
+
+        completed, summary = self.run_validator(config)
+
+        self.assertEqual(completed.returncode, 1)
+        self.assertIn(
+            "config.browser login task must contain the generated command sequence",
+            completed.stderr,
+        )
+        for secret in (
+            "protected-password",
+            "iat_primary.secret",
+            "iat_secondary.secret",
+        ):
+            self.assertNotIn(secret, completed.stdout + completed.stderr)
+            self.assertNotIn(secret, json.dumps(summary))
+
     def test_rejects_wrong_discovery_target_or_missing_browser(self) -> None:
         cases = []
         config = valid_config()
