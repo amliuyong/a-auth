@@ -5,6 +5,7 @@ import argparse
 import copy
 import json
 import os
+import sys
 import tempfile
 import urllib.parse
 from pathlib import Path
@@ -225,6 +226,8 @@ def validate_basic_op_automation(
     override: dict[str, Any],
     issuer: str,
     login_hint: Any,
+    *,
+    normalize_legacy_login: bool = False,
 ) -> None:
     require(
         isinstance(login_hint, str) and bool(login_hint),
@@ -263,6 +266,11 @@ def validate_basic_op_automation(
         "config.browser general authorize tasks must be login, consent, callback",
     )
     login_commands = general_tasks[0].get("commands", [])
+    if normalize_legacy_login and len(login_commands) == 6:
+        login_commands = [
+            ["wait", "id", "agent-auth-login-ready", 30],
+            *login_commands,
+        ]
     require(
         len(login_commands) == 7
         and len(login_commands[4]) == 4
@@ -292,6 +300,7 @@ def validate_basic_op_automation(
         ],
         "config.browser login task must contain the generated command sequence",
     )
+    general_tasks[0]["commands"] = login_commands
     require(
         general_tasks[1].get("commands", [])
         == [
@@ -479,6 +488,11 @@ def main() -> int:
             override,
             issuer,
             server.get("login_hint"),
+            normalize_legacy_login=args.normalized_config is not None,
+        )
+        browser_rule_count, browser_command_count = validate_browser(
+            browser,
+            "config.browser",
         )
         normalized_config = copy.deepcopy(config)
         normalized_override = normalized_config.get("override")
@@ -533,6 +547,7 @@ def main() -> int:
         )
         return 0
     except (json.JSONDecodeError, OSError, TypeError, ValueError) as error:
+        print(f"OIDF configuration validation failed: {error}", file=sys.stderr)
         args.summary.write_text(
             json.dumps(
                 {
