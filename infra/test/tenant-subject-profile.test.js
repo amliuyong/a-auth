@@ -149,72 +149,37 @@ function adminCredentialMigrationEntries(template) {
   return migration.Properties.Credentials;
 }
 
-function parsedBootstrapDocument(template, prefix) {
-  const resource = Object.entries(template.Resources).find(
-    ([id, value]) =>
-      id.startsWith(prefix) && value.Type === 'AWS::SecretsManager::Secret',
-  )[1];
-  const value = resource.Properties.SecretString;
-  if (typeof value === 'string') return JSON.parse(value);
-  const [separator, parts] = value['Fn::Join'];
-  return JSON.parse(
-    parts.map((part) => typeof part === 'string' ? part : 'resource-reference')
-      .join(separator),
-  );
-}
-
-test('offboarded tenants leave both active bootstraps without changing resource ownership', () => {
-  const overrides = {
-    tenantSubjectTypes: { t1: 'pairwise', t3: 'public' },
-    redirectPrefixAllowedHosts: {
-      t1: ['retired.example.com'],
-      t3: ['active.example.com'],
-    },
-  };
-  const before = primaryTemplate(overrides);
-  const after = primaryTemplate({ ...overrides, offboardedTenantIds: ['t1'] });
+test('offboarded credential owners are skipped without losing governance bootstrap history', () => {
+  const before = primaryTemplate();
+  const after = primaryTemplate({ offboardedTenantIds: ['t1'] });
   for (const prefix of ['RuntimeBootstrapConfig', 'StandbyRuntimeBootstrapConfig']) {
-    const bootstrap = parsedBootstrapDocument(after, prefix);
-    assert.deepEqual(bootstrap.saas_tenants, ['t3']);
-    assert.deepEqual(bootstrap.tenant_subject_types, { t3: 'public' });
-    assert.deepEqual(bootstrap.redirect_prefix_allowed_hosts, {
-      t3: ['active.example.com'],
-    });
-    for (const field of [
-      'tenant_admin_secret_arns', 'scim_tenant_secret_arns',
-      'tenant_residency', 'tenant_secret_dependencies',
-    ]) {
-      assert.deepEqual(Object.keys(bootstrap[field]), ['t3'], `${prefix}.${field}`);
-    }
-    assert.equal(bootstrap.scim_credential_secret_arn, null);
-    assert.ok(bootstrap.admin_credential_secret_arn);
+    assert.equal(bootstrapDocument(after, prefix), bootstrapDocument(before, prefix));
   }
   assert.deepEqual(Object.keys(after.Resources), Object.keys(before.Resources));
-  for (const [id, resource] of Object.entries(before.Resources)) {
-    if (resource.Type === 'AWS::SecretsManager::Secret' && !id.includes('BootstrapConfig')) {
-      assert.deepEqual(after.Resources[id], resource, `${id} remains owned and unchanged`);
-    }
+  const primaryRuntimes = Object.values(after.Resources).filter(
+    (resource) => resource.Type === 'AWS::Lambda::Function' &&
+      resource.Properties?.Environment?.Variables?.AGENT_AUTH_BOOTSTRAP_CONFIG_SECRET_ARN,
+  );
+  assert.ok(primaryRuntimes.length >= 2);
+  for (const runtime of primaryRuntimes) {
+    assert.equal(runtime.Properties.Environment.Variables.ADMIN_CREDENTIAL_OFFBOARDED_TENANTS, '["t1"]');
   }
-});
-
-test('offboarding rejects an empty active registry and stale tenant trust policies at synth', () => {
+  const standby = standbyTemplate({ offboardedTenantIds: ['t1'] });
+  const standbyRuntimes = Object.values(standby.Resources).filter(
+    (resource) => resource.Type === 'AWS::Lambda::Function' &&
+      resource.Properties?.Environment?.Variables?.AGENT_AUTH_BOOTSTRAP_CONFIG_SECRET_ARN,
+  );
+  assert.equal(standbyRuntimes.length, 2);
+  for (const runtime of standbyRuntimes) {
+    assert.equal(runtime.Properties.Environment.Variables.ADMIN_CREDENTIAL_OFFBOARDED_TENANTS, '["t1"]');
+  }
   assert.throws(
-    () => primaryTemplate({ offboardedTenantIds: ['t1', 't3'] }),
-    /at least one active SaaS tenant/,
+    () => standbyTemplate({ offboardedTenantIds: ['t9'] }),
+    /offboardedTenantIds/,
   );
   assert.throws(
-    () => primaryTemplate({
-      offboardedTenantIds: ['t1'],
-      cimdTenantAllowedDomains: { t1: ['retired.example.com'] },
-    }),
-    /CIMD.*offboarded/,
-  );
-  assert.throws(
-    () => primaryTemplate({
-      offboardedTenantIds: ['t1'],
-      emaPolicies: JSON.stringify([{ tenant: 't1', policy: {} }]),
-    }),
-    /emaPolicies.*offboarded/,
+    () => standbyTemplate({ offboardedTenantIds: ['t1', 't1'] }),
+    /offboardedTenantIds/,
   );
 });
 

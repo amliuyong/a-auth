@@ -373,7 +373,7 @@ export SAAS_WEB_BASE_URL=https://c.saas.example.com
 export SAAS_TENANT_ADMIN_SECRET_ARNS='{"t1":"<t1-admin-token-Secret-ARN>","t2":"<t2-admin-token-Secret-ARN>","t3":"<t3-admin-token-Secret-ARN>"}'
 export SAAS_TENANT_SUBJECT_TYPES='{"t3":"public"}'          # 未列的 t1 使用 pairwise 隐私默认
 export SAAS_REDIRECT_PREFIX_ALLOWED_HOSTS='{"t1":["callbacks.example.com"]}' # 可选；缺省/空值关闭 prefix
-export SAAS_OFFBOARDED_TENANTS=t2                          # 保留退租历史；从活跃 runtime 配置排除 t2
+export SAAS_OFFBOARDED_TENANTS=t2                          # 保留治理历史；跳过 t2 的 runtime 凭据读取
 export AGENT_AUTH_DEPLOYMENT_COMMIT=$(git -C .. rev-parse HEAD)
 
 npx cdk deploy AgentAuthSaas --profile default --require-approval never
@@ -412,13 +412,14 @@ redirect URI 仍须是无 query/fragment、以 `/*` 结尾的 HTTPS URL；DCR、
 owner 的 Secrets Manager `Removed` 结果执行幂等跳过。`Unavailable`、活跃租户 target
 缺失、平台凭证和 stage 漂移仍 fail closed。该配置不得用于取消删除、重建 target 或重新启用 issuer。
 
-主区和 replica bootstrap 会从活跃租户集合及 admin/SCIM、subject、redirect、residency、
-Secret dependency 映射中排除这些租户，同时保留 CloudFormation 资源和 migration 历史。
-这避免 runtime 再查询已删除 Secret：资源限定的 IAM role 可能收到 `AccessDenied`，
-而非 `ResourceNotFound`，导致共享管理员认证不可用；runtime 仍拒绝任意权限错误。
-部署必须至少保留一个活跃 SaaS 租户，并先删除指向退租租户的 EMA/CIMD 信任配置，否则 synth 拒绝。
-部署后应对每个活跃租户验证带凭据的 `/admin/overview` 返回 200，并确认退租 issuer 仍不可用。
-仅检查公开 discovery/JWKS 无法证明管理员凭据加载正常。
+CDK 将该声明作为 `ADMIN_CREDENTIAL_OFFBOARDED_TENANTS` JSON 数组传给主区和 standby runtime。
+凭据加载器跳过这些租户的 admin/SCIM Secret 读取，仍保留租户注册表、Secret 引用和完整治理上下文，
+使保留期检查、审计和控制面 continuation 能继续运行。Secret 已删除并不表示数据治理保留期已经结束。
+资源限定的 IAM role 查询已删除 Secret 时可能收到 `AccessDenied`，而非 `ResourceNotFound`；
+显式跳过已退租身份可避免共享管理员认证因此不可用，任意其他权限或凭据错误仍 fail closed。
+直接设置 runtime 变量时只允许唯一且同时具有 admin/SCIM 引用的已配置租户；缺省为空数组。
+部署后应验证每个活跃租户带凭据的 `/admin/overview` 返回 200，退租 issuer 仍不可用，
+并检查治理上下文保持完整。公开 discovery/JWKS 无法证明管理员凭据加载正常。
 
 > **加租户**不是只加 DNS：在 `SAAS_DOMAINS` 增加单层标签
 > (`t3.saas.example.com` 可，`a.t3.saas.example.com` 不可)，同时为该租户添加独立

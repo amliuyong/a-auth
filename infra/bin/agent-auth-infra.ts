@@ -530,6 +530,7 @@ if (process.env.SAAS_ZONE) {
       saasZone: process.env.SAAS_ZONE,
       saasControlHost: process.env.SAAS_CONTROL_HOST ?? '',
       tenantIds: saasTenantIds,
+      offboardedTenantIds: saasOffboardedTenantIds,
       tenantSubjectTypes: saasTenantSubjectTypes,
       redirectPrefixAllowedHosts: saasRedirectPrefixAllowedHosts,
       tenantResidency: saasTenantResidency,
