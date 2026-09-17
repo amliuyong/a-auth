@@ -123,6 +123,7 @@ async fn delete_tables(db: &aws_sdk_dynamodb::Client, tables: &[String]) -> Live
 
 fn code_record(code: &str, client_id: &str, expires_at: i64) -> CodeRecord {
     CodeRecord {
+        workload_actor: None,
         code: code.to_string(),
         client_id: client_id.to_string(),
         cimd_snapshot: None,

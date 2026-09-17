@@ -6563,6 +6563,12 @@ impl AppState {
             }
             Err(_) => crate::admin_credentials::DEFAULT_ADMIN_CREDENTIAL_CACHE_TTL_SECS,
         };
+        let offboarded_admin_tenants = match std::env::var("ADMIN_CREDENTIAL_OFFBOARDED_TENANTS") {
+            Ok(value) => serde_json::from_str::<Vec<String>>(&value)
+                .map_err(|_| "ADMIN_CREDENTIAL_OFFBOARDED_TENANTS must be a JSON tenant array")?,
+            Err(std::env::VarError::NotPresent) => Vec::new(),
+            Err(_) => return Err("ADMIN_CREDENTIAL_OFFBOARDED_TENANTS is not valid Unicode".into()),
+        };
         let saas_tenants: Vec<String> = match &runtime_bootstrap_config {
             Some(config) => config.saas_tenants.clone(),
             None => match std::env::var("SAAS_TENANTS") {
@@ -7047,7 +7053,9 @@ impl AppState {
                     tenant_admin_secret_refs,
                     scim_tenant_secret_refs,
                     std::time::Duration::from_secs(admin_credential_cache_ttl_secs),
-                ),
+                )
+                .with_offboarded_tenants(offboarded_admin_tenants)
+                .map_err(|_| "ADMIN_CREDENTIAL_OFFBOARDED_TENANTS must contain unique configured admin/SCIM tenants")?,
             ),
             admin_auth: Arc::new(AdminAuthStoreImpl::Dynamo(
                 crate::adapters::aws::DynamoAdminAuthStore::new(

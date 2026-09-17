@@ -85,6 +85,7 @@ pub mod user_gate;
 pub mod user_lifecycle;
 pub mod userinfo;
 pub mod verify;
+mod workload_consent;
 pub mod workload_flow;
 
 use utoipa::OpenApi;

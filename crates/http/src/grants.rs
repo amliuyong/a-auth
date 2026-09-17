@@ -146,6 +146,9 @@ fn cleanup_reached_revoked_state(result: Result<bool, crate::ports::StoreError>)
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct GrantView {
     pub grant_id: String,
+    /// Explicit workload delegation authority; empty means no actor is authorized.
+    pub actor_allowlist: Vec<String>,
+    pub max_act_chain: u32,
     pub client_id: String,
     /// 已授权的 RS + scopes(逐 resource)。
     pub resources: Vec<ResourceView>,
@@ -162,6 +165,8 @@ pub struct ResourceView {
 fn view(g: &agent_auth_grant::Grant) -> GrantView {
     GrantView {
         grant_id: g.grant_id.clone(),
+        actor_allowlist: g.constraints.actor_allowlist.clone(),
+        max_act_chain: g.constraints.max_act_chain,
         client_id: g.client_id.clone(),
         resources: g
             .per_resource

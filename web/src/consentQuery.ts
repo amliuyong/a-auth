@@ -19,6 +19,7 @@ export function consentContextQuery(authorizeQuery: string): ConsentContextQuery
     client_id,
     redirect_uri,
     scope: query.get('scope') ?? undefined,
+    workload_actor: query.get('workload_actor') ?? undefined,
     resource: resources.length > 0 ? resources : undefined,
     state: query.get('state') ?? undefined,
     code_challenge: query.get('code_challenge') ?? undefined,

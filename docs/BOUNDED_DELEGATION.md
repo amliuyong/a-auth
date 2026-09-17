@@ -2,6 +2,9 @@
 
 Issue #45 defines the following authorization and recovery contract.
 
+For the production 3LO actor-consent path and credentials for actions approved
+hours or days later, see [workload consent and deferred exchange](WORKLOAD_CONSENT.md).
+
 - A registered, authenticated workload may exchange a user's token only under
   an active Grant. Default depth remains one; explicit Grants can permit up to
   eight actors.

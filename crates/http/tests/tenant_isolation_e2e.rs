@@ -39,6 +39,7 @@ fn client(id: &str) -> ClientRecord {
 
 fn authorization_code(code: &str) -> CodeRecord {
     CodeRecord {
+        workload_actor: None,
         code: code.into(),
         client_id: "shared-client".into(),
         cimd_snapshot: None,

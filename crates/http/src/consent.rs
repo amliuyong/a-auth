@@ -84,6 +84,8 @@ fn resources_allowed_in_phase(state: &AppState, resources: &[String]) -> bool {
 pub struct ConsentQuery {
     pub client_id: String,
     pub redirect_uri: String,
+    /// One registered workload client ID to authorize on the single resource (P2+).
+    pub workload_actor: Option<String>,
     #[serde(default)]
     pub scope: Option<String>,
     #[serde(default)]
@@ -115,6 +117,9 @@ pub struct ConsentQuery {
 #[derive(Serialize, ToSchema)]
 pub struct ConsentContext {
     pub client_id: String,
+    /// Server-validated workload receiving single-hop delegation authority.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workload_actor: Option<String>,
     pub client_name: String,
     pub client_source: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -191,6 +196,16 @@ pub async fn consent_context(
         )
             .into_response();
     }
+    if let Err(response) = crate::workload_consent::validate(
+        &state,
+        &tenant,
+        q.get("workload_actor").map(String::as_str),
+        &resources,
+    )
+    .await
+    {
+        return response;
+    }
     let authorization_details: Vec<serde_json::Value> = q
         .get("authorization_details")
         .map(String::as_str)
@@ -203,6 +218,7 @@ pub async fn consent_context(
         .unwrap_or_default();
     Json(ConsentContext {
         client_id: client_id.clone(),
+        workload_actor: q.get("workload_actor").cloned(),
         client_name: resolved
             .cimd_snapshot
             .as_ref()
@@ -237,6 +253,9 @@ pub async fn consent_context(
 #[derive(Deserialize, ToSchema)]
 pub struct ConsentDecision {
     pub decision: String, // "approve" | "deny"
+    /// Actor displayed by the page. Required on approval when the query
+    /// requests workload delegation; prevents approval by an older frontend.
+    pub workload_actor: Option<String>,
     #[serde(default)]
     pub csrf: String,
     /// authorize 上下文(query 串:client_id/redirect_uri/scope/resource/state/code_challenge…)。
@@ -706,6 +725,23 @@ pub async fn consent_submit(
         }
         _ => Vec::new(),
     };
+    if let Err(response) = crate::workload_consent::validate(
+        &state,
+        &tenant,
+        q.get("workload_actor").map(String::as_str),
+        &resources,
+    )
+    .await
+    {
+        return response;
+    }
+    if body.workload_actor.as_ref() != q.get("workload_actor") {
+        return (
+            StatusCode::BAD_REQUEST,
+            "invalid_request: explicit workload actor acknowledgement required",
+        )
+            .into_response();
+    }
     let requested_max_age = match q.get("max_age") {
         Some(value) => match value.parse::<i64>() {
             Ok(value) => Some(value),
@@ -812,6 +848,7 @@ pub async fn consent_submit(
 
     let code = state.region.issue_id(rand_code());
     let record = CodeRecord {
+        workload_actor: q.get("workload_actor").cloned(),
         code: code.clone(),
         client_id: client_id.clone(),
         cimd_snapshot: resolved_client.cimd_snapshot,

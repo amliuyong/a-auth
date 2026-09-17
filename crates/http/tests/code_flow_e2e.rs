@@ -457,6 +457,7 @@ async fn expired_authorization_code_is_rejected_without_ttl_gc() {
         state.codes.as_ref(),
         "",
         CodeRecord {
+            workload_actor: None,
             code: code.into(),
             client_id: CLIENT.into(),
             cimd_snapshot: None,

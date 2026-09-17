@@ -397,8 +397,8 @@ export interface AgentAuthStackProps extends StackProps {
   readonly redirectPrefixAllowedHosts?: Readonly<Record<string, readonly string[]>>;
   /**
    * SaaS tenants whose owner-bound admin/SCIM target Secrets were intentionally
-   * removed by the offboarding workflow. Only those credential migration
-   * entries may treat Secrets Manager `Removed` as an already-complete state.
+   * removed by offboarding. Runtime skips their credential reads while retaining
+   * their governance context. Only their migration entries may accept Removed.
    */
   readonly offboardedTenantIds?: readonly string[];
   /**
@@ -2371,6 +2371,11 @@ export class AgentAuthStack extends Stack {
       AGENT_AUTH_BOOTSTRAP_CONFIG_SECRET_ARN:
         runtimeBootstrapConfigSecret.secretArn,
       AGENT_AUTH_BOOTSTRAP_REVISION: runtimeBootstrapRevision,
+      ...((props.offboardedTenantIds ?? []).length > 0
+        ? {
+            ADMIN_CREDENTIAL_OFFBOARDED_TENANTS: JSON.stringify(props.offboardedTenantIds),
+          }
+        : {}),
     };
     const emaPoliciesSecret = canonicalEmaPolicies
       ? new secretsmanager.Secret(this, 'EmaPolicies', {

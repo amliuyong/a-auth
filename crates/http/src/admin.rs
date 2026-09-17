@@ -626,6 +626,7 @@ pub struct CredentialSetView {
 #[derive(Serialize, ToSchema)]
 pub struct ClientView {
     pub client_id: String,
+    pub client_type: String,
     pub redirect_uris: Vec<String>,
     pub application_type: String,
     pub token_endpoint_auth_method: String,
@@ -686,6 +687,7 @@ pub(crate) fn view(c: &ClientRecord) -> ClientView {
     let now = crate::token::current_unix_secs_pub();
     ClientView {
         client_id: c.client_id.clone(),
+        client_type: c.client_type().as_str().to_string(),
         redirect_uris: c.redirect_uris.clone(),
         application_type: c.application_type().to_string(),
         token_endpoint_auth_method: c.token_endpoint_auth_method.clone(),
@@ -1405,6 +1407,10 @@ pub(crate) fn downgrade_fields(old: &ClientRecord, new: &ClientRecord) -> Vec<St
 #[derive(Deserialize, ToSchema)]
 pub struct AdminClientCreate {
     pub redirect_uris: Vec<String>,
+    /// Set to `workload` for a P2+ actor-only client with no redirects or
+    /// client secret. Omit for ordinary public/confidential registration.
+    #[serde(default)]
+    pub client_type: Option<String>,
     /// OIDC application type. Missing values default to `web`.
     #[serde(default)]
     pub application_type: Option<String>,
@@ -1459,7 +1465,28 @@ pub async fn create_client(
     };
     let tenant = admin.storage_tenant();
     let audit_identity = admin.audit_identity();
-    if req.redirect_uris.is_empty() {
+    let workload = match req.client_type.as_deref() {
+        None => false,
+        Some("workload") => true,
+        Some(_) => return json_status(StatusCode::BAD_REQUEST, "unsupported client_type"),
+    };
+    if workload
+        && (!state.phase.at_least(crate::Phase::P2)
+            || !req.redirect_uris.is_empty()
+            || !req.post_logout_redirect_uris.is_empty()
+            || req.token_endpoint_auth_method.as_deref().unwrap_or("none") != "none"
+            || req.introspect_enabled
+            || !req.resource_ids.is_empty()
+            || req.default_resource.is_some()
+            || req.redirect_mode.is_some()
+            || req.application_type.as_deref().unwrap_or("web") != "web")
+    {
+        return json_status(
+            StatusCode::BAD_REQUEST,
+            "workload registration requires P2, no redirects, no client secret and no resource-server profile",
+        );
+    }
+    if !workload && req.redirect_uris.is_empty() {
         return json_status(StatusCode::BAD_REQUEST, "redirect_uris required");
     }
     let application_type =
@@ -1472,16 +1499,21 @@ pub async fn create_client(
     {
         return json_status(StatusCode::BAD_REQUEST, message);
     }
-    let oidc_sector_identifier = match crate::register::validated_oidc_sector(
-        state.subject_type_for_tenant(tenant),
-        &req.redirect_uris,
-    ) {
-        Ok(sector) => sector,
-        Err(()) => {
-            return json_status(
-                StatusCode::BAD_REQUEST,
-                "pairwise deployment: multi redirect host requires sector_identifier_uri",
-            )
+    // Workloads cannot receive user ID tokens and therefore have no OIDC sector.
+    let oidc_sector_identifier = if workload {
+        None
+    } else {
+        match crate::register::validated_oidc_sector(
+            state.subject_type_for_tenant(tenant),
+            &req.redirect_uris,
+        ) {
+            Ok(sector) => sector,
+            Err(()) => {
+                return json_status(
+                    StatusCode::BAD_REQUEST,
+                    "pairwise deployment: multi redirect host requires sector_identifier_uri",
+                )
+            }
         }
     };
     let auth_method = req
@@ -1552,7 +1584,7 @@ pub async fn create_client(
         // admin 注册的 client 无 reg_token(自助管理走 admin 域;不铸造 registration_access_token)。
         reg_token_hash: None,
         registration_token_credentials: crate::credential::CredentialSet::default(),
-        client_type: None,
+        client_type: workload.then(|| "workload".to_string()),
         id_token_signed_response_alg: None,
         oidc_sector_identifier,
         allowed_resources: vec![],
