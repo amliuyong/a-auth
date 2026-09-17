@@ -149,6 +149,40 @@ function adminCredentialMigrationEntries(template) {
   return migration.Properties.Credentials;
 }
 
+test('offboarded credential owners are skipped without losing governance bootstrap history', () => {
+  const before = primaryTemplate();
+  const after = primaryTemplate({ offboardedTenantIds: ['t1'] });
+  for (const prefix of ['RuntimeBootstrapConfig', 'StandbyRuntimeBootstrapConfig']) {
+    assert.equal(bootstrapDocument(after, prefix), bootstrapDocument(before, prefix));
+  }
+  assert.deepEqual(Object.keys(after.Resources), Object.keys(before.Resources));
+  const primaryRuntimes = Object.values(after.Resources).filter(
+    (resource) => resource.Type === 'AWS::Lambda::Function' &&
+      resource.Properties?.Environment?.Variables?.AGENT_AUTH_BOOTSTRAP_CONFIG_SECRET_ARN,
+  );
+  assert.ok(primaryRuntimes.length >= 2);
+  for (const runtime of primaryRuntimes) {
+    assert.equal(runtime.Properties.Environment.Variables.ADMIN_CREDENTIAL_OFFBOARDED_TENANTS, '["t1"]');
+  }
+  const standby = standbyTemplate({ offboardedTenantIds: ['t1'] });
+  const standbyRuntimes = Object.values(standby.Resources).filter(
+    (resource) => resource.Type === 'AWS::Lambda::Function' &&
+      resource.Properties?.Environment?.Variables?.AGENT_AUTH_BOOTSTRAP_CONFIG_SECRET_ARN,
+  );
+  assert.equal(standbyRuntimes.length, 2);
+  for (const runtime of standbyRuntimes) {
+    assert.equal(runtime.Properties.Environment.Variables.ADMIN_CREDENTIAL_OFFBOARDED_TENANTS, '["t1"]');
+  }
+  assert.throws(
+    () => standbyTemplate({ offboardedTenantIds: ['t9'] }),
+    /offboardedTenantIds/,
+  );
+  assert.throws(
+    () => standbyTemplate({ offboardedTenantIds: ['t1', 't1'] }),
+    /offboardedTenantIds/,
+  );
+});
+
 test('primary and standby bootstraps carry the same tenant subject profiles', () => {
   const expected = /tenant_subject_types.*t3.*public/;
   const primary = primaryTemplate();

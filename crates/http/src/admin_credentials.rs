@@ -1423,6 +1423,7 @@ pub struct AdminCredentialResolver {
     platform_secret_ref: Option<String>,
     tenant_secret_refs: HashMap<String, String>,
     scim_tenant_secret_refs: HashMap<String, String>,
+    offboarded_tenants: HashSet<String>,
     backend: AdminCredentialBackend,
     cache_ttl: Duration,
     cache: Mutex<CacheState>,
@@ -1456,6 +1457,7 @@ impl AdminCredentialResolver {
             platform_secret_ref,
             tenant_secret_refs,
             scim_tenant_secret_refs,
+            offboarded_tenants: HashSet::new(),
             backend: AdminCredentialBackend::Memory(store),
             cache_ttl,
             cache: Mutex::new(CacheState::default()),
@@ -1483,6 +1485,7 @@ impl AdminCredentialResolver {
             platform_secret_ref,
             tenant_secret_refs,
             scim_tenant_secret_refs,
+            offboarded_tenants: HashSet::new(),
             backend: AdminCredentialBackend::SecretsManager(
                 aws_sdk_secretsmanager::Client::from_conf(config),
             ),
@@ -1490,6 +1493,26 @@ impl AdminCredentialResolver {
             cache: Mutex::new(CacheState::default()),
             refresh: Mutex::new(()),
         }
+    }
+
+    /// Skip credential reads only for deployment-declared completed offboarding.
+    /// Keep references for control-plane history and governance retention.
+    pub fn with_offboarded_tenants(
+        mut self,
+        tenants: Vec<String>,
+    ) -> Result<Self, AdminCredentialError> {
+        let unique: HashSet<_> = tenants.iter().cloned().collect();
+        if unique.len() != tenants.len()
+            || tenants.iter().any(|tenant| {
+                !self.tenant_secret_refs.contains_key(tenant)
+                    || !self.scim_tenant_secret_refs.contains_key(tenant)
+            })
+        {
+            return Err(AdminCredentialError::InvalidConfiguration);
+        }
+        self.offboarded_tenants = unique;
+        self.cache.get_mut().current = None;
+        Ok(self)
     }
 
     pub fn dev(secret: &str, now: i64) -> Self {
@@ -1648,12 +1671,20 @@ impl AdminCredentialResolver {
             1 + self.tenant_secret_refs.len() + self.scim_tenant_secret_refs.len(),
         );
         expected.push((AdminCredentialOwner::platform(), platform_ref.to_string()));
-        let mut tenants: Vec<_> = self.tenant_secret_refs.iter().collect();
+        let mut tenants: Vec<_> = self
+            .tenant_secret_refs
+            .iter()
+            .filter(|(tenant, _)| !self.offboarded_tenants.contains(*tenant))
+            .collect();
         tenants.sort_by(|left, right| left.0.cmp(right.0));
         expected.extend(tenants.into_iter().map(|(tenant, secret_ref)| {
             (AdminCredentialOwner::tenant(tenant), secret_ref.to_string())
         }));
-        let mut scim_tenants: Vec<_> = self.scim_tenant_secret_refs.iter().collect();
+        let mut scim_tenants: Vec<_> = self
+            .scim_tenant_secret_refs
+            .iter()
+            .filter(|(tenant, _)| !self.offboarded_tenants.contains(*tenant))
+            .collect();
         scim_tenants.sort_by(|left, right| left.0.cmp(right.0));
         expected.extend(scim_tenants.into_iter().map(|(tenant, secret_ref)| {
             (
@@ -2251,6 +2282,147 @@ mod tests {
             store.put_set(secret_ref, &set, NOW);
         }
         AdminCredentialResolver::memory(Some(PLATFORM_REF.to_string()), refs, store, Duration::ZERO)
+    }
+
+    #[tokio::test]
+    async fn explicit_offboarding_skips_both_credentials_and_preserves_control_history() {
+        let store = MemoryAdminCredentialStore::default();
+        for (reference, owner, id, secret) in [
+            (
+                PLATFORM_REF,
+                AdminCredentialOwner::platform(),
+                "platform",
+                "platform-secret-value",
+            ),
+            (
+                T1_REF,
+                AdminCredentialOwner::tenant("t1"),
+                "t1-admin",
+                "t1-admin-secret-value",
+            ),
+            (
+                "arn:scim:t1",
+                AdminCredentialOwner::scim_tenant("t1"),
+                "t1-scim",
+                "t1-scim-secret-value",
+            ),
+        ] {
+            store.put_set(
+                reference,
+                &AdminCredentialSet::single(owner, record(id, secret, NOW - 10, NOW + 100)),
+                NOW,
+            );
+        }
+        // Any attempt to include either retired owner would fail the shared registry.
+        store.put_raw("arn:t2", "unreadable-retired-admin-document", NOW);
+        store.put_raw("arn:scim:t2", "unreadable-retired-scim-document", NOW);
+        let make_resolver = || {
+            AdminCredentialResolver::memory_scoped(
+                Some(PLATFORM_REF.into()),
+                HashMap::from([("t1".into(), T1_REF.into()), ("t2".into(), "arn:t2".into())]),
+                HashMap::from([
+                    ("t1".into(), "arn:scim:t1".into()),
+                    ("t2".into(), "arn:scim:t2".into()),
+                ]),
+                store.clone(),
+                Duration::ZERO,
+            )
+        };
+        assert!(make_resolver()
+            .verify(
+                &AdminCredentialOwner::platform(),
+                "platform-secret-value",
+                NOW
+            )
+            .await
+            .is_err());
+        let resolver = make_resolver()
+            .with_offboarded_tenants(vec!["t2".into()])
+            .unwrap();
+        for (owner, secret) in [
+            (AdminCredentialOwner::platform(), "platform-secret-value"),
+            (AdminCredentialOwner::tenant("t1"), "t1-admin-secret-value"),
+            (
+                AdminCredentialOwner::scim_tenant("t1"),
+                "t1-scim-secret-value",
+            ),
+        ] {
+            assert!(resolver
+                .verify(&owner, secret, NOW)
+                .await
+                .unwrap()
+                .is_some());
+        }
+        for owner in [
+            AdminCredentialOwner::tenant("t2"),
+            AdminCredentialOwner::scim_tenant("t2"),
+        ] {
+            assert!(resolver
+                .verify(&owner, "any-retired-credential", NOW)
+                .await
+                .is_err());
+        }
+        assert_eq!(
+            resolver.tenant_secret_refs().get("t2").map(String::as_str),
+            Some("arn:t2")
+        );
+        assert_eq!(
+            resolver
+                .scim_tenant_secret_refs()
+                .get("t2")
+                .map(String::as_str),
+            Some("arn:scim:t2")
+        );
+        for invalid in [vec!["unknown".into()], vec!["t2".into(), "t2".into()]] {
+            assert!(make_resolver().with_offboarded_tenants(invalid).is_err());
+        }
+        let warm = AdminCredentialResolver::memory_scoped(
+            Some(PLATFORM_REF.into()),
+            resolver.tenant_secret_refs().clone(),
+            resolver.scim_tenant_secret_refs().clone(),
+            store.clone(),
+            Duration::from_secs(300),
+        )
+        .with_offboarded_tenants(vec!["t2".into()])
+        .unwrap();
+        assert!(warm
+            .verify(
+                &AdminCredentialOwner::tenant("t1"),
+                "t1-admin-secret-value",
+                NOW
+            )
+            .await
+            .unwrap()
+            .is_some());
+        let warm = warm
+            .with_offboarded_tenants(vec!["t1".into(), "t2".into()])
+            .unwrap();
+        assert!(warm
+            .verify(
+                &AdminCredentialOwner::tenant("t1"),
+                "t1-admin-secret-value",
+                NOW
+            )
+            .await
+            .is_err());
+        assert!(warm
+            .verify(
+                &AdminCredentialOwner::platform(),
+                "platform-secret-value",
+                NOW
+            )
+            .await
+            .unwrap()
+            .is_some());
+        store.put_raw(T1_REF, "invalid-active-credential", NOW);
+        assert!(resolver
+            .verify(
+                &AdminCredentialOwner::platform(),
+                "platform-secret-value",
+                NOW
+            )
+            .await
+            .is_err());
     }
 
     #[test]

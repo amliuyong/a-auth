@@ -59,6 +59,8 @@ export interface AgentAuthStandbyStackProps extends StackProps {
   readonly saasZone: string;
   readonly saasControlHost: string;
   readonly tenantIds: readonly string[];
+  /** Completed credential removal; retain tenant governance and resource history. */
+  readonly offboardedTenantIds?: readonly string[];
   readonly tenantSubjectTypes?: Readonly<Record<string, 'public' | 'pairwise'>>;
   readonly redirectPrefixAllowedHosts?: Readonly<
     Record<string, readonly string[]>
@@ -293,6 +295,13 @@ export class AgentAuthStandbyStack extends Stack {
       );
     }
     const tenantIds = [...props.tenantIds].sort();
+    const offboardedTenantIds = [...(props.offboardedTenantIds ?? [])];
+    if (
+      new Set(offboardedTenantIds).size !== offboardedTenantIds.length ||
+      offboardedTenantIds.some((tenant) => !tenantIds.includes(tenant))
+    ) {
+      throw new Error('standby offboardedTenantIds must be unique configured tenant IDs');
+    }
     const invitationTtlSecs = props.invitationTtlSecs ?? 86_400;
     if (
       !Number.isSafeInteger(invitationTtlSecs) ||
@@ -711,6 +720,9 @@ export class AgentAuthStandbyStack extends Stack {
         AGENT_AUTH_BOOTSTRAP_CONFIG_SECRET_ARN:
           runtimeBootstrapConfigSecret.secretArn,
         AGENT_AUTH_BOOTSTRAP_REVISION: runtimeBootstrapRevision,
+        ...(offboardedTenantIds.length > 0
+          ? { ADMIN_CREDENTIAL_OFFBOARDED_TENANTS: JSON.stringify(offboardedTenantIds) }
+          : {}),
         WEB_BASE_URL: webBaseUrl,
         AGENT_AUTH_STRONG_MAX_AGE_SECS: '300',
         AGENT_AUTH_HIGH_RISK_RAR_ACTIONS: 'transfer',
