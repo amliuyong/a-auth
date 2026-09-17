@@ -3653,10 +3653,13 @@ pub struct FederatedAttributeOwnerView {
 }
 
 /// `GET /admin/users/{id}`:基本信息 + 关联资源计数/布尔(绝不回敏感值,§1.4)。
+/// When namespace management is explicitly disabled, users with no attributes remain readable.
+/// Existing attributes require registry hydration; registry failures return 503.
 #[utoipa::path(get, path = "/admin/users/{id}", tag = "admin",
     params(("id" = String, Path)),
     responses((status = 200, description = "用户详情 + 聚合计数", body = UserDetail),
-        (status = 401), (status = 404, description = "不存在 / SaaS 下不可用")))]
+        (status = 401), (status = 404, description = "不存在 / SaaS 下不可用"),
+        (status = 503, description = "User or attribute authority store unavailable")))]
 pub async fn get_user(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -3706,13 +3709,24 @@ pub async fn get_user(
         Err(_) => PasswordStatus::Unavailable,
     };
     use crate::attribute_namespace::{AttributeNamespaceStore, RegistrationState};
-    let registrations = match state.attribute_namespaces.list(tenant).await {
-        Ok(registrations) => registrations,
-        Err(_) => {
-            return json_status(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "namespace store unavailable",
-            );
+    // An explicitly disabled registry needs no hydration for an empty attribute map.
+    // Existing attributes still require registry authority; never report them as unbound
+    // merely because the registry is disabled, or turn a configured store failure into success.
+    let registrations = if rec.attributes.is_empty()
+        && matches!(
+            &*state.attribute_namespaces,
+            crate::state::AttributeNamespaceStoreImpl::Disabled
+        ) {
+        Vec::new()
+    } else {
+        match state.attribute_namespaces.list(tenant).await {
+            Ok(registrations) => registrations,
+            Err(_) => {
+                return json_status(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "namespace store unavailable",
+                );
+            }
         }
     };
     use crate::federation_attributes::FederationAttributeMappingsStore as _;

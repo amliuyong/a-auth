@@ -3586,7 +3586,7 @@
         "tags": [
           "admin"
         ],
-        "summary": "`GET /admin/users/{id}`:基本信息 + 关联资源计数/布尔(绝不回敏感值,§1.4)。",
+        "summary": "`GET /admin/users/{id}`:基本信息 + 关联资源计数/布尔(绝不回敏感值,§1.4)。\nWhen namespace management is explicitly disabled, users with no attributes remain readable.\nExisting attributes require registry hydration; registry failures return 503.",
         "operationId": "get_user",
         "parameters": [
           {
@@ -3614,6 +3614,9 @@
           },
           "404": {
             "description": "不存在 / SaaS 下不可用"
+          },
+          "503": {
+            "description": "User or attribute authority store unavailable"
           }
         }
       },

@@ -95,6 +95,11 @@ jobs:
       - name: Run AWS adapter unit tests
         run: cargo test -p agent-auth-http --lib --features aws --locked
 
+      - name: Run administrator user-detail HTTP regressions
+        run: |
+          source ./scripts/rust_test_stack.sh
+          cargo test -p agent-auth-http --features aws --test admin_users_e2e --locked
+
       - name: Run bounded delegation HTTP acceptance
         run: |
           source ./scripts/rust_test_stack.sh
