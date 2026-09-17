@@ -20,7 +20,7 @@ use agent_auth_http::{
     build_router, current_unix_secs,
     ports::{MessageOutbox, PasswordStore, UsersStore},
     security_event::{SecurityEventOutcome, SecurityEventStore},
-    state::UsersStoreImpl,
+    state::{AttributeNamespaceStoreImpl, UsersStoreImpl},
     AppState,
 };
 use axum::body::Body;
@@ -1169,6 +1169,10 @@ async fn saas_without_partitioning_disables_admin_users() {
 // ---- P0-D:SaaS + tenant_partitioning **开** → user 管理放行 + 跨租户物理隔离 ----
 
 fn saas_partitioned_app() -> axum::Router {
+    build_router(saas_partitioned_state()).0
+}
+
+fn saas_partitioned_state() -> AppState {
     let mut state = AppState::dev(HOST);
     state.form = agent_auth_discovery::Form::Saas {
         zone: "aws.example.com".to_string(),
@@ -1178,8 +1182,151 @@ fn saas_partitioned_app() -> axum::Router {
     state.tenant_partitioning = true; // 数据面分区已就绪(020 §2.3 done)
     state.admin_credentials =
         saas_admin_credentials(&[("t1", "t1-admin-secret-v1"), ("t2", "t2-admin-secret-v1")]);
-    let (r, _) = build_router(state);
-    r
+    state
+}
+
+#[tokio::test]
+async fn saas_user_detail_without_namespace_management_preserves_lifecycle_and_isolation() {
+    let mut state = saas_partitioned_state();
+    state.attribute_namespaces = Arc::new(AttributeNamespaceStoreImpl::Disabled);
+    let (router, _) = build_router(state);
+    let t1 = "t1.aws.example.com";
+    let t2 = "t2.aws.example.com";
+    let (status, created) = admin_req(
+        &router,
+        "POST",
+        "/admin/users",
+        t1,
+        Some(r#"{"email":"detail@example.com","initial_password":"Initial password 123!"}"#),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let uri = format!("/admin/users/{}", created["user_id"].as_str().unwrap());
+
+    for lifecycle in ["active", "tombstoned"] {
+        let (status, detail) = admin_req(&router, "GET", &uri, t1, None).await;
+        assert_eq!(status, StatusCode::OK, "{lifecycle}: {detail}");
+        assert_eq!(detail["user_id"], created["user_id"]);
+        assert_eq!(detail["status"], lifecycle);
+        assert_eq!(detail["attributes"], serde_json::json!({}));
+        let (status, _) = admin_req(&router, "GET", &uri, t2, None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(
+            admin_req_tok(&router, &uri, t2, "t1-admin-secret-v1").await,
+            StatusCode::UNAUTHORIZED
+        );
+        if lifecycle == "active" {
+            let (status, deleted) = admin_req(&router, "DELETE", &uri, t1, None).await;
+            assert_eq!(status, StatusCode::OK, "{deleted}");
+        }
+    }
+}
+
+#[cfg(feature = "aws")]
+#[tokio::test]
+async fn user_detail_preserves_configured_namespace_store_failures_without_attributes() {
+    use agent_auth_http::adapters::aws::DynamoAttributeNamespaceStore;
+    use aws_smithy_http_client::test_util::capture_request;
+    use aws_smithy_types::body::SdkBody;
+
+    for saas in [false, true] {
+        let state = if saas {
+            saas_partitioned_state()
+        } else {
+            AppState::dev(HOST)
+        };
+        let host = if saas { "t1.aws.example.com" } else { HOST };
+        let (router, _) = build_router(state.clone());
+        let (status, created) = admin_req(
+            &router,
+            "POST",
+            "/admin/users",
+            host,
+            Some(
+                r#"{"email":"store-error@example.com","initial_password":"Initial password 123!"}"#,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        let uri = format!("/admin/users/{}", created["user_id"].as_str().unwrap());
+        for lifecycle in ["active", "tombstoned"] {
+            for (store_status, store_body, expected) in [
+                (200, r#"{"Items":[]}"#, StatusCode::OK),
+                (
+                    500,
+                    r#"{"__type":"InternalServerError","message":"namespace read failed"}"#,
+                    StatusCode::SERVICE_UNAVAILABLE,
+                ),
+            ] {
+                let (http, captured) = capture_request(Some(
+                    axum::http::Response::builder()
+                        .status(store_status)
+                        .header("content-type", "application/x-amz-json-1.0")
+                        .body(SdkBody::from(store_body))
+                        .unwrap(),
+                ));
+                let db = aws_sdk_dynamodb::Client::from_conf(
+                    aws_sdk_dynamodb::Config::builder()
+                        .behavior_version_latest()
+                        .region(aws_sdk_dynamodb::config::Region::new("us-east-1"))
+                        .credentials_provider(aws_sdk_dynamodb::config::Credentials::for_tests())
+                        .retry_config(aws_sdk_dynamodb::config::retry::RetryConfig::disabled())
+                        .http_client(http)
+                        .build(),
+                );
+                let mut read_state = state.clone();
+                read_state.attribute_namespaces = Arc::new(AttributeNamespaceStoreImpl::Dynamo(
+                    DynamoAttributeNamespaceStore::new(db, "attribute-namespaces"),
+                ));
+                let (read_router, _) = build_router(read_state);
+                let (status, detail) = admin_req(&read_router, "GET", &uri, host, None).await;
+                assert_eq!(status, expected, "saas={saas}, {lifecycle}: {detail}");
+                if expected == StatusCode::OK {
+                    assert_eq!(detail["status"], lifecycle);
+                    assert_eq!(detail["attributes"], serde_json::json!({}));
+                } else {
+                    assert_eq!(detail["message"], "namespace store unavailable");
+                    assert!(detail.get("attributes").is_none());
+                }
+                // The HTTP result comes from a real namespace adapter read, not a disabled store.
+                captured.expect_request();
+            }
+            if lifecycle == "active" {
+                let (status, _) = admin_req(&router, "DELETE", &uri, host, None).await;
+                assert_eq!(status, StatusCode::OK);
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn user_detail_does_not_label_existing_attributes_unbound_when_registry_is_disabled() {
+    let (router, mut state) = app_with_state();
+    let (status, created) = create_user(&router, "attributes@example.com").await;
+    assert_eq!(status, StatusCode::CREATED);
+    let uri = format!("/admin/users/{}", created["user_id"].as_str().unwrap());
+    let (status, _) = admin_req(
+        &router,
+        "PUT",
+        &format!("{uri}/attributes?namespace=https%3A%2F%2Frs.example.com"),
+        HOST,
+        Some(r#"{"role":"reader"}"#),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, detail) = admin_req(&router, "GET", &uri, HOST, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        detail["attributes"]["https://rs.example.com"]["kv"]["role"],
+        "reader"
+    );
+
+    state.attribute_namespaces = Arc::new(AttributeNamespaceStoreImpl::Disabled);
+    let (router, _) = build_router(state);
+    let (status, detail) = admin_req(&router, "GET", &uri, HOST, None).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(detail["message"], "namespace store unavailable");
+    assert!(detail.get("attributes").is_none());
 }
 
 // 带 Host 的 admin 请求(SaaS 下 Host 决定 tenant)。

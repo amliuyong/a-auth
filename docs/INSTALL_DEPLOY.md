@@ -388,6 +388,13 @@ npx cdk deploy AgentAuthSaasCredentialMigration --exclusively \
 
 `SAAS_WEB_BASE_URL` 同样必填且必须是 CloudFront 自定义域 origin,不能填写裸 API Gateway URL。
 
+SaaS 开启租户分区后，`GET /admin/users/{id}` 支持读取本租户 active、disabled 与 tombstoned
+用户。SaaS 不启用属性命名空间管理；当 runtime 未配置 `ATTRIBUTE_NAMESPACES_TABLE` 且该用户
+没有属性时，详情仍返回 200 和 `attributes: {}`，无需为读取基本信息启用属性能力。
+若用户已有属性，仍必须读取注册信息，不能因能力关闭而把其状态标为 `unbound`；
+已配置的 namespace store 发生错误时，即使用户没有属性也返回 503。跨租户用户仍返回 404，
+跨租户凭据仍被拒绝，SaaS 的属性与命名空间管理 API 仍返回 404。
+
 `SAAS_TENANT_ADMIN_SECRET_ARNS` 必须为每个租户绑定**不同的 legacy source Secret ARN**，供首次升级
 复制已有 bearer；栈会为每个 tenant 新建独立 owner-bound credential-set target。source 不改写，
 target 承载 current/next/retired 并由 warm runtime 自动刷新。这些凭据仅能管理对应 Host。栈输出

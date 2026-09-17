@@ -1083,7 +1083,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** `GET /admin/users/{id}`:基本信息 + 关联资源计数/布尔(绝不回敏感值,§1.4)。 */
+        /**
+         * `GET /admin/users/{id}`:基本信息 + 关联资源计数/布尔(绝不回敏感值,§1.4)。
+         *     When namespace management is explicitly disabled, users with no attributes remain readable.
+         *     Existing attributes require registry hydration; registry failures return 503.
+         */
         get: operations["get_user"];
         put?: never;
         post?: never;
@@ -7491,6 +7495,13 @@ export interface operations {
             };
             /** @description 不存在 / SaaS 下不可用 */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description User or attribute authority store unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
