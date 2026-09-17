@@ -79,6 +79,9 @@ pub struct AuthorizeParams {
     pub code_challenge: Option<String>,
     pub code_challenge_method: Option<String>,
     pub scope: Option<String>,
+    /// Explicit consent to one registered workload client ID on one resource (P2+).
+    /// Wildcards and silent authorization are not supported.
+    pub workload_actor: Option<String>,
     pub state: Option<String>,
     // ⚠️ **不在此解析 `resource`**:serde_urlencoded 遇重复 `resource=`(多 resource,P1+ C2.5b)会
     // "duplicate field" 反序列化失败 → Query extractor 在 handler 前就 400,多 resource 永不可达。
@@ -173,6 +176,9 @@ fn authorize_context_query(
     }
     if let Some(s) = &p.scope {
         q.push_str(&format!("&scope={}", pct_encode(s)));
+    }
+    if let Some(actor) = &p.workload_actor {
+        q.push_str(&format!("&workload_actor={}", pct_encode(actor)));
     }
     if let Some(st) = &p.state {
         q.push_str(&format!("&state={}", pct_encode(st)));
@@ -543,6 +549,7 @@ async fn issue_silent_authorization_code(
 
     let code = make_code(state);
     let record = CodeRecord {
+        workload_actor: None,
         code: code.clone(),
         client_id: p.client_id.clone(),
         cimd_snapshot,
@@ -1078,6 +1085,17 @@ async fn run_authorize(
             .into_response();
     }
 
+    if let Err(response) = crate::workload_consent::validate(
+        state,
+        &tenant,
+        p.workload_actor.as_deref(),
+        &resource_params,
+    )
+    .await
+    {
+        return response;
+    }
+
     // ⚠️ authorize **永不直接签 code**(修评审 CRITICAL:有会话直接签会跳过用户 consent 同意,
     // 违反 DESIGN §4)。三态:
     // ① 有 AS 会话(已登录)→ 重定向到前端 /consent,由用户同意后 POST /consent 才签 code;
@@ -1176,7 +1194,7 @@ async fn run_authorize(
         let session = session
             .clone()
             .expect("fresh prompt=none authorization requires an active session");
-        if !authorization_details.is_empty() {
+        if !authorization_details.is_empty() || p.workload_actor.is_some() {
             return redirect_error(&p, "consent_required", issuer.as_str()).into_response();
         }
         let requested_scopes: Vec<String> = p
@@ -1343,7 +1361,7 @@ async fn run_authorize(
         )
         .into_response();
     }
-    let placeholder_user = if state.allow_login_placeholder {
+    let placeholder_user = if state.allow_login_placeholder && p.workload_actor.is_none() {
         p.login_user.as_deref().filter(|s| !s.is_empty())
     } else {
         None
@@ -1453,6 +1471,7 @@ async fn run_authorize(
     crate::authz_session::transition(state, &tenant, &authz_sid, AuthzState::PendingConsent, None)
         .await;
     let record = CodeRecord {
+        workload_actor: None,
         code: code.clone(),
         client_id: p.client_id.clone(),
         cimd_snapshot,
@@ -1711,6 +1730,16 @@ pub async fn par_handler(
     }
     // 存储前**剔除认证参数**(H3:client_secret/client_assertion* 绝不落库明文)——重建只含授权参数的串。
     let cleaned: String = form_urlencoded_strip_auth(&body);
+    let resources: Vec<String> = url::form_urlencoded::parse(body.as_bytes())
+        .filter(|(key, value)| key == "resource" && !value.is_empty())
+        .map(|(_, value)| value.into_owned())
+        .collect();
+    if let Err(response) =
+        crate::workload_consent::validate(&state, &tenant, p.workload_actor.as_deref(), &resources)
+            .await
+    {
+        return response;
+    }
     let request_uri = format!("{PAR_URN_PREFIX}{}", make_code(&state)); // opaque = CSPRNG 32B(L1)
     let now = crate::token::current_unix_secs_pub();
     use crate::ports::ParStore;

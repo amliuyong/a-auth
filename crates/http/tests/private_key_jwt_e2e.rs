@@ -171,6 +171,7 @@ async fn seed_code(state: &AppState, client_id: &str, code: &str) {
         .put(
             "",
             CodeRecord {
+                workload_actor: None,
                 code: code.to_string(),
                 client_id: client_id.to_string(),
                 cimd_snapshot: None,

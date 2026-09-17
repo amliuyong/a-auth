@@ -84,6 +84,9 @@ impl DynamoCodeStore {
             ),
         ]);
         insert_cimd_snapshot(&mut item, r.cimd_snapshot, "authorization code")?;
+        if let Some(actor) = r.workload_actor {
+            item.insert("workload_actor".to_string(), AttributeValue::S(actor));
+        }
         if let Some(sid) = r.authz_session_id {
             item.insert("authz_session_id".to_string(), AttributeValue::S(sid));
         }
@@ -133,6 +136,11 @@ impl DynamoCodeStore {
     pub(super) fn record(item: &HashMap<String, AttributeValue>) -> Result<CodeRecord, StoreError> {
         let cimd_snapshot = read_cimd_snapshot(item, "authorization code")?;
         Ok(CodeRecord {
+            workload_actor: match item.get("workload_actor") {
+                None => None,
+                Some(AttributeValue::S(actor)) if !actor.is_empty() => Some(actor.clone()),
+                Some(_) => return Err(StoreError::Permanent("invalid code workload_actor".into())),
+            },
             code: strip_tpk(&s(item.get("code")).unwrap_or_default()),
             client_id: strip_tpk(&s(item.get("client_id")).unwrap_or_default()),
             cimd_snapshot,
@@ -6240,7 +6248,7 @@ mod tests {
     use crate::ports::{
         CodeStore, InvitationAcceptOutcome, InvitationAcceptRequest, InvitationIssueOutcome,
         InvitationRecord, InvitationStore, LeaseAcquire, MagicLinkRecord, MagicLinkStore,
-        PasswordCredential, PasswordStore, RefreshLeaseAcquire, RefreshStore,
+        PasswordCredential, PasswordStore, RefreshLeaseAcquire, RefreshStore, StoreError,
     };
     use aws_smithy_http_client::test_util::{ReplayEvent, StaticReplayClient};
     use aws_smithy_types::body::SdkBody;
@@ -6410,6 +6418,7 @@ mod tests {
 
     fn tenant_code_record() -> crate::ports::CodeRecord {
         crate::ports::CodeRecord {
+            workload_actor: None,
             code: "shared-code".to_string(),
             client_id: "shared-client".to_string(),
             cimd_snapshot: None,
@@ -6926,7 +6935,9 @@ mod tests {
             "client-authority-refs-v1:test",
         );
 
-        store.put("tenant-a", tenant_code_record()).await.unwrap();
+        let mut delegated_code = tenant_code_record();
+        delegated_code.workload_actor = Some("analysis-runtime".into());
+        store.put("tenant-a", delegated_code).await.unwrap();
         store.put("tenant-b", tenant_code_record()).await.unwrap();
 
         let requests: Vec<_> = http.actual_requests().collect();
@@ -6972,6 +6983,11 @@ mod tests {
                 code_put["Item"]["client_id"]["S"],
                 format!("{tenant}\u{1f}shared-client")
             );
+            if tenant == "tenant-a" {
+                assert_eq!(code_put["Item"]["workload_actor"]["S"], "analysis-runtime");
+            } else {
+                assert!(code_put["Item"].get("workload_actor").is_none());
+            }
             assert_eq!(
                 reference_put["Item"]["client_key"]["S"],
                 format!("client#00000008{tenant}0000000dshared-client")
@@ -6991,6 +7007,46 @@ mod tests {
             bodies[0]["TransactItems"][0]["Put"]["Item"]["code"]["S"],
             bodies[1]["TransactItems"][0]["Put"]["Item"]["code"]["S"]
         );
+    }
+
+    #[tokio::test]
+    async fn dynamo_code_workload_consent_survives_reload_and_rejects_malformed_authority() {
+        for actor in [
+            None,
+            Some(json!({"S": "analysis-runtime"})),
+            Some(json!({"N": "1"})),
+        ] {
+            let mut item = expired_consumed_code();
+            item.as_object_mut().unwrap().remove("consumed");
+            if let Some(actor) = actor.as_ref() {
+                item["workload_actor"] = actor.clone();
+            }
+            let http = StaticReplayClient::new(vec![ReplayEvent::new(
+                placeholder_request(),
+                response(200, json!({"Attributes": item})),
+            )]);
+            let store = DynamoCodeStore::new(
+                dynamo_client(http),
+                "codes",
+                "clients",
+                "authority-refs",
+                "client-authority-refs-v1:test",
+            );
+            let result = store
+                .acquire_lease("tenant-a", "code-1", "owner", 900, 930)
+                .await;
+            if actor.as_ref().is_some_and(|value| value.get("N").is_some()) {
+                assert!(matches!(result, Err(StoreError::Permanent(_))));
+            } else {
+                let LeaseAcquire::Acquired(record) = result.unwrap() else {
+                    panic!("expected code");
+                };
+                assert_eq!(
+                    record.workload_actor.as_deref(),
+                    actor.as_ref().map(|_| "analysis-runtime")
+                );
+            }
+        }
     }
 
     #[tokio::test]

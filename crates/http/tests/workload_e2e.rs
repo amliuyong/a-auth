@@ -2498,6 +2498,7 @@ async fn setup_token_exchange_with_jti_phase_and_region(
         .put(
             "",
             CodeRecord {
+                workload_actor: None,
                 code: authorization_code.clone(),
                 client_id: "app-3lo".into(),
                 cimd_snapshot: None,

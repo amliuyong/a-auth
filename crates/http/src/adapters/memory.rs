@@ -9314,6 +9314,7 @@ mod tests {
 
     fn governance_code(code: &str, user_id: &str) -> CodeRecord {
         CodeRecord {
+            workload_actor: None,
             code: code.into(),
             client_id: "client".into(),
             cimd_snapshot: None,
@@ -11403,6 +11404,7 @@ mod tests {
 
     fn rec(code: &str) -> CodeRecord {
         CodeRecord {
+            workload_actor: None,
             code: code.into(),
             client_id: "client".into(),
             cimd_snapshot: None,
@@ -13706,6 +13708,7 @@ mod tests {
         // code:未过期未消费 → true;过期 → false。
         let cs = MemoryCodeStore::default();
         let mk = |code: &str, exp: i64| CodeRecord {
+            workload_actor: None,
             code: code.into(),
             client_id: "cid".into(),
             cimd_snapshot: None,

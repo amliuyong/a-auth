@@ -157,6 +157,7 @@ async fn seed_offboarding_orphans(state: &AppState, now: i64) {
             .put(
                 tenant,
                 CodeRecord {
+                    workload_actor: None,
                     code: format!("{prefix}-orphan-code"),
                     client_id: "orphan-client".into(),
                     cimd_snapshot: None,
@@ -1955,6 +1956,7 @@ async fn seed_user_erasure_code(state: &AppState, now: i64, user_id: &str) {
         .put(
             "",
             CodeRecord {
+                workload_actor: None,
                 code: "erase-code".into(),
                 client_id: "erase-client".into(),
                 cimd_snapshot: None,

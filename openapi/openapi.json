@@ -4076,6 +4076,15 @@
             }
           },
           {
+            "name": "workload_actor",
+            "in": "query",
+            "description": "Explicit consent to one registered workload client ID on one resource (P2+).\nWildcards and silent authorization are not supported.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "state",
             "in": "query",
             "required": false,
@@ -4317,6 +4326,15 @@
             "name": "redirect_uri",
             "in": "query",
             "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "workload_actor",
+            "in": "query",
+            "description": "One registered workload client ID to authorize on the single resource (P2+).",
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -7266,6 +7284,13 @@
               "string",
               "null"
             ]
+          },
+          "workload_actor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Explicit consent to one registered workload client ID on one resource (P2+).\nWildcards and silent authorization are not supported."
           }
         }
       },
@@ -7808,6 +7833,13 @@
             "items": {
               "type": "string"
             }
+          },
+          "workload_actor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Server-validated workload receiving single-hop delegation authority."
           }
         }
       },
@@ -7827,6 +7859,13 @@
           },
           "decision": {
             "type": "string"
+          },
+          "workload_actor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Actor displayed by the page. Required on approval when the query\nrequests workload delegation; prevents approval by an older frontend."
           }
         }
       },
@@ -9423,12 +9462,21 @@
         "description": "Grant 对外视图(不泄露内部结构的多余字段;够用户识别 + 决定是否吊销)。",
         "required": [
           "grant_id",
+          "actor_allowlist",
+          "max_act_chain",
           "client_id",
           "resources",
           "status",
           "expires_at"
         ],
         "properties": {
+          "actor_allowlist": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Explicit workload delegation authority; empty means no actor is authorized."
+          },
           "client_id": {
             "type": "string"
           },
@@ -9438,6 +9486,11 @@
           },
           "grant_id": {
             "type": "string"
+          },
+          "max_act_chain": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           },
           "resources": {
             "type": "array",

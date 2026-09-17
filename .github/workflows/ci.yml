@@ -100,6 +100,12 @@ jobs:
           source ./scripts/rust_test_stack.sh
           cargo test -p agent-auth-http --features aws --test workload_e2e --locked multi_hop_
 
+      - name: Run workload consent HTTP acceptance and deferred exchange
+        run: |
+          source ./scripts/rust_test_stack.sh
+          cargo test -p agent-auth-http --features aws --test workload_consent_e2e --locked
+          bash scripts/run_deferred_exchange_test.sh
+
       - name: Verify durable delegation across HTTP runtime restart
         env:
           A_AUTH_TEST_DYNAMODB_ENDPOINT: http://127.0.0.1:8000

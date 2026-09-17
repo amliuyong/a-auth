@@ -797,6 +797,7 @@ async fn authorization_code_issued_before_reset_cannot_be_exchanged_after_passwo
             .put(
                 "",
                 CodeRecord {
+                    workload_actor: None,
                     code: code.to_string(),
                     client_id: client_id.to_string(),
                     cimd_snapshot: None,
