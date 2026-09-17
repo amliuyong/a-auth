@@ -6800,6 +6800,13 @@
             ],
             "description": "OIDC application type. Missing values default to `web`."
           },
+          "client_type": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Set to `workload` for a P2+ actor-only client with no redirects or\nclient secret. Omit for ordinary public/confidential registration."
+          },
           "default_resource": {
             "type": [
               "string",
@@ -7670,6 +7677,7 @@
         "type": "object",
         "required": [
           "client_id",
+          "client_type",
           "redirect_uris",
           "application_type",
           "token_endpoint_auth_method",
@@ -7699,6 +7707,9 @@
             ],
             "format": "int64",
             "description": "RFC 7591/7592 当前 client secret 的真实过期时间。"
+          },
+          "client_type": {
+            "type": "string"
           },
           "default_resource": {
             "type": [

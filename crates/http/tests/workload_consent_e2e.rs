@@ -632,3 +632,152 @@ async fn workload_consent_requires_explicit_actor_acknowledgement_from_the_page(
         "an old page that cannot display actors must not approve: {body}"
     );
 }
+
+async fn admin_post(router: &axum::Router, path: &str, body: Value) -> (StatusCode, Value) {
+    let response = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(path)
+                .header("host", HOST)
+                .header("authorization", "Bearer dev-admin-token-not-for-prod")
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let body =
+        serde_json::from_slice(&bytes).unwrap_or_else(|_| json!(String::from_utf8_lossy(&bytes)));
+    (status, body)
+}
+
+#[tokio::test]
+async fn workload_consent_admin_registered_actor_completes_first_exchange() {
+    let f = Fixture::new().await;
+    let (status, registered) = admin_post(
+        &f.router,
+        "/admin/clients",
+        json!({"client_type":"workload","redirect_uris":[]}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{registered}");
+    assert_eq!(registered["client_type"], "workload");
+    assert!(registered.get("client_secret").is_none());
+    let actor = registered["client_id"].as_str().unwrap();
+    let (status, body) = admin_post(
+        &f.router,
+        "/admin/workload-trust",
+        json!({
+            "binding_id":"http-registered-actor",
+            "tenant_id":"default",
+            "platform_issuer":PLATFORM,
+            "jwks_uri":JWKS,
+            "subject_pattern":actor,
+            "mapped_client_id":actor
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    let tokens = f.authorize(Some(actor)).await;
+    let (status, delegated) = f
+        .exchange(tokens["access_token"].as_str().unwrap(), actor, RESOURCE)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{delegated}");
+    let claims = claims(delegated["access_token"].as_str().unwrap());
+    assert_eq!(claims["act"]["sub"], actor);
+    let (status, body) = f
+        .token(&[
+            ("grant_type", "client_credentials"),
+            ("client_assertion", &f.actor(actor)),
+            ("client_assertion_type", JWT_BEARER),
+            ("resource", RESOURCE),
+        ])
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["error"], "invalid_target");
+
+    let query = form(&[
+        ("response_type", "code"),
+        ("client_id", actor),
+        ("redirect_uri", REDIRECT),
+        (
+            "code_challenge",
+            &agent_auth_client::s256_challenge(VERIFIER),
+        ),
+        ("code_challenge_method", "S256"),
+    ]);
+    let (status, _, body) = request(
+        &f.router,
+        "GET",
+        &format!("/authorize?{query}"),
+        &f.session,
+        "",
+        String::new(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+}
+
+#[tokio::test]
+async fn workload_registration_is_admin_only_and_rejects_mixed_client_profiles() {
+    let f = Fixture::new().await;
+    let valid = json!({"client_type":"workload","redirect_uris":[]});
+    let (status, _, body) = request(
+        &f.router,
+        "POST",
+        "/admin/clients",
+        &f.session,
+        "application/json",
+        valid.to_string(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
+    for patch in [
+        json!({"client_type":"unknown"}),
+        json!({"redirect_uris":[REDIRECT]}),
+        json!({"token_endpoint_auth_method":"client_secret_basic"}),
+        json!({"introspect_enabled":true}),
+        json!({"post_logout_redirect_uris":[REDIRECT]}),
+    ] {
+        let mut body = valid.clone();
+        body.as_object_mut()
+            .unwrap()
+            .extend(patch.as_object().unwrap().clone());
+        let (status, body) = admin_post(&f.router, "/admin/clients", body).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    }
+    let mut earlier_phase = f.state.clone();
+    earlier_phase.phase = Phase::P1;
+    let (router, _) = build_router(earlier_phase);
+    let (status, body) = admin_post(&router, "/admin/clients", valid).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+
+    let (status, _, registration) = request(
+        &f.router,
+        "POST",
+        "/register",
+        "",
+        "application/json",
+        json!({"client_type":"workload","application_type":"native","redirect_uris":[REDIRECT],"token_endpoint_auth_method":"none"})
+            .to_string(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{registration}");
+    let actor = registration["client_id"].as_str().unwrap();
+    let (status, _, body) = request(
+        &f.router,
+        "GET",
+        &format!("/authorize?{}", f.query(Some(actor), RESOURCE)),
+        &f.session,
+        "",
+        String::new(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+}

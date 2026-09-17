@@ -2082,6 +2082,11 @@ export interface components {
         AdminClientCreate: {
             /** @description OIDC application type. Missing values default to `web`. */
             application_type?: string | null;
+            /**
+             * @description Set to `workload` for a P2+ actor-only client with no redirects or
+             *     client secret. Omit for ordinary public/confidential registration.
+             */
+            client_type?: string | null;
             default_resource?: string | null;
             /** @description 是否授予 introspect 权限(MCP RS;控制面信任,C8.6)。 */
             introspect_enabled?: boolean;
@@ -2330,6 +2335,7 @@ export interface components {
              * @description RFC 7591/7592 当前 client secret 的真实过期时间。
              */
             client_secret_expires_at: number | null;
+            client_type: string;
             default_resource?: string | null;
             introspect_enabled: boolean;
             jwks?: null | components["schemas"]["RegisteredClientJwks"];

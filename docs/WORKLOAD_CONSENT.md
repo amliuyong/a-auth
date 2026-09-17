@@ -7,10 +7,27 @@ SDK remains a verifier/introspection SDK; an exchange client is not added.
 
 ## Provisioning and consent
 
-A tenant administrator first registers each workload client and its platform
-OIDC trust binding through the existing management APIs. Use distinct client
-IDs for `analysis-runtime` and `ops-runtime`. The platform JWT authenticates the
-workload; an ordinary a-auth access token cannot authenticate the actor.
+A tenant administrator first creates an actor-only client through
+`POST /admin/clients` with this JSON body:
+
+```json
+{"client_type":"workload","redirect_uris":[]}
+```
+
+This P2+ management operation returns a generated `client_id` and no client
+secret. The client cannot have browser redirects, a shared-secret authentication
+method or an introspection resource-server profile. Ordinary public DCR cannot
+create a workload. `GET /admin/clients` exposes each client's effective type.
+This registration grants no independent client-credentials resources; it is
+usable as an actor only after the user grants explicit consent.
+
+Register an OIDC trust binding through `POST /admin/workload-trust`, supplying
+`binding_id`, `tenant_id`, `platform_issuer`, `jwks_uri`, `subject_pattern` and
+the returned ID as `mapped_client_id`. Use a specific subject pattern for each
+runtime. Use distinct client IDs for `analysis-runtime` and `ops-runtime`.
+The platform JWT authenticates the workload; an ordinary a-auth access token
+cannot authenticate the actor. Neither registration nor consent needs a
+database edit.
 
 The 3LO application includes the optional `workload_actor` parameter in its
 `GET /authorize`, form `POST /authorize`, or P3 `POST /par` request:
