@@ -24,7 +24,7 @@ export default defineConfig({
   webServer: process.env.PLAYWRIGHT_EXTERNAL_WEB_SERVER
     ? undefined
     : {
-        command: 'npm run dev',
+        command: 'npm run dev -- --host 127.0.0.1 --port 5173 --strictPort',
         url: 'http://127.0.0.1:5173',
         reuseExistingServer: !process.env.CI,
         timeout: 60_000,
