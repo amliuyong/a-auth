@@ -397,8 +397,9 @@ export interface AgentAuthStackProps extends StackProps {
   readonly redirectPrefixAllowedHosts?: Readonly<Record<string, readonly string[]>>;
   /**
    * SaaS tenants whose owner-bound admin/SCIM target Secrets were intentionally
-   * removed by the offboarding workflow. Only those credential migration
-   * entries may treat Secrets Manager `Removed` as an already-complete state.
+   * removed by completed offboarding. Their runtime configuration is omitted,
+   * while resources and migration history remain owned by this stack.
+   * Only their credential migration entries may accept removed targets.
    */
   readonly offboardedTenantIds?: readonly string[];
   /**
@@ -661,6 +662,28 @@ export class AgentAuthStack extends Stack {
         throw new Error('SelfHosted 不得配置 offboardedTenantIds');
       }
     }
+    const offboardedTenants = new Set(props.offboardedTenantIds ?? []);
+    const activeSaasTenantIds = saasTenantIds.filter(
+      (tenant) => !offboardedTenants.has(tenant),
+    );
+    if (saasTenantIds.length > 0 && activeSaasTenantIds.length === 0) {
+      throw new Error('offboardedTenantIds must leave at least one active SaaS tenant');
+    }
+    if (
+      canonicalEmaPolicies &&
+      JSON.parse(canonicalEmaPolicies).some(
+        (entry: { tenant?: string } | null) =>
+          entry && offboardedTenants.has(entry.tenant ?? ''),
+      )
+    ) {
+      throw new Error('emaPolicies must not reference offboarded tenants');
+    }
+    // Do not ask Secrets Manager to rediscover completed offboarding: a
+    // deleted resource can return AccessDenied to a resource-scoped role.
+    const activeTenantConfig = <T>(config: Readonly<Record<string, T>>) =>
+      Object.fromEntries(
+        Object.entries(config).filter(([tenant]) => !offboardedTenants.has(tenant)),
+      );
     const cimdAllowedDomains = normalizeCimdDomains(
       props.cimdAllowedDomains ?? [],
       'cimdAllowedDomains',
@@ -677,6 +700,9 @@ export class AgentAuthStack extends Stack {
       }),
     );
     const cimdTenantPolicyKeys = Object.keys(cimdTenantAllowedDomains);
+    if (cimdTenantPolicyKeys.some((tenant) => offboardedTenants.has(tenant))) {
+      throw new Error('CIMD tenant policy must not reference offboarded tenants');
+    }
     const hasCimdPolicy =
       cimdAllowedDomains.length > 0 ||
       Object.values(cimdTenantAllowedDomains).some((domains) => domains.length > 0);
@@ -2330,17 +2356,17 @@ export class AgentAuthStack extends Stack {
       governance_hmac_secret_arn: governanceHmacSecret.secretArn,
       admin_credential_secret_arn: adminCredentialSecret.secretArn,
       passkey_origin_secret_arn: cloudFrontOriginSecret?.secretArn ?? null,
-      saas_tenants: saasTenantIds,
-      tenant_subject_types: props.tenantSubjectTypes ?? {},
-      redirect_prefix_allowed_hosts: props.redirectPrefixAllowedHosts ?? {},
-      tenant_admin_secret_arns: tenantAdminTargetArns,
+      saas_tenants: activeSaasTenantIds,
+      tenant_subject_types: activeTenantConfig(props.tenantSubjectTypes ?? {}),
+      redirect_prefix_allowed_hosts: activeTenantConfig(props.redirectPrefixAllowedHosts ?? {}),
+      tenant_admin_secret_arns: activeTenantConfig(tenantAdminTargetArns),
       scim_credential_secret_arn:
         saasTenantIds.length > 0 ? null : scimCredentialSecrets.default.secretArn,
-      scim_tenant_secret_arns: saasTenantIds.length > 0 ? scimTargetArns : {},
+      scim_tenant_secret_arns: saasTenantIds.length > 0 ? activeTenantConfig(scimTargetArns) : {},
       federation_attribute_mappings_table:
         federationAttributeMappingsTable.tableName,
-      tenant_residency: canonicalTenantResidency,
-      tenant_secret_dependencies: tenantSecretDependencies,
+      tenant_residency: activeTenantConfig(canonicalTenantResidency),
+      tenant_secret_dependencies: activeTenantConfig(tenantSecretDependencies),
     };
     const runtimeBootstrapSecretString = Fn.toJsonString(runtimeBootstrapDocument);
     const runtimeBootstrapConfigSecret = new secretsmanager.Secret(
@@ -2447,14 +2473,14 @@ export class AgentAuthStack extends Stack {
         passkey_origin_secret_arn: cloudFrontOriginSecret
           ? replicaSecretArn(cloudFrontOriginSecret)
           : null,
-        saas_tenants: saasTenantIds,
-        tenant_subject_types: props.tenantSubjectTypes ?? {},
-        redirect_prefix_allowed_hosts: props.redirectPrefixAllowedHosts ?? {},
-        tenant_admin_secret_arns: standbyTenantAdminArns,
+        saas_tenants: activeSaasTenantIds,
+        tenant_subject_types: activeTenantConfig(props.tenantSubjectTypes ?? {}),
+        redirect_prefix_allowed_hosts: activeTenantConfig(props.redirectPrefixAllowedHosts ?? {}),
+        tenant_admin_secret_arns: activeTenantConfig(standbyTenantAdminArns),
         scim_credential_secret_arn: null,
-        scim_tenant_secret_arns: standbyScimArns,
-        tenant_residency: canonicalTenantResidency,
-        tenant_secret_dependencies: standbyTenantSecretDependencies,
+        scim_tenant_secret_arns: activeTenantConfig(standbyScimArns),
+        tenant_residency: activeTenantConfig(canonicalTenantResidency),
+        tenant_secret_dependencies: activeTenantConfig(standbyTenantSecretDependencies),
       });
       standbyRuntimeBootstrapConfigSecret = new secretsmanager.Secret(
         this,
