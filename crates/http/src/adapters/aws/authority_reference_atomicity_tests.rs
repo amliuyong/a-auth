@@ -117,6 +117,7 @@ async fn fake_client_with_responses(
 
 fn code_record() -> CodeRecord {
     CodeRecord {
+        workload_actor: None,
         code: "code-1".to_string(),
         client_id: "client-1".to_string(),
         cimd_snapshot: None,

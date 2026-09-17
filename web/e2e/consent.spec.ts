@@ -1,5 +1,37 @@
 import { expect, test } from '@playwright/test';
 
+test('workload consent displays only the server validated actor and single hop limit', async ({ page }) => {
+  let acknowledgedActor: unknown;
+  await page.route('**/consent/context?*', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        client_id: 'coveai',
+        client_name: 'CoveAI',
+        client_source: 'registered',
+        scopes: ['db:read'],
+        resources: ['https://covedb.example'],
+        workload_actor: 'analysis-runtime',
+        csrf_token: 'server-issued-csrf',
+      }),
+    }),
+  );
+  await page.route('**/consent/decision', (route) => {
+    acknowledgedActor = JSON.parse(route.request().postData() ?? '{}').workload_actor;
+    return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+  });
+  await page.goto(
+    '/consent?client_id=coveai&redirect_uri=https%3A%2F%2Fcoveai.example%2Fcallback' +
+      '&resource=https%3A%2F%2Fcovedb.example&workload_actor=unvalidated-query-actor',
+  );
+  await expect(page.getByText('analysis-runtime', { exact: true })).toBeVisible();
+  await expect(page.getByText('unvalidated-query-actor', { exact: true })).toHaveCount(0);
+  await expect(page.getByText(/one delegation hop|单跳委托/)).toBeVisible();
+  await page.getByRole('button', { name: /^approve$|^同意$/i }).click();
+  await expect.poll(() => acknowledgedActor).toBe('analysis-runtime');
+});
+
 test('consent loads the server context and submits its CSRF token', async ({ page }) => {
   const authorizeQuery =
     'response_type=code&client_id=query-client' +

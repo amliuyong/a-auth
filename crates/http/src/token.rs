@@ -34,7 +34,7 @@ use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::ports::{
-    ClientStore, CodeStore, GraceStore, JtiStore, LeaseAcquire, RefreshStore, Signer,
+    ClientStore, CodeStore, GraceStore, GrantStore, JtiStore, LeaseAcquire, RefreshStore, Signer,
 };
 use crate::state::AppState;
 
@@ -1371,6 +1371,30 @@ async fn token_handler_inner(
         .into_response();
     }
 
+    // Revalidate the consented registration before signing. Transient reads
+    // release the code lease; a retired actor requires fresh authorization.
+    if let Err(response) = crate::workload_consent::validate(
+        &state,
+        &tenant,
+        record.workload_actor.as_deref(),
+        &record.resources,
+    )
+    .await
+    {
+        if response.status() == StatusCode::SERVICE_UNAVAILABLE {
+            reject!(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "temporarily_unavailable",
+                "workload registration unavailable"
+            );
+        }
+        reject_consumed!(
+            StatusCode::BAD_REQUEST,
+            "invalid_grant",
+            "consented workload registration is no longer valid"
+        );
+    }
+
     // per-client 限流(C10.7 / spec 005 §3.1):已认证且 redirect/PKCE 绑定正确的 replay
     // 必须先完成撤销，不能被普通签发限流跳过。新签发被限流时释放自己的 lease、
     // 不消费 code，返回 429 + Retry-After，允许稍后安全重试。
@@ -1721,8 +1745,7 @@ async fn token_handler_inner(
         credential_epoch,
         resources: record.resources.clone(),
         scope: record.scope.clone(),
-        // 普通 3LO 不授委托(actor_allowlist 空 → token-exchange 身份闸拒);委托授权源待 authorize/Grant 扩展。
-        actor_allowlist: vec![],
+        actor_allowlist: record.workload_actor.iter().cloned().collect(),
         max_act_chain: 1,
         // DPoP 绑定延续(spec 010 §5.2/B1):DPoP-bound 首签把 jkt 存进 family → refresh 换发须匹配 proof。
         dpop_jkt: dpop_jkt.clone(),
@@ -1764,10 +1787,8 @@ async fn token_handler_inner(
     }
 
     // spec 011 §5.1(P2):**正式化 Grant 对象**为授权权威源(family 回归纯 token 轮换记录)。
-    // 3LO code flow 授权:per_resource 由 authorize 声明的 resource 集合 + scope 构成;委托约束用
-    // migration_constraints(max_act_chain=1、actor_allowlist 仅 owning agent、expires_at 继承 family)。
-    // 普通 3LO 无 workload agent 概念,owning agent = client_id(code-flow client;token-exchange 身份闸
-    // 仍要求 actor 是已认证 workload,故普通 3LO 的 Grant 实际不授委托——与前身语义一致)。Grant 与
+    // 3LO code flow: delegation comes only from the explicitly consented workload.
+    // Ordinary codes carry no actor; client_id never implies delegation. Grant 与
     // family 同 id(grant_id=family_id)便于关联。Grant 创建不依赖 family 创建，确保单个存储
     // 瞬时失败时 access token 仍有可供 replay/在线验证吊销的权威记录。
     let per_resource: Vec<agent_auth_grant::ResourceGrant> = record
@@ -1799,7 +1820,11 @@ async fn token_handler_inner(
         allowed_vpce: vec![],
         credential_epoch,
         revision: 0,
-        constraints: agent_auth_grant::migration_constraints(client_id, now + GRANT_TTL_SECS),
+        constraints: agent_auth_grant::GrantConstraints {
+            max_act_chain: 1,
+            actor_allowlist: record.workload_actor.iter().cloned().collect(),
+            expires_at: now + GRANT_TTL_SECS,
+        },
         status: agent_auth_grant::GrantStatus::Active,
     };
     // T7.5:flag 开则 Cedar 预判收窄 effective + 打 pv 戳;策略缺失/坏 → fail-closed 不落 Grant。
@@ -1843,6 +1868,18 @@ async fn token_handler_inner(
             StatusCode::BAD_REQUEST,
             "invalid_client",
             "client authority changed during token issuance",
+        )
+        .into_response();
+    }
+    if record.workload_actor.is_some() && (!grant_created || !family_created) {
+        // Delegation requires both durable authorities. Never return a partially
+        // provisioned authorization that silently lost the user's actor consent.
+        let _ = state.refresh.revoke(&tenant, &family_id).await;
+        let _ = state.grants.revoke(&tenant, &family_id).await;
+        return err(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "temporarily_unavailable",
+            "workload delegation authority persistence failed; authorize again",
         )
         .into_response();
     }

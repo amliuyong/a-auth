@@ -959,6 +959,7 @@ async fn credential_epoch_rejects_code_and_refresh_family_that_escaped_cleanup()
         .put(
             "",
             CodeRecord {
+                workload_actor: None,
                 code: "escaped-old-code".to_string(),
                 client_id: client_id.to_string(),
                 cimd_snapshot: None,

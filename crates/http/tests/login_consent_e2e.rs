@@ -867,6 +867,136 @@ async fn authorize_continuation_query(
 }
 
 #[tokio::test]
+async fn workload_actor_consent_persists_explicit_single_resource_authority() {
+    let mut state = AppState::dev(HOST);
+    state.phase = agent_auth_http::Phase::P2;
+    // The development mail echo delivers the magic link; authorization itself
+    // uses a real login session and consent, never the login_user shortcut.
+    state.seed_dev_client(CLIENT, REDIRECT, None).await;
+    state.seed_workload_client("analysis-runtime").await;
+    state.seed_dev_user("alice@example.com").await;
+    let (router, _) = build_router(state);
+    let session = login_session(&router, "alice@example.com").await;
+    let verifier = "0123456789012345678901234567890123456789abc";
+    let challenge = agent_auth_client::s256_challenge(verifier);
+    let query = authorize_continuation_query(
+        &router,
+        &session,
+        &format!(
+            "response_type=code&client_id={CLIENT}&redirect_uri={REDIRECT}\
+             &code_challenge={challenge}&code_challenge_method=S256\
+             &scope=openid%20db:read&resource=https://covedb.example\
+             &workload_actor=analysis-runtime"
+        ),
+    )
+    .await;
+    assert!(
+        query.contains("workload_actor=analysis-runtime"),
+        "the login/consent continuation must retain the requested actor"
+    );
+    let response = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/consent/context?{query}"))
+                .header("host", HOST)
+                .header("cookie", format!("__Host-agent_auth_session={session}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let context: serde_json::Value = serde_json::from_slice(
+        &axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(context["workload_actor"], "analysis-runtime");
+    assert_eq!(
+        context["resources"],
+        serde_json::json!(["https://covedb.example"])
+    );
+    let response = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/consent/decision")
+                .header("host", HOST)
+                .header("cookie", format!("__Host-agent_auth_session={session}"))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                    "decision": "approve", "csrf": context["csrf_token"],
+                    "workload_actor": context["workload_actor"],
+                        "authorize_query": query
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let decision: serde_json::Value = serde_json::from_slice(
+        &axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    let redirect = url::Url::parse(decision["redirect"].as_str().unwrap()).unwrap();
+    let code = redirect
+        .query_pairs()
+        .find(|(key, _)| key == "code")
+        .unwrap()
+        .1
+        .into_owned();
+    let response = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/token")
+                .header("host", HOST)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(format!(
+                    "grant_type=authorization_code&client_id={CLIENT}&redirect_uri={REDIRECT}\
+                     &code={code}&code_verifier={verifier}&resource=https://covedb.example"
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let response = router
+        .oneshot(
+            Request::builder()
+                .uri("/grants")
+                .header("host", HOST)
+                .header("cookie", format!("__Host-agent_auth_session={session}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let grants: serde_json::Value = serde_json::from_slice(
+        &axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(grants.as_array().unwrap().len(), 1);
+    assert_eq!(
+        grants[0]["actor_allowlist"],
+        serde_json::json!(["analysis-runtime"])
+    );
+    assert_eq!(grants[0]["max_act_chain"], 1);
+}
+
+#[tokio::test]
 async fn consent_csrf_is_per_request_session_bound_required_and_accepted() {
     async fn authorize_to_consent_query(
         router: &axum::Router,

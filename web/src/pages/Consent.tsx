@@ -139,7 +139,10 @@ export function Consent() {
     setError(null);
     try {
       const { data, response } = await api.POST('/consent/decision', {
-        body: { decision, csrf, authorize_query: authorizeQuery },
+        body: {
+          decision, csrf, authorize_query: authorizeQuery,
+          workload_actor: context.workload_actor,
+        },
       });
       if (response.status === 401) {
         redirectToLogin();
@@ -217,6 +220,20 @@ export function Consent() {
                 ))}
               </Space>
             </Typography.Paragraph>
+          )}
+          {context.workload_actor && (
+            <Alert
+              type="info"
+              showIcon
+              message={t('consent.workloadActor')}
+              description={
+                <>
+                  <Typography.Text code>{context.workload_actor}</Typography.Text>
+                  <Typography.Paragraph>{t('consent.workloadActorLimit')}</Typography.Paragraph>
+                </>
+              }
+              style={{ marginBottom: 12 }}
+            />
           )}
         </>
       )}

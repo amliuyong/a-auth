@@ -2082,6 +2082,11 @@ export interface components {
         AdminClientCreate: {
             /** @description OIDC application type. Missing values default to `web`. */
             application_type?: string | null;
+            /**
+             * @description Set to `workload` for a P2+ actor-only client with no redirects or
+             *     client secret. Omit for ordinary public/confidential registration.
+             */
+            client_type?: string | null;
             default_resource?: string | null;
             /** @description 是否授予 introspect 权限(MCP RS;控制面信任,C8.6)。 */
             introspect_enabled?: boolean;
@@ -2224,6 +2229,11 @@ export interface components {
             response_type: string;
             scope?: string | null;
             state?: string | null;
+            /**
+             * @description Explicit consent to one registered workload client ID on one resource (P2+).
+             *     Wildcards and silent authorization are not supported.
+             */
+            workload_actor?: string | null;
         };
         /** @description 批准动作请求体。 */
         BcApproveDecision: {
@@ -2325,6 +2335,7 @@ export interface components {
              * @description RFC 7591/7592 当前 client secret 的真实过期时间。
              */
             client_secret_expires_at: number | null;
+            client_type: string;
             default_resource?: string | null;
             introspect_enabled: boolean;
             jwks?: null | components["schemas"]["RegisteredClientJwks"];
@@ -2362,12 +2373,19 @@ export interface components {
             /** @description 本次 authorize 声明的完整 RFC 8707 resource 集合。 */
             resources?: string[];
             scopes: string[];
+            /** @description Server-validated workload receiving single-hop delegation authority. */
+            workload_actor?: string | null;
         };
         ConsentDecision: {
             /** @description authorize 上下文(query 串:client_id/redirect_uri/scope/resource/state/code_challenge…)。 */
             authorize_query: string;
             csrf?: string;
             decision: string;
+            /**
+             * @description Actor displayed by the page. Required on approval when the query
+             *     requests workload delegation; prevents approval by an older frontend.
+             */
+            workload_actor?: string | null;
         };
         ConsentResult: {
             redirect: string;
@@ -2789,10 +2807,14 @@ export interface components {
         GovernanceRetentionExceptionCapability: "external_operator_managed";
         /** @description Grant 对外视图(不泄露内部结构的多余字段;够用户识别 + 决定是否吊销)。 */
         GrantView: {
+            /** @description Explicit workload delegation authority; empty means no actor is authorized. */
+            actor_allowlist: string[];
             client_id: string;
             /** Format: int64 */
             expires_at: number;
             grant_id: string;
+            /** Format: int32 */
+            max_act_chain: number;
             /** @description 已授权的 RS + scopes(逐 resource)。 */
             resources: components["schemas"]["ResourceView"][];
             status: string;
@@ -7912,6 +7934,11 @@ export interface operations {
                 code_challenge?: string;
                 code_challenge_method?: string;
                 scope?: string;
+                /**
+                 * @description Explicit consent to one registered workload client ID on one resource (P2+).
+                 *     Wildcards and silent authorization are not supported.
+                 */
+                workload_actor?: string;
                 state?: string;
                 /** @description OIDC `nonce`(C2.9):带则透传进 code、签 id_token 时 echo。 */
                 nonce?: string;
@@ -8101,6 +8128,8 @@ export interface operations {
             query: {
                 client_id: string;
                 redirect_uri: string;
+                /** @description One registered workload client ID to authorize on the single resource (P2+). */
+                workload_actor?: string;
                 scope?: string;
                 resource?: string[];
                 state?: string;
