@@ -279,6 +279,9 @@ jobs:
       - name: Install Chromium for exact Web conformance selectors
         run: npx playwright install --with-deps chromium
 
+      - name: Run consent browser acceptance
+        run: npx playwright test e2e/consent.spec.ts --project chromium
+
       - name: Run exact Web conformance selectors
         working-directory: .
         run: ./scripts/run_web_conformance_exact_tests.sh
