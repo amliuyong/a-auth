@@ -239,10 +239,29 @@ aws lambda get-function \
   --profile "$AWS_PROFILE_NAME" \
   --region "$AWS_REGION_NAME" \
   --function-name "$AUTH_FN_NAME" \
-  --query '{commit:Configuration.Environment.Variables.AGENT_AUTH_DEPLOYMENT_COMMIT,enabled:Configuration.Environment.Variables.AGENT_AUTH_EMA_ENABLED,policies_secret_arn:Configuration.Environment.Variables.AGENT_AUTH_EMA_POLICIES_SECRET_ARN,state:Configuration.State,last_update_status:Configuration.LastUpdateStatus,function_arn:Configuration.FunctionArn,code_sha256:Configuration.CodeSha256,code_url:Code.Location}' \
+  --query '{commit:Configuration.Environment.Variables.AGENT_AUTH_DEPLOYMENT_COMMIT,enabled:Configuration.Environment.Variables.AGENT_AUTH_EMA_ENABLED,policies_secret_arn:Configuration.Environment.Variables.AGENT_AUTH_EMA_POLICIES_SECRET_ARN,bootstrap_secret_arn:Configuration.Environment.Variables.AGENT_AUTH_BOOTSTRAP_CONFIG_SECRET_ARN,state:Configuration.State,last_update_status:Configuration.LastUpdateStatus,function_arn:Configuration.FunctionArn,code_sha256:Configuration.CodeSha256,code_url:Code.Location}' \
   --output json >"$WORK/runtime.json"
 
-EMA_POLICIES_SECRET_ARN="$(jq -er '.policies_secret_arn' "$WORK/runtime.json")"
+# The EMA policy Secret is referenced from the runtime bootstrap document so it
+# stays out of the 4 KiB Lambda environment; a direct env reference is legacy.
+EMA_POLICIES_SECRET_ARN="$(jq -r '.policies_secret_arn // empty' "$WORK/runtime.json")"
+BOOTSTRAP_SECRET_ARN="$(jq -r '.bootstrap_secret_arn // empty' "$WORK/runtime.json")"
+if [[ -n "$BOOTSTRAP_SECRET_ARN" ]]; then
+  aws secretsmanager get-secret-value \
+    --profile "$AWS_PROFILE_NAME" \
+    --region "$AWS_REGION_NAME" \
+    --secret-id "$BOOTSTRAP_SECRET_ARN" \
+    --query SecretString \
+    --output text >"$WORK/bootstrap-config.json"
+  BOOTSTRAP_EMA_ARN="$(jq -r '.ema_policies_secret_arn // empty' "$WORK/bootstrap-config.json")"
+  if [[ -n "$BOOTSTRAP_EMA_ARN" ]]; then
+    [[ -z "$EMA_POLICIES_SECRET_ARN" ]] ||
+      fail "EMA policy Secret is referenced by both the environment and bootstrap config"
+    EMA_POLICIES_SECRET_ARN="$BOOTSTRAP_EMA_ARN"
+  fi
+fi
+[[ -n "$EMA_POLICIES_SECRET_ARN" ]] ||
+  fail "deployed runtime does not reference an EMA policy Secret"
 aws secretsmanager get-secret-value \
   --profile "$AWS_PROFILE_NAME" \
   --region "$AWS_REGION_NAME" \

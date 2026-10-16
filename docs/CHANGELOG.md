@@ -18,6 +18,12 @@ configuration, APIs, deployment resources, or SDKs.
 - Okta Cross App Access acquisition helpers (`e2e/okta_xaa_login.py`,
   `e2e/okta_xaa_acquire.sh`) for the external EMA acceptance gate.
 
+### Fixed
+
+- The EMA policy Secret reference now lives in the runtime bootstrap
+  configuration document instead of the Lambda environment, so enabling EMA no
+  longer pushes the SaaS runtime past the 4 KiB environment limit.
+
 ### Documentation
 
 - The README now surfaces the current release, enforced conformance evidence,
