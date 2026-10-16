@@ -7056,14 +7056,32 @@
       "runner": "scripts/run_python_conformance_exact_tests.sh",
       "ci_target": "ci.python.exact"
     },
+    "recorded.c13.8.okta-dev-live": {
+      "kind": "recorded_live_reference",
+      "coverage_level": "recorded_reference",
+      "verification": "recorded_reference_only",
+      "script": "e2e/ema_external.sh",
+      "deployment_commit": "2ac5d69e1c8539e9b4e37104f164c6daee8efac0",
+      "evidence_sha256": "a816dc704b26d7f4ae99122005e4c9d0e6dfc0c31e9204af4fe9afd07bdbc6f9",
+      "description": "Real Okta Integrator Free Plan Cross App Access run against AgentAuthDev on 2026-10-16 UTC: an Okta AI Agent ID-JAG with a policy-allowed single-level act was exchanged at the public CloudFront /token for a no-store single-resource ES256 token, independently verified, replay-rejected, and accepted/401/403-scoped by the RS (issue #2); evidence_sha256 covers the published copy with AWS account IDs, ARNs, and deployment/IdP hostnames redacted)."
+    },
+    "recorded.c13.8.okta-saas-live": {
+      "kind": "recorded_live_reference",
+      "coverage_level": "recorded_reference",
+      "verification": "recorded_reference_only",
+      "script": "e2e/ema_external.sh",
+      "deployment_commit": "2ac5d69e1c8539e9b4e37104f164c6daee8efac0",
+      "evidence_sha256": "9b551841a79760f0d6077bbae1f65b74492ed2b6d761b66bc7d09bd5b1797aff",
+      "description": "Real Okta Integrator Free Plan Cross App Access run against AgentAuthSaas tenant t1 on 2026-10-16 UTC with the same strict policy shape: public /token exchange, independent ES256 verification, replay rejection, and RS accept/401/403 scope boundaries all passed (issue #2); evidence_sha256 covers the published copy with AWS account IDs, ARNs, and deployment/IdP hostnames redacted)."
+    },
     "recorded.c12.2.okta-live": {
       "kind": "recorded_live_reference",
       "coverage_level": "recorded_reference",
       "verification": "recorded_reference_only",
       "script": "e2e/okta_scim_users.sh",
       "deployment_commit": "5d42021f840eb88314eca2dc5e646e2111fa6c3b",
-      "evidence_sha256": "4157c782ed0014c0c764469d02a4c6f457322d2d0f0d00e324eeb04c9e339534",
-      "description": "Real Okta Integrator Free Plan private SCIM run on 2026-10-16 UTC: assignment provisioned, unassignment deprovisioned, reassignment re-provisioned the same canonical user and externalId, and fixture cleanup was verified (issue #1)."
+      "evidence_sha256": "391a45aec773a21ba840261332e824fefe51a11314bb6c13a7b8c1e9da5ffd3c",
+      "description": "Real Okta Integrator Free Plan private SCIM run on 2026-10-16 UTC: assignment provisioned, unassignment deprovisioned, reassignment re-provisioned the same canonical user and externalId, and fixture cleanup was verified (issue #1); evidence_sha256 covers the published copy with the deployment hostname redacted."
     },
     "exact.c13.8.malformed-form": {
       "kind": "repo_test",
@@ -13019,7 +13037,10 @@
         "exact.c13.8.permanent-failure",
         "exact.c13.7.http-access-contract"
       ],
-      "recorded_references": []
+      "recorded_references": [
+        "recorded.c13.8.okta-dev-live",
+        "recorded.c13.8.okta-saas-live"
+      ]
     }
   }
 }

@@ -9,8 +9,8 @@ fresh ID-JAG.
 
 Usage (run in your own terminal; the client secret is read with getpass):
   python3 -I e2e/okta_xaa_login.py \
-    --org-url https://integrator-7376915.okta.com \
-    --client-id 0oa18sd155l68xKP2698 \
+    --org-url https://<your-org>.okta.com \
+    --client-id <requesting-app-client-id> \
     [--out ~/.config/agent-auth/okta-xaa.json] [--port 8765] \
     [--client-secret-from-clipboard]
 """

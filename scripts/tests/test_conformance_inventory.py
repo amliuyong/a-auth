@@ -44,9 +44,9 @@ class ConformanceInventoryTests(unittest.TestCase):
 
         self.assertEqual(
             counts,
-            {"total": 149, "complete": 145, "partial": 2, "missing": 2},
+            {"total": 149, "complete": 146, "partial": 1, "missing": 2},
         )
-        self.assertEqual(len(incomplete), 4)
+        self.assertEqual(len(incomplete), 3)
 
     def test_rejects_status_and_count_drift(self) -> None:
         document = DOCUMENT.read_text(encoding="utf-8").replace(
@@ -73,7 +73,7 @@ class ConformanceInventoryTests(unittest.TestCase):
         inventory["incomplete_requirements"] = [
             entry
             for entry in inventory["incomplete_requirements"]
-            if entry["id"] != "13.8"
+            if entry["id"] != "10.22b"
         ]
 
         with self.assertRaisesRegex(
@@ -129,8 +129,8 @@ class ConformanceInventoryTests(unittest.TestCase):
         changed = copy.deepcopy(inventory)
         changed["expected_counts"] = {
             "total": 149,
-            "complete": 144,
-            "partial": 3,
+            "complete": 145,
+            "partial": 2,
             "missing": 2,
         }
         changed["incomplete_requirements"].append(
@@ -146,8 +146,8 @@ class ConformanceInventoryTests(unittest.TestCase):
         document = (
             DOCUMENT.read_text(encoding="utf-8")
             .replace(
+                "total=149，☑=146，◑=1，☐=2",
                 "total=149，☑=145，◑=2，☐=2",
-                "total=149，☑=144，◑=3，☐=2",
                 1,
             )
             .replace(
@@ -163,15 +163,38 @@ class ConformanceInventoryTests(unittest.TestCase):
     def test_applicable_gap_requires_tracking_issue(self) -> None:
         inventory = json.loads(INVENTORY.read_text(encoding="utf-8"))
         changed = copy.deepcopy(inventory)
-        requirement = next(
-            entry
-            for entry in changed["incomplete_requirements"]
-            if entry["id"] == "13.8"
+        changed["expected_counts"] = {
+            "total": 149,
+            "complete": 145,
+            "partial": 2,
+            "missing": 2,
+        }
+        changed["incomplete_requirements"].append(
+            {
+                "id": "13.8",
+                "status": "partial",
+                "applicability": "required_for_claimed_profile",
+                "classification": "externally_blocked",
+                "tracking_issues": [],
+                "reason": "Test fixture for applicable-gap tracking validation.",
+            }
         )
-        requirement["tracking_issues"] = []
+        document = (
+            DOCUMENT.read_text(encoding="utf-8")
+            .replace(
+                "total=149，☑=146，◑=1，☐=2",
+                "total=149，☑=145，◑=2，☐=2",
+                1,
+            )
+            .replace(
+                "| ☑ | 13.8 |",
+                "| ◑ | 13.8 |",
+                1,
+            )
+        )
 
         with self.assertRaisesRegex(ValueError, "needs a tracking issue"):
-            self.validate_copy(inventory=changed)
+            self.validate_copy(document_text=document, inventory=changed)
 
 
 if __name__ == "__main__":
