@@ -4,8 +4,8 @@
   "requirement_ids_sha256": "a3c5eae8b56b7c01fe1ecd9a9de0fdf8c33a065945f5fc4f5907346610270071",
   "expected_counts": {
     "total": 149,
-    "complete": 145,
-    "partial": 2,
+    "complete": 146,
+    "partial": 1,
     "missing": 2
   },
   "incomplete_requirements": [
@@ -32,16 +32,6 @@
       "classification": "disabled_not_applicable",
       "tracking_issues": [],
       "reason": "The claims-tier shared-key profile is not enabled in the default per-tenant-CMK SaaS deployment."
-    },
-    {
-      "id": "13.8",
-      "status": "partial",
-      "applicability": "required_for_claimed_profile",
-      "classification": "externally_blocked",
-      "tracking_issues": [
-        "https://github.com/amliuyong/a-auth/issues/2"
-      ],
-      "reason": "Real third-party ID-JAG interoperability evidence is outstanding for Dev and SaaS."
     }
   ]
 }
