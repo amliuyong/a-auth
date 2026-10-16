@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import tarfile
 import urllib.parse
@@ -19,6 +20,16 @@ MONITOR_ISSUE_TITLE = "[conformance] continuous gate monitoring failure"
 EXTERNAL_JOB_NAME = "OIDC Basic OP and selected RFC 9700"
 SCHEDULE_MAX_INTERVAL_HOURS = 30
 RUNNER_STALL_HOURS = 3
+# The public run artifact keeps only these files plus the sealed archive, its
+# checksum, the redacted summaries, and the public manifest. Every other result
+# can name the protected issuer and is sealed.
+PUBLIC_RESULT_FILES = frozenset({"oidf-raw.tar.gpg", "oidf-raw.tar.gpg.sha256"})
+REDACTED_SUMMARIES = ("gate-summary.md", "promotion-summary.md")
+SEALED_ARCHIVE = "conformance-evidence.tar.gpg"
+PUBLIC_MANIFEST = "public-manifest.json"
+OIDF_PLAN_LINK = re.compile(
+    r"https://www\.certification\.openid\.net/plan-detail\.html\?plan=[A-Za-z0-9_-]+"
+)
 
 
 def require(condition: bool, message: str) -> None:
@@ -289,7 +300,6 @@ def issue_body(args: argparse.Namespace) -> str:
     return (
         "The external conformance release gate failed.\n\n"
         f"- Job result: `{args.job_result}`\n"
-        f"- Issuer: `{args.issuer}`\n"
         f"- Deployment: `{deployment}`\n"
         f"- Workflow run: {args.server_url}/{args.repository}/actions/runs/"
         f"{args.run_id}\n\n"
@@ -893,20 +903,34 @@ def verify_archive(encrypted_archive: Path, passphrase_file: Path) -> None:
         )
 
 
-def encrypt_evidence(args: argparse.Namespace) -> None:
-    passphrase_file = args.work_dir / "artifact-passphrase"
-    plaintext_archive = args.work_dir / "oidf-raw.tar"
-    cleanup_paths = [passphrase_file, plaintext_archive, args.secret_config]
+def require_artifact_passphrase(passphrase: str) -> None:
+    require(
+        len(passphrase) >= 32,
+        "CONFORMANCE_ARTIFACT_PASSPHRASE must contain at least 32 characters",
+    )
+
+
+def encrypt_directory(
+    *,
+    source_dir: Path,
+    passphrase: str,
+    work_dir: Path,
+    plaintext_name: str,
+    encrypted_archive: Path,
+    checksum: Path,
+    extra_cleanup: list[Path],
+) -> None:
+    """Encrypt source_dir, then shred it and every plaintext intermediate."""
+    passphrase_file = work_dir / "artifact-passphrase"
+    plaintext_archive = work_dir / plaintext_name
+    cleanup_paths = [passphrase_file, plaintext_archive, *extra_cleanup]
     encrypted_complete = False
     try:
-        require(
-            len(args.passphrase) >= 32,
-            "CONFORMANCE_ARTIFACT_PASSPHRASE must contain at least 32 characters",
-        )
-        args.work_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-        args.raw_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-        args.encrypted_archive.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        create_secret_file(passphrase_file, args.passphrase)
+        require_artifact_passphrase(passphrase)
+        work_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        source_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        encrypted_archive.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        create_secret_file(passphrase_file, passphrase)
         descriptor = os.open(
             plaintext_archive,
             os.O_WRONLY | os.O_CREAT | os.O_EXCL,
@@ -916,7 +940,7 @@ def encrypt_evidence(args: argparse.Namespace) -> None:
             os.fdopen(descriptor, "wb") as plaintext,
             tarfile.open(fileobj=plaintext, mode="w") as archive,
         ):
-            archive.add(args.raw_dir, arcname=".")
+            archive.add(source_dir, arcname=".")
         subprocess.run(
             [
                 "gpg",
@@ -936,25 +960,159 @@ def encrypt_evidence(args: argparse.Namespace) -> None:
                 "--s2k-digest-algo",
                 "SHA512",
                 "--output",
-                str(args.encrypted_archive),
+                str(encrypted_archive),
                 str(plaintext_archive),
             ],
             check=True,
         )
-        verify_archive(args.encrypted_archive, passphrase_file)
-        digest = hashlib.sha256(args.encrypted_archive.read_bytes()).hexdigest()
-        args.checksum.write_text(
-            f"{digest}  {args.encrypted_archive.name}\n",
+        verify_archive(encrypted_archive, passphrase_file)
+        digest = hashlib.sha256(encrypted_archive.read_bytes()).hexdigest()
+        checksum.write_text(
+            f"{digest}  {encrypted_archive.name}\n",
             encoding="ascii",
         )
         encrypted_complete = True
     finally:
         try:
-            clean_sensitive_files(cleanup_paths, args.raw_dir)
+            clean_sensitive_files(cleanup_paths, source_dir)
         finally:
             if not encrypted_complete:
-                args.encrypted_archive.unlink(missing_ok=True)
-                args.checksum.unlink(missing_ok=True)
+                encrypted_archive.unlink(missing_ok=True)
+                checksum.unlink(missing_ok=True)
+
+
+def encrypt_evidence(args: argparse.Namespace) -> None:
+    encrypt_directory(
+        source_dir=args.raw_dir,
+        passphrase=args.passphrase,
+        work_dir=args.work_dir,
+        plaintext_name="oidf-raw.tar",
+        encrypted_archive=args.encrypted_archive,
+        checksum=args.checksum,
+        extra_cleanup=[args.secret_config],
+    )
+
+
+def issuer_markers(issuer: str) -> tuple[str, str]:
+    validate_https_issuer(issuer)
+    host = urllib.parse.urlsplit(issuer).hostname
+    require(bool(host), "issuer must contain a host")
+    return issuer.rstrip("/"), host.lower()
+
+
+def redact_public_text(text: str, origin: str, host: str) -> str:
+    text = text.replace(origin, "<configured issuer>")
+    text = re.sub(
+        re.escape(host), "<configured issuer host>", text, flags=re.IGNORECASE
+    )
+    return OIDF_PLAN_LINK.sub("<sealed OIDF plan link>", text)
+
+
+def require_no_issuer(path: Path, label: str, origin: str, host: str) -> None:
+    data = path.read_bytes()
+    require(
+        origin.encode() not in data and host.encode() not in data.lower(),
+        f"public artifact file names the configured issuer: {label}",
+    )
+
+
+def seal_results(args: argparse.Namespace) -> None:
+    """Seal every issuer-bearing result before the public upload.
+
+    Public repository artifacts, step summaries, and tracker issues must not
+    name the protected issuer. The sealed archive keeps the exact files that
+    validate-promotion and exception replay consume, so their digests remain
+    valid after an authorized decrypt.
+    """
+    origin, host = issuer_markers(args.issuer)
+    require_artifact_passphrase(args.passphrase)
+    results = args.results_dir
+    results.mkdir(mode=0o700, parents=True, exist_ok=True)
+    staging = args.work_dir / "sealed-results"
+    require(not staging.exists(), f"{staging} already exists")
+    for name in (SEALED_ARCHIVE, f"{SEALED_ARCHIVE}.sha256", PUBLIC_MANIFEST):
+        require(not (results / name).exists(), f"{name} already exists")
+    entries = sorted(results.rglob("*"))
+    require(
+        not any(path.is_symlink() for path in entries),
+        "conformance results must not contain a symlink",
+    )
+    files = [path for path in entries if path.is_file()]
+    sealed = [
+        path
+        for path in files
+        if path.relative_to(results).as_posix() not in PUBLIC_RESULT_FILES
+    ]
+    for path in files:
+        label = path.relative_to(results).as_posix()
+        if label in PUBLIC_RESULT_FILES and not label.endswith(".gpg"):
+            require_no_issuer(path, label, origin, host)
+
+    redacted = {
+        name: redact_public_text(
+            (results / name).read_text(encoding="utf-8"), origin, host
+        )
+        for name in REDACTED_SUMMARIES
+        if (results / name).is_file()
+    }
+    manifest_files = []
+    args.work_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    staging.mkdir(mode=0o700)
+    try:
+        for path in sealed:
+            relative = path.relative_to(results)
+            target = staging / relative
+            target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            shutil.copyfile(path, target)
+            manifest_files.append(
+                {
+                    "path": relative.as_posix(),
+                    "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                }
+            )
+        encrypt_directory(
+            source_dir=staging,
+            passphrase=args.passphrase,
+            work_dir=args.work_dir,
+            plaintext_name="conformance-evidence.tar",
+            encrypted_archive=results / SEALED_ARCHIVE,
+            checksum=results / f"{SEALED_ARCHIVE}.sha256",
+            extra_cleanup=[],
+        )
+    finally:
+        # encrypt_directory shreds the staging copies itself; this covers a
+        # failure while copying, before encryption starts.
+        if staging.exists():
+            clean_sensitive_files([], staging)
+    for path in sealed:
+        secure_remove(path)
+    for directory in sorted(
+        (path for path in results.rglob("*") if path.is_dir()),
+        key=lambda path: len(path.parts),
+        reverse=True,
+    ):
+        if not any(directory.iterdir()):
+            directory.rmdir()
+    for name, text in redacted.items():
+        (results / name).write_text(text, encoding="utf-8")
+    archive_digest = hashlib.sha256((results / SEALED_ARCHIVE).read_bytes())
+    (results / PUBLIC_MANIFEST).write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "issuer_sha256": hashlib.sha256(origin.encode()).hexdigest(),
+                "sealed_archive": SEALED_ARCHIVE,
+                "sealed_archive_sha256": archive_digest.hexdigest(),
+                "sealed_files": manifest_files,
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    for path in sorted(results.rglob("*")):
+        if path.is_file() and path.suffix != ".gpg":
+            require_no_issuer(path, path.relative_to(results).as_posix(), origin, host)
 
 
 def parser() -> argparse.ArgumentParser:
@@ -984,7 +1142,6 @@ def parser() -> argparse.ArgumentParser:
     promotion.set_defaults(handler=validate_promotion)
 
     track = commands.add_parser("track-failure")
-    track.add_argument("--issuer", required=True)
     track.add_argument("--deployment-version", required=True)
     track.add_argument("--server-url", required=True)
     track.add_argument("--repository", required=True)
@@ -1012,6 +1169,15 @@ def parser() -> argparse.ArgumentParser:
     encrypt.add_argument("--checksum", required=True, type=Path)
     encrypt.set_defaults(
         handler=encrypt_evidence,
+        passphrase=os.environ.get("ARTIFACT_PASSPHRASE", ""),
+    )
+
+    seal = commands.add_parser("seal-results")
+    seal.add_argument("--results-dir", required=True, type=Path)
+    seal.add_argument("--issuer", required=True)
+    seal.add_argument("--work-dir", required=True, type=Path)
+    seal.set_defaults(
+        handler=seal_results,
         passphrase=os.environ.get("ARTIFACT_PASSPHRASE", ""),
     )
 

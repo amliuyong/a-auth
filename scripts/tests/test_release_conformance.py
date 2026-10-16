@@ -244,7 +244,6 @@ class ReleaseConformanceCliTests(unittest.TestCase):
             body = root / "failure.md"
             summary.write_text("# Gate failed\n")
             args = argparse.Namespace(
-                issuer=ISSUER,
                 deployment_version="a" * 40,
                 job_result="failure",
                 server_url="https://github.com",
@@ -277,12 +276,13 @@ class ReleaseConformanceCliTests(unittest.TestCase):
             ["gh", "issue", "comment", "27"],
         )
         self.assertIn("# Gate failed", rendered_body)
+        self.assertNotIn("Issuer", rendered_body)
+        self.assertNotIn("issuer.example.com", rendered_body)
 
     def test_tracks_invalid_configuration_without_an_empty_issue_key(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             args = argparse.Namespace(
-                issuer=ISSUER,
                 deployment_version="",
                 job_result="skipped",
                 server_url="https://github.com",
@@ -339,10 +339,7 @@ class ReleaseConformanceCliTests(unittest.TestCase):
         )
         self.assertIn("      issues: write", tracker)
         self.assertNotIn("    environment: conformance", tracker)
-        self.assertIn(
-            "needs.external-conformance.outputs.issuer_b64",
-            tracker,
-        )
+        self.assertNotIn("issuer", tracker.lower())
         self.assertNotIn(
             "issues: write",
             workflow[: workflow.index("  track-release-gate-failure:")],
@@ -1038,6 +1035,279 @@ class ReleaseConformanceCliTests(unittest.TestCase):
         self.assertFalse(secret_config.exists())
         self.assertFalse(encrypted.exists())
         self.assertFalse(checksum.exists())
+
+    def test_protected_issuer_never_reaches_public_run_surfaces(self) -> None:
+        workflow = (
+            REPO_ROOT / ".github" / "workflows" / "release-conformance.yml"
+        ).read_text()
+
+        dispatch = workflow[
+            workflow.index("  workflow_dispatch:") : workflow.index("permissions: {}")
+        ]
+        self.assertNotIn("      issuer:", dispatch)
+        self.assertIn("      deployment_version:", dispatch)
+        self.assertNotIn("inputs.issuer", workflow)
+        self.assertNotIn("vars.CONFORMANCE_ISSUER", workflow)
+        self.assertNotIn("issuer_b64", workflow)
+        self.assertIn("      ISSUER: ${{ secrets.CONFORMANCE_ISSUER }}", workflow)
+        self.assertIn(
+            "      CONFIGURED_ISSUER: ${{ secrets.CONFORMANCE_ISSUER }}",
+            workflow,
+        )
+        external = workflow[: workflow.index("  track-release-gate-failure:")]
+        first_step = external[external.index("    steps:\n") :].splitlines()[1]
+        self.assertEqual(
+            first_step,
+            "      - name: Mask the protected issuer and export release context",
+        )
+        mask_script = self.workflow_step_script(
+            "Mask the protected issuer and export release context"
+        )
+        self.assertIn('[[ "$ISSUER" == https://* ]]', mask_script)
+        self.assertIn('[[ "$issuer_host" =~ ^[A-Za-z0-9.-]+$ ]]', mask_script)
+        self.assertIn('echo "::add-mask::$issuer_host"', mask_script)
+        self.assertIn('echo "::add-mask::${issuer_host,,}"', mask_script)
+        self.assertLess(
+            mask_script.index("::add-mask::"), mask_script.index("GITHUB_OUTPUT")
+        )
+        self.assertNotIn('echo "$ISSUER"', mask_script)
+        seal_script = self.workflow_step_script("Seal issuer-bearing results")
+        self.assertIn("scripts/release_conformance.py seal-results", seal_script)
+        self.assertIn('--issuer "$ISSUER"', seal_script)
+        self.assertEqual(workflow.count("GITHUB_STEP_SUMMARY"), 1)
+        self.assertIn("GITHUB_STEP_SUMMARY", seal_script)
+        self.assertLess(
+            workflow.index(
+                "- name: Invalidate approval after evidence packaging failure"
+            ),
+            workflow.index("- name: Seal issuer-bearing results"),
+        )
+        self.assertLess(
+            workflow.index("- name: Seal issuer-bearing results"),
+            workflow.index("- name: Upload conformance evidence"),
+        )
+        upload = workflow[workflow.index("- name: Upload conformance evidence") :]
+        self.assertIn(
+            "if: ${{ always() && steps.seal_results.outcome == 'success' }}",
+            upload.splitlines()[1],
+        )
+
+    def run_seal(
+        self,
+        results: Path,
+        work: Path,
+        passphrase: str,
+    ) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT),
+                "seal-results",
+                "--results-dir",
+                str(results),
+                "--issuer",
+                ISSUER,
+                "--work-dir",
+                str(work),
+            ],
+            env={**os.environ, "ARTIFACT_PASSPHRASE": passphrase},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def seal_fixture(self, root: Path) -> tuple[Path, Path, dict[str, bytes]]:
+        results = root / "results"
+        work = root / "work"
+        (results / "nested").mkdir(parents=True)
+        sealed = {
+            "evidence.json": json.dumps(
+                {"deployment": {"issuer": ISSUER, "version": "a" * 40}}
+            ).encode(),
+            "approved-profile-claims.json": json.dumps(
+                {"deployment": {"issuer": ISSUER}}
+            ).encode(),
+            "deployment-commit-preflight-start.json": json.dumps(
+                {"discovery_url": f"{ISSUER}/.well-known/openid-configuration"}
+            ).encode(),
+            "nested/agent-auth-rfc9700.json": (
+                b'{"request": "https://ISSUER.EXAMPLE.COM/token"}'
+            ),
+            "oidf-plan-id.txt": b"Pll8PRIYumXc3\n",
+            "gate-summary.md": (
+                "# External conformance gate: PASS\n\n"
+                f"- Issuer: `{ISSUER}`\n"
+                "- Host: ISSUER.example.com\n"
+                "- Callback: https%3A%2F%2Fissuer.example.com%2Fcb\n"
+                "- `oidf-basic-op-code` `5.3.3`: https://www.certification."
+                "openid.net/plan-detail.html?plan=Pll8PRIYumXc3\n"
+            ).encode(),
+            "promotion-summary.md": (
+                f"# Promotion conformance authorization: PASS\n\n- Issuer: `{ISSUER}`\n"
+            ).encode(),
+        }
+        for name, data in sealed.items():
+            (results / name).write_bytes(data)
+        (results / "oidf-raw.tar.gpg").write_bytes(b"\x8c\rencrypted")
+        (results / "oidf-raw.tar.gpg.sha256").write_text(
+            f"{'0' * 64}  oidf-raw.tar.gpg\n"
+        )
+        return results, work, sealed
+
+    @unittest.skipUnless(
+        shutil.which("gpg") and shutil.which("shred"),
+        "gpg and shred are required",
+    )
+    def test_seal_results_encrypts_issuer_bearing_files_and_redacts_summaries(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            results, work, sealed = self.seal_fixture(Path(directory))
+
+            completed = self.run_seal(results, work, PASSPHRASE)
+
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            public = sorted(
+                path.relative_to(results).as_posix()
+                for path in results.rglob("*")
+                if path.is_file()
+            )
+            self.assertEqual(
+                public,
+                [
+                    "conformance-evidence.tar.gpg",
+                    "conformance-evidence.tar.gpg.sha256",
+                    "gate-summary.md",
+                    "oidf-raw.tar.gpg",
+                    "oidf-raw.tar.gpg.sha256",
+                    "promotion-summary.md",
+                    "public-manifest.json",
+                ],
+            )
+            for path in results.rglob("*"):
+                if path.is_file() and path.suffix != ".gpg":
+                    data = path.read_bytes().lower()
+                    self.assertNotIn(b"issuer.example.com", data, path.name)
+                    self.assertNotIn(b"pll8priyumxc3", data, path.name)
+            gate = (results / "gate-summary.md").read_text()
+            self.assertIn("- Issuer: `<configured issuer>`", gate)
+            self.assertIn("- Host: <configured issuer host>", gate)
+            self.assertIn(
+                "- Callback: https%3A%2F%2F<configured issuer host>%2Fcb", gate
+            )
+            self.assertIn("<sealed OIDF plan link>", gate)
+            manifest = json.loads((results / "public-manifest.json").read_text())
+            self.assertEqual(
+                manifest["issuer_sha256"],
+                hashlib.sha256(ISSUER.encode()).hexdigest(),
+            )
+            self.assertEqual(
+                {entry["path"]: entry["sha256"] for entry in manifest["sealed_files"]},
+                {
+                    name: hashlib.sha256(data).hexdigest()
+                    for name, data in sealed.items()
+                },
+            )
+            archive = (results / "conformance-evidence.tar.gpg").read_bytes()
+            self.assertEqual(
+                manifest["sealed_archive_sha256"],
+                hashlib.sha256(archive).hexdigest(),
+            )
+            self.assertEqual(
+                (results / "conformance-evidence.tar.gpg.sha256").read_text(),
+                f"{hashlib.sha256(archive).hexdigest()}  "
+                "conformance-evidence.tar.gpg\n",
+            )
+            self.assertEqual(list(work.iterdir()), [])
+            decrypted = subprocess.run(
+                [
+                    "gpg",
+                    "--batch",
+                    "--quiet",
+                    "--pinentry-mode",
+                    "loopback",
+                    "--passphrase",
+                    PASSPHRASE,
+                    "--decrypt",
+                    str(results / "conformance-evidence.tar.gpg"),
+                ],
+                check=True,
+                capture_output=True,
+            ).stdout
+            with tarfile.open(fileobj=io.BytesIO(decrypted)) as tar:
+                for name, data in sealed.items():
+                    member = tar.extractfile(f"./{name}")
+                    assert member is not None
+                    self.assertEqual(member.read(), data, name)
+
+    def test_seal_results_failure_publishes_no_partial_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            results, work, sealed = self.seal_fixture(Path(directory))
+
+            completed = self.run_seal(results, work, "short")
+
+            self.assertEqual(completed.returncode, 1)
+            self.assertIn("at least 32 characters", completed.stderr)
+            self.assertFalse((results / "conformance-evidence.tar.gpg").exists())
+            self.assertFalse((results / "public-manifest.json").exists())
+            self.assertFalse((work / "sealed-results").exists())
+            self.assertEqual(
+                (results / "gate-summary.md").read_bytes(),
+                sealed["gate-summary.md"],
+            )
+
+    def test_seal_results_removes_staged_copies_when_copying_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            results, work, _sealed = self.seal_fixture(Path(directory))
+            args = argparse.Namespace(
+                results_dir=results,
+                issuer=ISSUER,
+                work_dir=work,
+                passphrase=PASSPHRASE,
+            )
+
+            with (
+                mock.patch(
+                    "scripts.release_conformance.shutil.copyfile",
+                    side_effect=[None, OSError("disk full")],
+                ),
+                self.assertRaisesRegex(OSError, "disk full"),
+            ):
+                release_conformance.seal_results(args)
+
+            self.assertFalse((work / "sealed-results").exists())
+            self.assertFalse((results / "conformance-evidence.tar.gpg").exists())
+
+    def test_seal_results_rejects_symlinked_results(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            results, work, _sealed = self.seal_fixture(root)
+            outside = root / "outside.json"
+            outside.write_text(json.dumps({"issuer": ISSUER}))
+            (results / "linked.json").symlink_to(outside)
+
+            completed = self.run_seal(results, work, PASSPHRASE)
+
+            self.assertEqual(completed.returncode, 1)
+            self.assertIn("symlink", completed.stderr)
+            self.assertFalse((results / "conformance-evidence.tar.gpg").exists())
+
+    def test_seal_results_fails_closed_when_a_public_file_names_the_issuer(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            results, work, _sealed = self.seal_fixture(Path(directory))
+            (results / "oidf-raw.tar.gpg.sha256").write_text(
+                f"{'0' * 64}  {ISSUER}/oidf-raw.tar.gpg\n"
+            )
+
+            completed = self.run_seal(results, work, PASSPHRASE)
+
+            self.assertEqual(completed.returncode, 1)
+            self.assertIn(
+                "public artifact file names the configured issuer", completed.stderr
+            )
+            self.assertFalse((results / "conformance-evidence.tar.gpg").exists())
 
     def test_continuous_monitor_accepts_fresh_successful_schedule(self) -> None:
         runs = [

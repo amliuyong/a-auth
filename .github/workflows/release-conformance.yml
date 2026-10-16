@@ -5,12 +5,8 @@ on:
     - cron: "17 3 * * *"
   workflow_dispatch:
     inputs:
-      issuer:
-        description: Stable deployed issuer to test
-        required: true
-        type: string
       deployment_version:
-        description: Full Git commit deployed at the issuer
+        description: Full Git commit deployed at the configured stable issuer
         required: true
         type: string
 permissions: {}
@@ -19,8 +15,6 @@ concurrency:
   group: >-
     release-conformance-${{
       github.event_name
-    }}-${{
-      inputs.issuer || 'scheduled'
     }}-${{
       inputs.deployment_version || 'configured'
     }}
@@ -45,26 +39,43 @@ jobs:
     outputs:
       deployment_version_b64: >-
         ${{ steps.release_context.outputs.deployment_version_b64 }}
-      issuer_b64: ${{ steps.release_context.outputs.issuer_b64 }}
     env:
       CONFORMANCE_SERVER: https://www.certification.openid.net/
       DEPLOYMENT_VERSION: >-
         ${{ inputs.deployment_version || vars.CONFORMANCE_DEPLOYMENT_VERSION }}
-      ISSUER: ${{ inputs.issuer || vars.CONFORMANCE_ISSUER }}
-      CONFIGURED_ISSUER: ${{ vars.CONFORMANCE_ISSUER }}
+      # The issuer is a protected deployment value in this public repository:
+      # it stays out of inputs, outputs, logs, summaries, issues, and the
+      # public artifact.
+      ISSUER: ${{ secrets.CONFORMANCE_ISSUER }}
+      CONFIGURED_ISSUER: ${{ secrets.CONFORMANCE_ISSUER }}
       OIDF_RUNNER_COMMIT: 932b46f1e507871eb0b34621aaef65ff04442e6f
       OIDF_RUNNER_REF: release-v5.2.1
       OIDF_SOURCE_URL: https://gitlab.com/openid/conformance-suite/-/tree/release-v5.2.1
       WORKFLOW_REF: ${{ github.workflow_ref }}
     steps:
-      - name: Export non-secret release context
+      - name: Mask the protected issuer and export release context
         id: release_context
         shell: bash
         run: |
           set -euo pipefail
-          printf 'issuer_b64=%s\n' \
-            "$(printf '%s' "$ISSUER" | base64 --wrap=0)" \
-            >> "$GITHUB_OUTPUT"
+          test -n "$ISSUER" || {
+            echo "CONFORMANCE_ISSUER secret is not configured" >&2
+            exit 1
+          }
+          [[ "$ISSUER" == https://* ]] || {
+            echo "CONFORMANCE_ISSUER must use HTTPS" >&2
+            exit 1
+          }
+          issuer_host="${ISSUER#https://}"
+          issuer_host="${issuer_host%%/*}"
+          issuer_host="${issuer_host%%:*}"
+          [[ "$issuer_host" =~ ^[A-Za-z0-9.-]+$ ]] || {
+            echo "CONFORMANCE_ISSUER must use a DNS host name" >&2
+            exit 1
+          }
+          # Masking is case-sensitive; Python reports hosts in lowercase.
+          echo "::add-mask::$issuer_host"
+          echo "::add-mask::${issuer_host,,}"
           printf 'deployment_version_b64=%s\n' \
             "$(printf '%s' "$DEPLOYMENT_VERSION" | base64 --wrap=0)" \
             >> "$GITHUB_OUTPUT"
@@ -408,12 +419,6 @@ jobs:
           if [[ "$gate_status" -ne 0 ]]; then
             rm -f conformance-results/approved-profile-claims.json
           fi
-          if [ -f conformance-results/gate-summary.md ]; then
-            cat conformance-results/gate-summary.md >> "$GITHUB_STEP_SUMMARY"
-          fi
-          if [ -f conformance-results/promotion-summary.md ]; then
-            cat conformance-results/promotion-summary.md >> "$GITHUB_STEP_SUMMARY"
-          fi
           exit "$gate_status"
 
       - name: Encrypt raw OIDF evidence
@@ -447,8 +452,26 @@ jobs:
         shell: bash
         run: rm -f conformance-results/approved-profile-claims.json
 
-      - name: Upload conformance evidence
+      - name: Seal issuer-bearing results
+        id: seal_results
         if: ${{ always() && steps.release_inputs.outcome == 'success' }}
+        env:
+          ARTIFACT_PASSPHRASE: ${{ secrets.CONFORMANCE_ARTIFACT_PASSPHRASE }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/release_conformance.py seal-results \
+            --results-dir "$GITHUB_WORKSPACE/conformance-results" \
+            --issuer "$ISSUER" \
+            --work-dir "$RUNNER_TEMP/agent-auth-conformance"
+          for summary in gate-summary.md promotion-summary.md; do
+            if [ -f "conformance-results/$summary" ]; then
+              cat "conformance-results/$summary" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+
+      - name: Upload conformance evidence
+        if: ${{ always() && steps.seal_results.outcome == 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release-conformance-${{ github.run_id }}-${{ github.run_attempt }}
@@ -477,7 +500,6 @@ jobs:
     env:
       DEPLOYMENT_VERSION_B64: >-
         ${{ needs.external-conformance.outputs.deployment_version_b64 }}
-      ISSUER_B64: ${{ needs.external-conformance.outputs.issuer_b64 }}
       JOB_RESULT: ${{ needs.external-conformance.result }}
     steps:
       - name: Check out repository
@@ -503,12 +525,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          issuer="$(printf '%s' "$ISSUER_B64" | base64 --decode)"
           deployment_version="$(
             printf '%s' "$DEPLOYMENT_VERSION_B64" | base64 --decode
           )"
           python3 scripts/release_conformance.py track-failure \
-            --issuer "$issuer" \
             --deployment-version "$deployment_version" \
             --job-result "$JOB_RESULT" \
             --server-url "$GITHUB_SERVER_URL" \

@@ -63,15 +63,15 @@ to another conformance host.
 | --- | --- |
 | `OIDF_CONFORMANCE_TOKEN` | Bearer token issued by the official hosted OIDF conformance server. |
 | `OIDF_BASIC_OP_CONFIG_JSON` | Complete OIDF plan configuration for the stable issuer, including two dynamic-client names, a dedicated tenant-scoped IAT in both client slots, and browser automation for the dedicated test user. |
-| `CONFORMANCE_ARTIFACT_PASSPHRASE` | Single-line random passphrase of at least 32 characters used only to encrypt raw OIDF evidence. Store its recovery copy outside GitHub. |
+| `CONFORMANCE_ARTIFACT_PASSPHRASE` | Single-line random passphrase of at least 32 characters used only to encrypt raw OIDF evidence and the sealed conformance results. Store its recovery copy outside GitHub. |
+| `CONFORMANCE_ISSUER` | Stable deployed HTTPS issuer. It is a protected deployment value: this repository is public, so the issuer never appears in workflow inputs, job outputs, logs, step summaries, tracker issues, or the public artifact (see [Public run surface](#public-run-surface)). |
 
-Configure these non-secret environment variables for the daily stable
+Configure this non-secret environment variable for the daily stable
 deployment run:
 
 | Variable | Purpose |
 | --- | --- |
-| `CONFORMANCE_ISSUER` | Stable deployed HTTPS issuer. |
-| `CONFORMANCE_DEPLOYMENT_VERSION` | Full Git commit actually deployed at that issuer; update it as part of deployment. |
+| `CONFORMANCE_DEPLOYMENT_VERSION` | Full Git commit actually deployed at the configured issuer; update it as part of deployment. |
 
 Deploy the stable issuer with `AGENT_AUTH_DEPLOYMENT_COMMIT` set to the full
 lowercase commit being built. `AgentAuthDev` then exposes that immutable value
@@ -287,13 +287,14 @@ authenticated plan URL restricted to release operators.
 when `CONFORMANCE_SCHEDULE_ENABLED=true` and supports manual invocation from
 `main`. The daily run checks the environment variables above; it does not
 replace release enforcement. Before publishing a profile claim, a release
-operator must dispatch the workflow with the exact deployed values and require
-that run to pass:
+operator must dispatch the workflow with the exact deployed commit and require
+that run to pass. The run always tests the issuer configured in the
+`CONFORMANCE_ISSUER` secret; there is no issuer input, because dispatch inputs
+are displayed on the public run page:
 
 ```bash
 gh workflow run release-conformance.yml \
   --ref main \
-  -f issuer=https://issuer.example.com \
   -f deployment_version=0123456789abcdef0123456789abcdef01234567
 ```
 
@@ -311,14 +312,17 @@ of the evidence and exact conformance policy. A failed or interrupted gate, or
 failure to encrypt the retained raw evidence, leaves that file absent. A merge
 to `main` is never authorization to publish a protocol claim.
 
-Download `evidence.json` and `approved-profile-claims.json` from the same
-successful workflow artifact, then validate them against the exact environment
-being promoted:
+`evidence.json` and `approved-profile-claims.json` name the issuer, so the
+workflow seals them in `conformance-evidence.tar.gpg` (see
+[Public run surface](#public-run-surface)). Download the artifact of the same
+successful run, decrypt the sealed results, and validate them against the
+exact environment being promoted:
 
 ```bash
+mkdir sealed && gpg --decrypt conformance-evidence.tar.gpg | tar -xf - -C sealed
 python3 scripts/release_conformance.py validate-promotion \
-  --approved-claims approved-profile-claims.json \
-  --evidence evidence.json \
+  --approved-claims sealed/approved-profile-claims.json \
+  --evidence sealed/evidence.json \
   --policy .github/conformance/policy.json \
   --expected-issuer https://issuer.example.com \
   --expected-deployment-version \
@@ -347,7 +351,8 @@ single policy in `.github/conformance/policy.json`. It retains for 30 days:
 
 The plaintext raw evidence exists only under `RUNNER_TEMP` and is shredded
 after encryption. The uploaded artifact contains `oidf-raw.tar.gpg` plus its
-SHA-256 checksum, never plaintext exports. Verbose official-runner output is
+SHA-256 checksum, never plaintext exports. Every other retained result above
+is sealed in `conformance-evidence.tar.gpg` before upload. Verbose official-runner output is
 redirected only to the encrypted archive and is not echoed to the Actions log.
 To inspect an authorized download:
 
@@ -358,6 +363,43 @@ gpg --decrypt oidf-raw.tar.gpg | tar -xvf -
 The raw OIDF exports are sensitive operational evidence. Keep the passphrase
 separate from the artifact and do not publish decrypted files as release
 assets without a separate redaction review.
+
+## Public run surface
+
+This repository is public. Workflow run pages, logs, step summaries, issues,
+and artifacts are readable outside the release-operator group, so the
+workflow keeps the issuer, and anything that names it, off all of them:
+
+- The issuer comes only from the `CONFORMANCE_ISSUER` environment secret.
+  GitHub masks the secret value in logs, and the first step also masks its
+  bare host so discovery URLs and redirect parameters stay masked.
+- Dispatch accepts only `deployment_version`. Job outputs and the concurrency
+  group carry the deployment commit, never the issuer.
+- `scripts/release_conformance.py seal-results` runs after raw-evidence
+  encryption. It encrypts every result except `oidf-raw.tar.gpg` and its
+  checksum into `conformance-evidence.tar.gpg` with the same AES-256 settings
+  and passphrase, shreds the plaintext copies, and replaces the issuer, its
+  host, and the authenticated OIDF plan link in `gate-summary.md` and
+  `promotion-summary.md` with placeholders. `public-manifest.json` records the
+  SHA-256 of the issuer, of the sealed archive, and of every sealed file. The
+  command fails closed if a result is a symlink or if any remaining public
+  file still names the issuer.
+- Only the redacted summaries reach the step summary and the failure tracker.
+  The artifact is uploaded only after sealing succeeds; a sealing failure
+  uploads nothing.
+
+Sealed files are byte-identical to what the gate validated, so digests in
+`approved-profile-claims.json` and exception replays still match after an
+authorized decrypt:
+
+```bash
+mkdir sealed && gpg --decrypt conformance-evidence.tar.gpg | tar -xf - -C sealed
+sha256sum sealed/evidence.json   # compare with public-manifest.json
+```
+
+Issues, pull requests, comments, and commit messages follow the same rule:
+describe the deployment by stack name and commit, and never paste the issuer,
+an AWS account ID, a stack or resource ARN, or a credential identifier.
 
 ## Exceptions
 
@@ -417,9 +459,9 @@ On failure, cancellation, or an unexpected skipped job while the repository
 schedule switch is enabled, a separate GitHub-hosted job with narrowly scoped
 `issues: write` permission creates or updates an issue keyed by deployment
 commit. It downloads the evidence artifact when available and links the
-workflow run and gate summary. The tracker receives only Base64-encoded,
-non-secret issuer and deployment metadata through job outputs; it does not
-enter the secret-bearing `conformance` environment. The conformance job has
+workflow run and the redacted gate summary. The tracker receives only the
+Base64-encoded deployment commit through job outputs, never the issuer, and
+does not enter the secret-bearing `conformance` environment. The conformance job has
 only `contents: read` and `issues: read`. An intentionally disabled schedule
 does not create an issue.
 
