@@ -6,6 +6,7 @@ const MAX_IDENTIFIER_BYTES: usize = 256;
 const MAX_URI_BYTES: usize = 2048;
 const MAX_RESOURCES: usize = 32;
 const MAX_SCOPES_PER_RESOURCE: usize = 64;
+const MAX_ACTOR_SUBJECTS: usize = 32;
 const MAX_ASSERTION_LIFETIME_SECS: i64 = 3600;
 const MAX_CLOCK_SKEW_SECS: i64 = 300;
 
@@ -47,6 +48,10 @@ pub struct PolicyConfig {
     pub resources: Vec<ResourcePolicyConfig>,
     #[serde(default)]
     pub allow_legacy_missing_resource: bool,
+    /// Exact single-level `act.sub` values the IdP may assert for this
+    /// client binding. Empty (the default) rejects every assertion `act`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_actor_subjects: Vec<String>,
     pub max_assertion_lifetime_secs: i64,
     pub allowed_clock_skew_secs: i64,
 }
@@ -60,6 +65,7 @@ pub enum PolicyError {
     InvalidResource,
     InvalidScope,
     AmbiguousLegacyTarget,
+    InvalidActorSubjects,
     InvalidTimeBounds,
 }
 
@@ -94,6 +100,7 @@ pub struct EmaPolicy {
     assertion_client_id: String,
     resources: BTreeMap<String, ResourcePolicy>,
     allow_legacy_missing_resource: bool,
+    allowed_actor_subjects: BTreeSet<String>,
     max_assertion_lifetime_secs: i64,
     allowed_clock_skew_secs: i64,
 }
@@ -139,6 +146,14 @@ impl EmaPolicy {
         self.allow_legacy_missing_resource
     }
 
+    pub fn allows_actor_subject(&self, subject: &str) -> bool {
+        self.allowed_actor_subjects.contains(subject)
+    }
+
+    pub fn allowed_actor_subjects(&self) -> impl ExactSizeIterator<Item = &str> {
+        self.allowed_actor_subjects.iter().map(String::as_str)
+    }
+
     pub fn max_assertion_lifetime_secs(&self) -> i64 {
         self.max_assertion_lifetime_secs
     }
@@ -178,6 +193,17 @@ impl TryFrom<PolicyConfig> for EmaPolicy {
         }
         if config.allow_legacy_missing_resource && config.resources.len() != 1 {
             return Err(PolicyError::AmbiguousLegacyTarget);
+        }
+        let allowed_actor_subjects: BTreeSet<_> =
+            config.allowed_actor_subjects.iter().cloned().collect();
+        if config.allowed_actor_subjects.len() > MAX_ACTOR_SUBJECTS
+            || allowed_actor_subjects.len() != config.allowed_actor_subjects.len()
+            || config
+                .allowed_actor_subjects
+                .iter()
+                .any(|subject| validate_identifier(subject, "allowed_actor_subjects").is_err())
+        {
+            return Err(PolicyError::InvalidActorSubjects);
         }
         if !(1..=MAX_ASSERTION_LIFETIME_SECS).contains(&config.max_assertion_lifetime_secs)
             || !(0..=MAX_CLOCK_SKEW_SECS).contains(&config.allowed_clock_skew_secs)
@@ -222,6 +248,7 @@ impl TryFrom<PolicyConfig> for EmaPolicy {
             assertion_client_id: config.assertion_client_id,
             resources,
             allow_legacy_missing_resource: config.allow_legacy_missing_resource,
+            allowed_actor_subjects,
             max_assertion_lifetime_secs: config.max_assertion_lifetime_secs,
             allowed_clock_skew_secs: config.allowed_clock_skew_secs,
         })

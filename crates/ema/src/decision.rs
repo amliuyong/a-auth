@@ -31,6 +31,8 @@ pub struct AuthorizationDecision {
     pub jwt_id: String,
     pub replay_expires_at: i64,
     pub cnf_jkt: Option<String>,
+    /// Policy-allowed IdP actor (`act.sub`) when the assertion is delegated.
+    pub actor_subject: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -218,9 +220,7 @@ pub fn authorize_verified_id_jag(
         }
         Some(_) => return Err(AuthorizationError::InvalidClaim("authorization_details")),
     }
-    if claims.actor.is_some() {
-        return Err(AuthorizationError::UnsupportedActor);
-    }
+    let actor_subject = actor_subject(policy, claims.actor.as_ref())?;
     let cnf_jkt = confirmation_jkt(claims.confirmation.as_ref())?;
     if cnf_jkt
         .as_deref()
@@ -245,7 +245,37 @@ pub fn authorize_verified_id_jag(
         jwt_id: jwt_id.to_string(),
         replay_expires_at,
         cnf_jkt: effective_jkt,
+        actor_subject,
     })
+}
+
+/// Accepts only a single-level actor whose `sub` is explicitly allowed by
+/// policy. Other actor members (for example an IdP's `sub_profile`) are
+/// informational and are never propagated.
+fn actor_subject(
+    policy: &EmaPolicy,
+    value: Option<&serde_json::Value>,
+) -> Result<Option<String>, AuthorizationError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let object = value
+        .as_object()
+        .ok_or(AuthorizationError::InvalidClaim("act"))?;
+    let subject = match object.get("sub") {
+        Some(serde_json::Value::String(subject)) => subject.as_str(),
+        _ => return Err(AuthorizationError::InvalidClaim("act")),
+    };
+    if subject.is_empty()
+        || subject.len() > MAX_CLAIM_IDENTIFIER_BYTES
+        || subject.bytes().any(|byte| byte.is_ascii_control())
+    {
+        return Err(AuthorizationError::InvalidClaim("act"));
+    }
+    if object.contains_key("act") || !policy.allows_actor_subject(subject) {
+        return Err(AuthorizationError::UnsupportedActor);
+    }
+    Ok(Some(subject.to_string()))
 }
 
 fn required_identifier<'a>(

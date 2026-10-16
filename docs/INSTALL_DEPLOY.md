@@ -278,6 +278,7 @@ EMA 建议使用文件配置，避免 shell quoting：
         }
       ],
       "allow_legacy_missing_resource": false,
+      "allowed_actor_subjects": [],
       "max_assertion_lifetime_secs": 300,
       "allowed_clock_skew_secs": 30
     }
@@ -291,6 +292,12 @@ SelfHosted 的 `tenant` 固定为 `default`；SaaS policy 使用 `t1` 等已登�
 非法 policy、重复 lookup key、未知租户、`phase<p2` 或缺 replay/JTI 依赖。严格 Stable 与真实
 IdP 验收必须保持 `allow_legacy_missing_resource=false`。CDK 会把 policy 规范化后写入专用
 Secrets Manager 配置 Secret，Lambda 环境仅保存其 ARN，避免触发 4 KiB 环境变量上限。
+
+`allowed_actor_subjects` 可省略，默认空数组即拒绝任何带 `act` 的 ID-JAG。某些 IdP 的 agent
+流程总会签发单层 `act`（例如 Okta Cross App Access 写入 `act.sub=<agent client id>` 与信息性
+`sub_profile`）；此时把该 IdP 侧 actor 精确列入。只接受单层且 `act.sub` 精确命中的 actor，嵌套
+`act` 一律拒绝；签发的 access token 仍是普通用户 token，不带 `act`/`actor_types`，委托方即
+`authenticated_client_id` 对应的 Agent Auth client。
 
 真实外部验收对 Dev 与一个 SaaS tenant 各运行一次 `e2e/ema_external.sh`。所需环境变量与
 IdP acquisition command/RS verifier 契约见脚本头部；client secret 只允许从

@@ -166,6 +166,7 @@ mod tests {
                 scopes: vec!["mcp:read".into(), "mcp:write".into()],
             }],
             allow_legacy_missing_resource: false,
+            allowed_actor_subjects: Vec::new(),
             max_assertion_lifetime_secs: 300,
             allowed_clock_skew_secs: 30,
         }
@@ -253,6 +254,22 @@ mod tests {
         let mut empty_scopes = policy_config();
         empty_scopes.resources[0].scopes.clear();
         cases.push(empty_scopes);
+
+        let mut duplicate_actor = policy_config();
+        duplicate_actor.allowed_actor_subjects = vec!["agent-1".into(), "agent-1".into()];
+        cases.push(duplicate_actor);
+
+        let mut empty_actor = policy_config();
+        empty_actor.allowed_actor_subjects = vec![String::new()];
+        cases.push(empty_actor);
+
+        let mut control_actor = policy_config();
+        control_actor.allowed_actor_subjects = vec!["agent\nother".into()];
+        cases.push(control_actor);
+
+        let mut too_many_actors = policy_config();
+        too_many_actors.allowed_actor_subjects = (0..33).map(|i| format!("agent-{i}")).collect();
+        cases.push(too_many_actors);
 
         let mut ambiguous_legacy_target = policy_config();
         ambiguous_legacy_target.allow_legacy_missing_resource = true;
@@ -904,5 +921,63 @@ mod tests {
             authorize_verified_id_jag(&policy, &verified(proof_free_claims), &proof_free_request)
                 .unwrap();
         assert!(decision.cnf_jkt.is_none());
+    }
+
+    #[test]
+    fn policy_allowed_single_level_actor_is_accepted_without_widening() {
+        let mut config = policy_config();
+        config.allowed_actor_subjects = vec!["okta-agent".into()];
+        let policy = EmaPolicy::try_from(config).unwrap();
+        assert_eq!(
+            policy.allowed_actor_subjects().collect::<Vec<_>>(),
+            ["okta-agent"]
+        );
+
+        let decision =
+            authorize_verified_id_jag(&policy, &verified(valid_claims()), &authorization_request())
+                .unwrap();
+        assert_eq!(decision.actor_subject, None);
+
+        let mut okta_shaped = valid_claims();
+        okta_shaped["act"] = serde_json::json!({"sub":"okta-agent","sub_profile":"profile"});
+        let decision =
+            authorize_verified_id_jag(&policy, &verified(okta_shaped), &authorization_request())
+                .unwrap();
+        assert_eq!(decision.actor_subject.as_deref(), Some("okta-agent"));
+        assert_eq!(decision.scopes, ["mcp:read"]);
+
+        for (actor, expected) in [
+            (
+                serde_json::json!({"sub":"other-agent"}),
+                AuthorizationError::UnsupportedActor,
+            ),
+            (
+                serde_json::json!({"sub":"okta-agent","act":{"sub":"prior"}}),
+                AuthorizationError::UnsupportedActor,
+            ),
+            (
+                serde_json::json!({}),
+                AuthorizationError::InvalidClaim("act"),
+            ),
+            (
+                serde_json::json!({"sub":""}),
+                AuthorizationError::InvalidClaim("act"),
+            ),
+            (
+                serde_json::json!({"sub":7}),
+                AuthorizationError::InvalidClaim("act"),
+            ),
+            (
+                serde_json::json!("okta-agent"),
+                AuthorizationError::InvalidClaim("act"),
+            ),
+        ] {
+            let mut claims = valid_claims();
+            claims["act"] = actor;
+            assert_eq!(
+                authorize_verified_id_jag(&policy, &verified(claims), &authorization_request()),
+                Err(expected)
+            );
+        }
     }
 }

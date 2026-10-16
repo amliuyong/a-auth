@@ -1025,7 +1025,7 @@
       "coverage_level": "exact",
       "path": "crates/ema/src/lib.rs",
       "selector": "rejects_unsupported_authorization_semantics_and_binds_dpop",
-      "description": "The pure EMA decision maps request RAR to invalid_authorization_details; accepts absent or empty assertion RAR; rejects malformed or well-formed nonempty RAR and any act claim; validates cnf as one bounded nonempty jkt; rejects missing or mismatched proof binding; and preserves a matching assertion or request proof without inventing cnf when both are absent.",
+      "description": "The pure EMA decision maps request RAR to invalid_authorization_details; accepts absent or empty assertion RAR; rejects malformed or well-formed nonempty RAR and any act claim under the default empty actor allowlist; validates cnf as one bounded nonempty jkt; rejects missing or mismatched proof binding; and preserves a matching assertion or request proof without inventing cnf when both are absent.",
       "runner": "scripts/run_conformance_exact_tests.sh",
       "cargo_target": "lib",
       "manifest": "crates/ema/Cargo.toml",
@@ -1065,7 +1065,29 @@
       "coverage_level": "exact",
       "path": "crates/http/tests/ema_e2e.rs",
       "selector": "assertion_rar_actor_and_missing_dpop_binding_fail_closed",
-      "description": "The public JWT bearer endpoint returns token-free invalid_grant for malformed or well-formed nonempty assertion RAR, act, assertion cnf without proof, and assertion cnf with a valid but mismatched DPoP proof.",
+      "description": "The public JWT bearer endpoint returns token-free invalid_grant for malformed or well-formed nonempty assertion RAR, act under the default empty actor allowlist, assertion cnf without proof, and assertion cnf with a valid but mismatched DPoP proof.",
+      "runner": "scripts/run_conformance_exact_tests.sh",
+      "ci_target": "ci.conformance.exact"
+    },
+    "exact.c13.4.actor-allowlist-decision": {
+      "kind": "repo_test",
+      "coverage_level": "exact",
+      "path": "crates/ema/src/lib.rs",
+      "selector": "policy_allowed_single_level_actor_is_accepted_without_widening",
+      "description": "An operator allowed_actor_subjects allowlist admits only a single-level act whose sub exactly matches, ignores informational actor members such as sub_profile, keeps scope narrowing unchanged, and rejects unlisted, nested, missing, empty, non-string, and non-object actors; policy validation rejects duplicate, empty, control-character, and oversized actor allowlists.",
+      "runner": "scripts/run_conformance_exact_tests.sh",
+      "cargo_target": "lib",
+      "manifest": "crates/ema/Cargo.toml",
+      "package": "agent-auth-ema",
+      "cargo_selector": "tests::policy_allowed_single_level_actor_is_accepted_without_widening",
+      "ci_target": "ci.conformance.exact"
+    },
+    "exact.c13.4.http-actor-allowlist": {
+      "kind": "repo_test",
+      "coverage_level": "exact",
+      "path": "crates/http/tests/ema_e2e.rs",
+      "selector": "policy_allowed_idp_actor_is_bound_to_the_client_without_issuing_act",
+      "description": "Through the public JWT bearer endpoint, unlisted, nested, and malformed IdP actors fail with token-free invalid_grant without consuming the jti; an Okta-shaped policy-allowed act then succeeds once, the access token is bound to the authenticated client_id with sub_type=user, carries no act or actor_types, never echoes the IdP actor or its profile, and replay is rejected.",
       "runner": "scripts/run_conformance_exact_tests.sh",
       "ci_target": "ci.conformance.exact"
     },
@@ -12918,6 +12940,8 @@
         "exact.c13.4.http-target-rar",
         "exact.c13.4.http-strict-resource",
         "exact.c13.4.http-assertion-semantics",
+        "exact.c13.4.actor-allowlist-decision",
+        "exact.c13.4.http-actor-allowlist",
         "exact.c8.7b.ema"
       ],
       "recorded_references": []

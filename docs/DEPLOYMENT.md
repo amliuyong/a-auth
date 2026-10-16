@@ -281,6 +281,11 @@ trap 时由云端 publishing timeout/overlap reconciler 收敛，prepared checkp
   脚本从该线上配置生成 attestation，确认 missing-resource fallback 已关闭；不接受调用者自报
   commit/policy。RS 正向、无 token 401 与未授予 scope 403 探针必须与 token resource 同
   origin/path，最终只输出不含断言、token、email/raw claims 的 evidence JSON。
+- Okta Cross App Access 作为第三方 IdP 时：每个 Agent Auth issuer（Dev、各 SaaS tenant）各建一个
+  XAA resource app（Issuer URL 即该 issuer，设定后不可改），AI Agent 关联 requesting app 并按
+  resource 限定 scope；Okta 签发的 ID-JAG 带单层 `act`，policy 须把 `act.sub` 列入
+  `allowed_actor_subjects`。`e2e/okta_xaa_login.py` 一次性完成 PKCE 登录并把 refresh token 存到仓库外
+  0600 文件，`e2e/okta_xaa_acquire.sh` 作为 `EMA_ID_JAG_COMMAND` 每次换取新鲜 ID-JAG。
 - 无法取得第三方 ID-JAG issuer 时，可部署仓库内独立 `AgentAuthEmaSimulator` 做自动化
   Dev/SaaS 回归。它用 Cognito User Pool 作为身份源，由独立 KMS key 和 issuer Lambda 生成
   `oauth-id-jag+jwt`，再由独立 RS Lambda 验 Agent Auth access token。验收必须设置

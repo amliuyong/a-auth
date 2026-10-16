@@ -351,6 +351,13 @@ try:
         raise ValueError
     if policy.get("allow_legacy_missing_resource", False) is not False:
         raise ValueError
+    allowed_actor_subjects = policy.get("allowed_actor_subjects", [])
+    if (
+        not isinstance(allowed_actor_subjects, list)
+        or not all(isinstance(item, str) and item for item in allowed_actor_subjects)
+        or len(set(allowed_actor_subjects)) != len(allowed_actor_subjects)
+    ):
+        raise ValueError
     resources = [
         item
         for item in policy.get("resources", [])
@@ -378,6 +385,7 @@ try:
         "resource": resource,
         "scopes": sorted(policy_scopes),
         "allow_legacy_missing_resource": False,
+        "allowed_actor_subjects": sorted(allowed_actor_subjects),
     }
 
     def split_bound_url(value):
@@ -516,14 +524,22 @@ fi
 python3 - \
   "$WORK/assertion.jwt" "$WORK/assertion-meta.json" "$BASE_URL" \
   "$IDP_ISSUER" "$IDP_TENANT" "$ASSERTION_CLIENT_ID" "$ID_JAG_ALG" \
-  "$RESOURCE" "$SCOPE" <<'PY'
+  "$RESOURCE" "$SCOPE" "$WORK/policy-attestation.json" <<'PY'
 import base64
 import json
 import sys
 from pathlib import Path
 
 try:
-    source, output, audience, issuer, tenant, client_id, algorithm, resource, scope = sys.argv[1:]
+    (
+        source, output, audience, issuer, tenant, client_id, algorithm, resource, scope,
+        attestation_file,
+    ) = sys.argv[1:]
+    allowed_actors = set(
+        json.loads(Path(attestation_file).read_text(encoding="utf-8"))[
+            "allowed_actor_subjects"
+        ]
+    )
     token = Path(source).read_text(encoding="utf-8").strip()
     if any(character.isspace() for character in token):
         raise ValueError
@@ -558,7 +574,14 @@ try:
     granted_scopes = set(str(claims.get("scope", "")).split())
     if not requested_scopes or not requested_scopes.issubset(granted_scopes):
         raise ValueError
-    if claims.get("act") is not None:
+    # An IdP actor (e.g. Okta Cross App Access) is accepted only when it is a
+    # single-level actor explicitly allowed by the deployed policy.
+    actor = claims.get("act")
+    if actor is not None and (
+        not isinstance(actor, dict)
+        or "act" in actor
+        or actor.get("sub") not in allowed_actors
+    ):
         raise ValueError
     details = claims.get("authorization_details")
     if details not in (None, []):
@@ -576,6 +599,7 @@ try:
                 "resource_bound": True,
                 "scope_bound": True,
                 "proof_bound": False,
+                "actor_policy_bound": actor is not None,
             },
             separators=(",", ":"),
         ),
@@ -689,6 +713,8 @@ try:
     if not isinstance(namespace, dict):
         raise ValueError
     if namespace.get("sub_type") != "user" or namespace.get("auth_grant") != "id-jag":
+        raise ValueError
+    if claims.get("act") is not None or "actor_types" in namespace:
         raise ValueError
     if set(claims.get("scope", "").split()) != set(scope.split()):
         raise ValueError
