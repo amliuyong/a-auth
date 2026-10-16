@@ -10,6 +10,12 @@
     // delimiter structure are still enforced by MD055/MD056.
     "MD060": false,
 
+    // Keep a Changelog repeats Added/Changed/Fixed under every release; only
+    // sibling headings must be unique.
+    "MD024": {
+      "siblings_only": true
+    },
+
     // The README favicon is intentionally rendered with size attributes.
     "MD033": {
       "allowed_elements": [

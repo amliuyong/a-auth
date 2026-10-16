@@ -1129,6 +1129,8 @@ class ConformanceEvidenceMapTests(unittest.TestCase):
                 "exact.c13.4.http-target-rar",
                 "exact.c13.4.http-strict-resource",
                 "exact.c13.4.http-assertion-semantics",
+                "exact.c13.4.actor-allowlist-decision",
+                "exact.c13.4.http-actor-allowlist",
                 "exact.c8.7b.ema",
             ],
         )
@@ -1562,7 +1564,7 @@ class ConformanceEvidenceMapTests(unittest.TestCase):
 
     def test_repository_aggregate_counts_are_pinned(self) -> None:
         mapping = json.loads(EVIDENCE_MAP.read_text(encoding="utf-8"))
-        self.assertEqual(len(mapping["targets"]), 1037)
+        self.assertEqual(len(mapping["targets"]), 1039)
         rust_runner = (
             REPO_ROOT / "scripts" / "run_conformance_exact_tests.sh"
         ).read_text(encoding="utf-8")
@@ -1571,10 +1573,10 @@ class ConformanceEvidenceMapTests(unittest.TestCase):
             rust_runner,
             flags=re.MULTILINE,
         )
-        self.assertEqual(len(calls), 879)
+        self.assertEqual(len(calls), 881)
         self.assertEqual(
             len(set(calls)),
-            879,
+            881,
         )
         web_runner = (
             REPO_ROOT / "scripts" / "run_web_conformance_exact_tests.sh"

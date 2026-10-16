@@ -8,6 +8,16 @@ configuration, APIs, deployment resources, or SDKs.
 
 ## [Unreleased]
 
+### Added
+
+- EMA policies accept an optional `allowed_actor_subjects` allowlist so ID-JAGs
+  that carry a single-level IdP actor, such as Okta Cross App Access agent
+  assertions, can be exchanged. The default empty list keeps rejecting `act`;
+  issued access tokens remain ordinary user tokens bound to the authenticated
+  client and never carry the IdP actor.
+- Okta Cross App Access acquisition helpers (`e2e/okta_xaa_login.py`,
+  `e2e/okta_xaa_acquire.sh`) for the external EMA acceptance gate.
+
 ### Documentation
 
 - The README now surfaces the current release, enforced conformance evidence,

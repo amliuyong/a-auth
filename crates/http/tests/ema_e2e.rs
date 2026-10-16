@@ -51,6 +51,7 @@ fn policy_with_algorithms(allowed_algorithms: Vec<SigningAlgorithm>) -> EmaPolic
             scopes: vec!["mcp:read".into(), "mcp:write".into()],
         }],
         allow_legacy_missing_resource: false,
+        allowed_actor_subjects: Vec::new(),
         max_assertion_lifetime_secs: 300,
         allowed_clock_skew_secs: 30,
     })
@@ -1662,6 +1663,105 @@ async fn assertion_rar_actor_and_missing_dpop_binding_fail_closed() {
     assert_eq!(response.status, StatusCode::BAD_REQUEST);
     assert_eq!(response.body["error"], "invalid_grant");
     assert!(response.body.get("access_token").is_none());
+}
+
+#[tokio::test]
+async fn policy_allowed_idp_actor_is_bound_to_the_client_without_issuing_act() {
+    const IDP_ACTOR: &str = "okta-agent-client";
+    let now = agent_auth_http::current_unix_secs();
+    let mut config_policy = serde_json::to_value(PolicyConfig {
+        policy_id: "entra-acme".into(),
+        trusted_issuer: IDP_ISSUER.into(),
+        issuer_tenant: Some(IDP_TENANT.into()),
+        jwks_uri: JWKS_URI.into(),
+        allowed_algorithms: vec![SigningAlgorithm::Es256],
+        authenticated_client_id: CLIENT_ID.into(),
+        assertion_client_id: "enterprise-mcp-client".into(),
+        resources: vec![ResourcePolicyConfig {
+            resource: RESOURCE.into(),
+            scopes: vec!["mcp:read".into(), "mcp:write".into()],
+        }],
+        allow_legacy_missing_resource: false,
+        allowed_actor_subjects: vec![IDP_ACTOR.into()],
+        max_assertion_lifetime_secs: 300,
+        allowed_clock_skew_secs: 30,
+    })
+    .unwrap();
+    assert_eq!(
+        config_policy["allowed_actor_subjects"],
+        serde_json::json!([IDP_ACTOR])
+    );
+    let actor_policy =
+        EmaPolicy::try_from(serde_json::from_value::<PolicyConfig>(config_policy.take()).unwrap())
+            .unwrap();
+
+    let (state, _) = configured_state().await;
+    let mut state = state;
+    state.ema_policies = std::sync::Arc::new(vec![TenantEmaPolicy {
+        agent_auth_tenant: String::new(),
+        policy: actor_policy,
+    }]);
+    let inspect = state.clone();
+
+    // Unlisted, nested, and malformed actors fail closed without consuming the jti.
+    for actor in [
+        serde_json::json!({"sub":"other-agent"}),
+        serde_json::json!({"sub":IDP_ACTOR,"act":{"sub":"prior-agent"}}),
+        serde_json::json!({"sub_profile":"profile"}),
+    ] {
+        let mut claims = valid_claims(now, "okta-shaped-actor");
+        claims["act"] = actor;
+        let (assertion, jwk) = sign_id_jag(default_id_jag_header(), claims);
+        state.jwks_fetcher_set(JWKS_URI, vec![jwk]).await;
+        let (router, _) = build_router(state.clone());
+        let response = post_ema(
+            &router,
+            standard_form(&assertion),
+            Some(&basic(CLIENT_ID, CLIENT_SECRET)),
+            None,
+        )
+        .await;
+        assert_eq!(response.status, StatusCode::BAD_REQUEST);
+        assert_eq!(response.body["error"], "invalid_grant");
+        assert!(response.body.get("access_token").is_none());
+    }
+
+    let mut claims = valid_claims(now, "okta-shaped-actor");
+    claims["act"] = serde_json::json!({"sub":IDP_ACTOR,"sub_profile":"agent-profile"});
+    let (assertion, jwk) = sign_id_jag(default_id_jag_header(), claims);
+    state.jwks_fetcher_set(JWKS_URI, vec![jwk]).await;
+    let (router, _) = build_router(state);
+    let response = post_ema(
+        &router,
+        standard_form(&assertion),
+        Some(&basic(CLIENT_ID, CLIENT_SECRET)),
+        None,
+    )
+    .await;
+    assert_eq!(response.status, StatusCode::OK);
+    let signing_jwk = inspect.signer.public_jwks().await.unwrap().remove(0);
+    let access_claims = verify_access_token_signature(
+        response.body["access_token"].as_str().unwrap(),
+        &signing_jwk,
+    );
+    assert_eq!(access_claims["client_id"], CLIENT_ID);
+    assert!(access_claims.get("act").is_none());
+    assert_eq!(access_claims["https://a-auth.com/c"]["sub_type"], "user");
+    assert!(access_claims["https://a-auth.com/c"]
+        .get("actor_types")
+        .is_none());
+    assert!(!access_claims.to_string().contains(IDP_ACTOR));
+    assert!(!access_claims.to_string().contains("agent-profile"));
+
+    let replay = post_ema(
+        &router,
+        standard_form(&assertion),
+        Some(&basic(CLIENT_ID, CLIENT_SECRET)),
+        None,
+    )
+    .await;
+    assert_eq!(replay.status, StatusCode::BAD_REQUEST);
+    assert_eq!(replay.body["error"], "invalid_grant");
 }
 
 #[tokio::test]
