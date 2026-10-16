@@ -152,7 +152,7 @@ class ConformanceEvidenceMapTests(unittest.TestCase):
             WORKFLOW,
         )
         self.assertEqual(counts["total"], 149)
-        self.assertEqual(counts["complete"], 144)
+        self.assertEqual(counts["complete"], 145)
         self.assertEqual(counts["unconditional_must"], 109)
         self.assertEqual(counts["exact_unconditional_must"], 109)
         self.assertEqual(counts["complete_without_exact"], 0)
@@ -1562,7 +1562,7 @@ class ConformanceEvidenceMapTests(unittest.TestCase):
 
     def test_repository_aggregate_counts_are_pinned(self) -> None:
         mapping = json.loads(EVIDENCE_MAP.read_text(encoding="utf-8"))
-        self.assertEqual(len(mapping["targets"]), 1036)
+        self.assertEqual(len(mapping["targets"]), 1037)
         rust_runner = (
             REPO_ROOT / "scripts" / "run_conformance_exact_tests.sh"
         ).read_text(encoding="utf-8")

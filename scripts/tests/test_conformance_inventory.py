@@ -44,9 +44,9 @@ class ConformanceInventoryTests(unittest.TestCase):
 
         self.assertEqual(
             counts,
-            {"total": 149, "complete": 144, "partial": 2, "missing": 3},
+            {"total": 149, "complete": 145, "partial": 2, "missing": 2},
         )
-        self.assertEqual(len(incomplete), 5)
+        self.assertEqual(len(incomplete), 4)
 
     def test_rejects_status_and_count_drift(self) -> None:
         document = DOCUMENT.read_text(encoding="utf-8").replace(
@@ -73,7 +73,7 @@ class ConformanceInventoryTests(unittest.TestCase):
         inventory["incomplete_requirements"] = [
             entry
             for entry in inventory["incomplete_requirements"]
-            if entry["id"] != "12.2"
+            if entry["id"] != "13.8"
         ]
 
         with self.assertRaisesRegex(
@@ -129,9 +129,9 @@ class ConformanceInventoryTests(unittest.TestCase):
         changed = copy.deepcopy(inventory)
         changed["expected_counts"] = {
             "total": 149,
-            "complete": 143,
+            "complete": 144,
             "partial": 3,
-            "missing": 3,
+            "missing": 2,
         }
         changed["incomplete_requirements"].append(
             {
@@ -146,8 +146,8 @@ class ConformanceInventoryTests(unittest.TestCase):
         document = (
             DOCUMENT.read_text(encoding="utf-8")
             .replace(
-                "total=149，☑=144，◑=2，☐=3",
-                "total=149，☑=143，◑=3，☐=3",
+                "total=149，☑=145，◑=2，☐=2",
+                "total=149，☑=144，◑=3，☐=2",
                 1,
             )
             .replace(
@@ -166,7 +166,7 @@ class ConformanceInventoryTests(unittest.TestCase):
         requirement = next(
             entry
             for entry in changed["incomplete_requirements"]
-            if entry["id"] == "12.2"
+            if entry["id"] == "13.8"
         )
         requirement["tracking_issues"] = []
 

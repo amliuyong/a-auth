@@ -7034,6 +7034,15 @@
       "runner": "scripts/run_python_conformance_exact_tests.sh",
       "ci_target": "ci.python.exact"
     },
+    "recorded.c12.2.okta-live": {
+      "kind": "recorded_live_reference",
+      "coverage_level": "recorded_reference",
+      "verification": "recorded_reference_only",
+      "script": "e2e/okta_scim_users.sh",
+      "deployment_commit": "5d42021f840eb88314eca2dc5e646e2111fa6c3b",
+      "evidence_sha256": "4157c782ed0014c0c764469d02a4c6f457322d2d0f0d00e324eeb04c9e339534",
+      "description": "Real Okta Integrator Free Plan private SCIM run on 2026-10-16 UTC: assignment provisioned, unassignment deprovisioned, reassignment re-provisioned the same canonical user and externalId, and fixture cleanup was verified (issue #1)."
+    },
     "exact.c13.8.malformed-form": {
       "kind": "repo_test",
       "coverage_level": "exact",
@@ -12646,7 +12655,9 @@
         "exact.c12.2.okta-interrupt-cleanup",
         "exact.c12.2.okta-lock-contention"
       ],
-      "recorded_references": []
+      "recorded_references": [
+        "recorded.c12.2.okta-live"
+      ]
     },
     "12.3": {
       "applicability": "required_for_claimed_profile",
