@@ -1,6 +1,6 @@
 # Agent Auth — 面向 Agent 时代的 OAuth 2.1 / OIDC 授权系统设计
 
-> 状态：**pre-1.0 活跃设计**。配套文档:[`CHANGELOG.md`](./CHANGELOG.md)(公开版本变更)、[`DEPLOYMENT.md`](./DEPLOYMENT.md)(多租户/密钥迁移等实现细节)、[`CONFORMANCE.md`](./CONFORMANCE.md)(MUST/SHOULD 清单 + 测试项)。本文只保留协议内核。
+> 状态：**1.0 稳定版**(兼容范围见 [`CHANGELOG.md`](./CHANGELOG.md) 1.0.0)。配套文档:[`CHANGELOG.md`](./CHANGELOG.md)(公开版本变更)、[`DEPLOYMENT.md`](./DEPLOYMENT.md)(多租户/密钥迁移等实现细节)、[`CONFORMANCE.md`](./CONFORMANCE.md)(MUST/SHOULD 清单 + 测试项)。本文只保留协议内核。
 > 动机：让"agent 代表用户经 OAuth 连第三方 MCP RS"这条主流 connector 场景零配置可用。现成 IdP 的 DCR、PKCE、public-client provider、callback 匹配和资源绑定能力并不总能覆盖 agent 工作流，本设计把这些边界在 AS 层显式化。
 > 一句话定位：**一个把 "agent 代表用户连资源" 当作头号场景的授权服务器（AS）**，
 > 原生兼容 OAuth 2.1、OIDC Core 与 MCP Authorization 规范，AWS serverless 原生部署。

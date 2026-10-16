@@ -20,15 +20,18 @@ OAuth and OIDC clients while adding first-class authorization boundaries for
 agents, machine identities, delegation chains, and MCP resources.
 
 > [!IMPORTANT]
-> Agent Auth is pre-1.0 and under active development. Review the
+> Agent Auth 1.0 is the first stable release. Semantic Versioning covers the
+> HTTP API described by [`openapi/openapi.json`](openapi/openapi.json) and the
+> TypeScript and Python resource-server SDK APIs; deployment configuration and
+> persisted data formats are outside that guarantee. Review the
 > [conformance matrix](docs/CONFORMANCE.md), deployment design, and security
 > assumptions before using it in a production environment. Project tests are
 > not a certification by the OpenID Foundation or another standards body.
 
 ## Current Status
 
-- **Release** — [`v0.5.0`](https://github.com/amliuyong/a-auth/releases/tag/v0.5.0)
-  is the current public pre-1.0 source release. Release assets are source
+- **Release** — [`v1.0.0`](https://github.com/amliuyong/a-auth/releases/tag/v1.0.0)
+  is the current stable source release. Release assets are source
   archives; the Rust crates and resource-server SDKs are not published to
   external package registries.
 - **Repository evidence** — every completed row in the
@@ -41,11 +44,11 @@ agents, machine identities, delegation chains, and MCP resources.
   regressions. Non-`PASSED` official outcomes require explicit,
   repository-bound, time-limited exceptions; a green gate is not
   standards-body certification.
-- **Outstanding interoperability** — real
-  [Okta SCIM validation](https://github.com/amliuyong/a-auth/issues/1) and
-  [third-party MCP EMA/ID-JAG validation](https://github.com/amliuyong/a-auth/issues/2)
-  remain open. Agent Auth does not claim those external interoperability
-  results until their sanitized evidence is recorded.
+- **Third-party interoperability** — sanitized live evidence from a real
+  [Okta SCIM directory job](https://github.com/amliuyong/a-auth/issues/1) and
+  a real [Okta Cross App Access ID-JAG exchange](https://github.com/amliuyong/a-auth/issues/2)
+  is recorded in the conformance matrix (C12.2 and C13.8). These are recorded
+  runs, not part of the daily external release gate.
 
 [简体中文简介](#简体中文简介) ·
 [Getting started](docs/GETTING_STARTED.md) ·
@@ -245,7 +248,9 @@ Agent Auth 是一个面向 AI agent、workload 和 MCP Resource Server 的 OAuth
 传统 OAuth/OIDC 客户端。
 
 项目采用 Rust 实现协议与策略核心，提供 AWS CDK 部署、React 管理界面以及
-TypeScript/Python Resource Server SDK。当前仍处于 pre-1.0 活跃开发阶段；
+TypeScript/Python Resource Server SDK。1.0 起按语义化版本对 HTTP API
+（`openapi/openapi.json`）与 TypeScript/Python Resource Server SDK 做兼容承诺，
+部署配置与持久化数据格式不在承诺范围内；
 生产使用前请审阅 [`docs/CONFORMANCE.md`](docs/CONFORMANCE.md)、
 [`docs/DESIGN.md`](docs/DESIGN.md) 和
 [`docs/INSTALL_DEPLOY.md`](docs/INSTALL_DEPLOY.md)。

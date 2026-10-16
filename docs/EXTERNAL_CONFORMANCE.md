@@ -47,8 +47,9 @@ origin is not accepted.
 
 FAPI 2.0 and OpenID Federation are separate profiles. They are absent from the
 allowed claim list and remain unclaimed. The approved-claims artifact also
-records explicit non-claims for FAPI, OpenID Federation, blanket RFC 9700
-certification, real SCIM interoperability, and real EMA interoperability.
+records explicit non-claims for FAPI, OpenID Federation, and blanket RFC 9700
+certification. Real Okta SCIM (C12.2) and EMA (C13.8) interoperability are
+recorded live evidence in the conformance matrix, not gate-approved claims.
 
 ## GitHub environment
 

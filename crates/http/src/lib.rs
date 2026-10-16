@@ -105,8 +105,7 @@ pub use agent_auth_discovery::{Phase, SubjectType};
 #[openapi(
     info(
         title = "Agent Auth",
-        description = "面向 agent 时代的 OAuth 2.1 / OIDC 授权服务器。协议决策真相源见 docs/DESIGN §N + CONFORMANCE C 编号。",
-        version = "0.0.0"
+        description = "面向 agent 时代的 OAuth 2.1 / OIDC 授权服务器。协议决策真相源见 docs/DESIGN §N + CONFORMANCE C 编号。"
     ),
     tags(
         (name = "discovery", description = "发现面:OIDC/OAuth metadata + JWKS(C1/C10.11a)"),

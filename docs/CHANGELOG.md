@@ -8,6 +8,20 @@ configuration, APIs, deployment resources, or SDKs.
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-16
+
+### Compatibility
+
+- This is the first stable release. From `1.0.0`, Semantic Versioning covers
+  the HTTP API described by `openapi/openapi.json`, including the OAuth 2.1
+  and OpenID Connect endpoints it documents, and the public APIs of the
+  TypeScript and Python resource-server SDKs.
+- Deployment configuration (CDK stack properties, environment variables, and
+  deployment topologies) and persisted data formats are outside that
+  guarantee. Release notes call out changes to them; follow the linked
+  runbooks before upgrading a deployment.
+- The OpenAPI document's `info.version` now tracks the release version.
+
 ### Added
 
 - EMA policies accept an optional `allowed_actor_subjects` allowlist so ID-JAGs
@@ -17,18 +31,61 @@ configuration, APIs, deployment resources, or SDKs.
   client and never carry the IdP actor.
 - Okta Cross App Access acquisition helpers (`e2e/okta_xaa_login.py`,
   `e2e/okta_xaa_acquire.sh`) for the external EMA acceptance gate.
+- Token exchange supports explicitly authorized, bounded same-resource
+  delegation and exposes validated `delegation_lineage` through
+  introspection. See [`BOUNDED_DELEGATION.md`](BOUNDED_DELEGATION.md).
+- Users can authorize a registered workload actor on a Grant through consent,
+  and administrators register actor-only workload clients over HTTP. See
+  [`WORKLOAD_CONSENT.md`](WORKLOAD_CONSENT.md).
+- Recorded sanitized live interoperability evidence from a real Okta SCIM
+  directory job (C12.2) and a real Okta Cross App Access ID-JAG exchange
+  (C13.8).
 
 ### Fixed
 
+- Cached SaaS `/jwks.json` requests keep the managed origin authentication
+  headers instead of failing with `403 untrusted_origin`.
+- Tenant offboarding no longer makes SaaS administrator requests fail; the
+  offboarded owners cannot authenticate, and governance history is retained.
+- SaaS user detail stays readable when attribute namespaces are disabled.
 - The EMA policy Secret reference now lives in the runtime bootstrap
   configuration document instead of the Lambda environment, so enabling EMA no
   longer pushes the SaaS runtime past the 4 KiB environment limit.
 
+### Security
+
+- Updated rustls to 0.23.46 and patched vulnerable npm dependencies:
+  brace-expansion through aws-cdk-lib 2.273.0, js-yaml, source-map-js,
+  smol-toml, and katex.
+- The external release gate keeps the stable issuer off public run surfaces.
+  The issuer is now the `CONFORMANCE_ISSUER` environment secret, dispatch
+  takes only `deployment_version`, and issuer-bearing results are sealed in
+  an encrypted artifact that operators decrypt before promotion. See
+  [`EXTERNAL_CONFORMANCE.md`](EXTERNAL_CONFORMANCE.md#public-run-surface).
+
 ### Documentation
 
 - The README now surfaces the current release, enforced conformance evidence,
-  external release-gate semantics, and outstanding third-party
-  interoperability work.
+  external release-gate semantics, and recorded third-party interoperability
+  evidence.
+
+### Release status
+
+- This release publishes source archives only; Rust crates and SDK packages
+  are not published to external registries.
+- Project test results are not certification by the OpenID Foundation or
+  another standards body.
+- The external release gate passes the OIDF Basic OP code-flow plan with 14
+  time-limited, owner-approved exceptions. They cover intentionally
+  unsupported optional capabilities (optional scopes and the optional `name`
+  claim, unsigned ID tokens, by-value Request Objects, and external
+  `request_uri`) and modules whose official result requires screenshot or
+  error-page review. Each approval lasts at most 30 days and is renewed
+  against fresh evidence.
+- FAPI, OpenID Federation, and RFC 9700 certification remain explicit
+  non-claims.
+- Optional ES256/RS256 pressure routing (C10.15, C10.18) and the claims-tier
+  shared-key profile (C10.22b) are not enabled in the published profile.
 
 ## [0.5.0] - 2026-08-26
 
@@ -75,5 +132,6 @@ configuration, APIs, deployment resources, or SDKs.
   SDKs, capability specifications, conformance inventory, and runbooks into a
   clean public Git history at commit `3b406ce`.
 
-[Unreleased]: https://github.com/amliuyong/a-auth/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/amliuyong/a-auth/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/amliuyong/a-auth/compare/v0.5.0...v1.0.0
 [0.5.0]: https://github.com/amliuyong/a-auth/releases/tag/v0.5.0

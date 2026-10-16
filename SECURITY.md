@@ -2,7 +2,8 @@
 
 ## Supported Version
 
-Security fixes are developed against the latest commit on `main`.
+Security fixes are developed against the latest commit on `main` and released
+in the latest `1.x` minor release. Releases before `1.0.0` are not supported.
 
 ## Reporting a Vulnerability
 

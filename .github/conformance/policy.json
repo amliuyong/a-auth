@@ -28,9 +28,7 @@
   "explicit_non_claims": [
     "fapi",
     "openid-federation",
-    "rfc9700-certification",
-    "scim-third-party-interoperability",
-    "ema-third-party-interoperability"
+    "rfc9700-certification"
   ],
   "exception_issue_repository": "amliuyong/a-auth",
   "exception_approval_label": "conformance-waiver-approved",
