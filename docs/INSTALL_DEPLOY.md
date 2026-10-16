@@ -291,7 +291,8 @@ SelfHosted 的 `tenant` 固定为 `default`；SaaS policy 使用 `t1` 等已登�
 `AGENT_AUTH_EMA_ENABLED=1`（SaaS 用 `SAAS_EMA_ENABLED=1`）重部署。CDK/runtime 会拒绝空数组、
 非法 policy、重复 lookup key、未知租户、`phase<p2` 或缺 replay/JTI 依赖。严格 Stable 与真实
 IdP 验收必须保持 `allow_legacy_missing_resource=false`。CDK 会把 policy 规范化后写入专用
-Secrets Manager 配置 Secret，Lambda 环境仅保存其 ARN，避免触发 4 KiB 环境变量上限。
+Secrets Manager 配置 Secret，其 ARN 写入 runtime bootstrap 配置文档（`ema_policies_secret_arn`）而不进
+Lambda 环境，避免触发 4 KiB 环境变量上限。
 
 `allowed_actor_subjects` 可省略，默认空数组即拒绝任何带 `act` 的 ID-JAG。某些 IdP 的 agent
 流程总会签发单层 `act`（例如 Okta Cross App Access 写入 `act.sub=<agent client id>` 与信息性

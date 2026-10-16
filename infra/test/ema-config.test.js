@@ -30,23 +30,46 @@ function emaDeployment(stack) {
   const functions = Object.values(template.Resources).filter(
     (resource) =>
       resource.Type === 'AWS::Lambda::Function' &&
-      resource.Properties?.Environment?.Variables
-        ?.AGENT_AUTH_EMA_POLICIES_SECRET_ARN,
+      ['non_token', 'token'].includes(
+        resource.Properties?.Environment?.Variables?.SCOPE,
+      ),
   );
-  assert.equal(functions.length, 2);
   assert.deepEqual(
     functions
       .map((resource) => resource.Properties.Environment.Variables.SCOPE)
       .sort(),
     ['non_token', 'token'],
   );
-  const secrets = Object.values(template.Resources).filter(
-    (resource) =>
+  const secretEntries = Object.entries(template.Resources).filter(
+    ([, resource]) =>
       resource.Type === 'AWS::SecretsManager::Secret' &&
       resource.Properties?.Description ===
         'Deployment-owned tenant-scoped EMA trust policy configuration',
   );
-  assert.equal(secrets.length, 1);
+  assert.equal(secretEntries.length, 1);
+  const [emaSecretId, emaSecret] = secretEntries[0];
+  const secrets = [emaSecret];
+  // The EMA Secret reference rides in the runtime bootstrap document, never in
+  // the 4 KiB Lambda environment.
+  for (const resource of functions) {
+    assert.equal(
+      resource.Properties.Environment.Variables.AGENT_AUTH_EMA_POLICIES_SECRET_ARN,
+      undefined,
+    );
+    assert.ok(
+      resource.Properties.Environment.Variables.AGENT_AUTH_BOOTSTRAP_CONFIG_SECRET_ARN,
+    );
+  }
+  const bootstrap = Object.values(template.Resources).filter(
+    (resource) =>
+      resource.Type === 'AWS::SecretsManager::Secret' &&
+      resource.Properties?.Description ===
+        'Deployment-owned Agent Auth governance and credential bootstrap configuration',
+  );
+  assert.equal(bootstrap.length, 1);
+  const bootstrapDocument = JSON.stringify(bootstrap[0].Properties.SecretString);
+  assert.match(bootstrapDocument, /ema_policies_secret_arn/);
+  assert.ok(bootstrapDocument.includes(emaSecretId));
   return {
     environments: functions.map(
       (resource) => resource.Properties.Environment.Variables,
@@ -67,7 +90,6 @@ test('EMA policy can be staged while capability remains disabled', () => {
   assert.equal(secretString, policies);
   for (const runtimeEnvironment of environments) {
     assert.equal(runtimeEnvironment.AGENT_AUTH_EMA_POLICIES, undefined);
-    assert.ok(runtimeEnvironment.AGENT_AUTH_EMA_POLICIES_SECRET_ARN);
     assert.equal(runtimeEnvironment.AGENT_AUTH_EMA_ENABLED, undefined);
   }
   assert.equal(environment.SCOPE, 'non_token');
@@ -90,7 +112,6 @@ test('c13_1_ema_deployment_requires_and_injects_complete_runtime_configuration',
   }
   assert.equal(secretString, policies);
   assert.equal(environment.AGENT_AUTH_EMA_POLICIES, undefined);
-  assert.ok(environment.AGENT_AUTH_EMA_POLICIES_SECRET_ARN);
   assert.equal(environment.SCOPE, 'non_token');
   Template.fromStack(stack).hasOutput('DeploymentCommit', {
     Value: 'a'.repeat(40),

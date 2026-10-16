@@ -2325,6 +2325,23 @@ export class AgentAuthStack extends Stack {
         return [tenant, dependencies];
       }),
     );
+    const emaPoliciesSecret = canonicalEmaPolicies
+      ? new secretsmanager.Secret(this, 'EmaPolicies', {
+          description:
+            'Deployment-owned tenant-scoped EMA trust policy configuration',
+          secretStringValue: SecretValue.unsafePlainText(canonicalEmaPolicies),
+          removalPolicy: RemovalPolicy.DESTROY,
+        })
+      : undefined;
+    if (emaPoliciesSecret) {
+      NagSuppressions.addResourceSuppressions(emaPoliciesSecret, [
+        {
+          id: 'AwsSolutions-SMG4',
+          reason:
+            'This Secret stores deployment-owned public trust policy rather than a rotatable credential; stack updates publish new versions.',
+        },
+      ]);
+    }
     const runtimeBootstrapDocument = {
       schema_version: 1,
       governance_hmac_secret_arn: governanceHmacSecret.secretArn,
@@ -2341,6 +2358,12 @@ export class AgentAuthStack extends Stack {
         federationAttributeMappingsTable.tableName,
       tenant_residency: canonicalTenantResidency,
       tenant_secret_dependencies: tenantSecretDependencies,
+      // EMA policy reference lives in the bootstrap document, not the Lambda
+      // environment, so it never counts against the 4 KiB environment limit.
+      // Written only when configured so EMA-less documents stay unchanged.
+      ...(emaPoliciesSecret
+        ? { ema_policies_secret_arn: emaPoliciesSecret.secretArn }
+        : {}),
     };
     const runtimeBootstrapSecretString = Fn.toJsonString(runtimeBootstrapDocument);
     const runtimeBootstrapConfigSecret = new secretsmanager.Secret(
@@ -2377,23 +2400,6 @@ export class AgentAuthStack extends Stack {
           }
         : {}),
     };
-    const emaPoliciesSecret = canonicalEmaPolicies
-      ? new secretsmanager.Secret(this, 'EmaPolicies', {
-          description:
-            'Deployment-owned tenant-scoped EMA trust policy configuration',
-          secretStringValue: SecretValue.unsafePlainText(canonicalEmaPolicies),
-          removalPolicy: RemovalPolicy.DESTROY,
-        })
-      : undefined;
-    if (emaPoliciesSecret) {
-      NagSuppressions.addResourceSuppressions(emaPoliciesSecret, [
-        {
-          id: 'AwsSolutions-SMG4',
-          reason:
-            'This Secret stores deployment-owned public trust policy rather than a rotatable credential; stack updates publish new versions.',
-        },
-      ]);
-    }
     let standbyRuntimeBootstrapConfigSecret:
       | secretsmanager.Secret
       | undefined;
@@ -2672,9 +2678,6 @@ export class AgentAuthStack extends Stack {
         ...(props.byodEnabled ? { AGENT_AUTH_BYOD_ENABLED: '1' } : {}),
         ...(mtlsSvidDeploymentEnabled
           ? { AGENT_AUTH_MTLS_SVID_ENABLED: '1' }
-          : {}),
-        ...(emaPoliciesSecret
-          ? { AGENT_AUTH_EMA_POLICIES_SECRET_ARN: emaPoliciesSecret.secretArn }
           : {}),
         ...(props.emaEnabled ? { AGENT_AUTH_EMA_ENABLED: '1' } : {}),
     };

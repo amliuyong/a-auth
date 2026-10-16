@@ -262,8 +262,9 @@ trap 时由云端 publishing timeout/overlap reconciler 收敛，prepared checkp
 - CDK CLI 可从
   `AGENT_AUTH_EMA_POLICIES_FILE`（Dev）或 `SAAS_EMA_POLICIES_FILE`（SaaS）加载。policy 只含
   issuer/JWKS/resource/scope/client 等公开信任配置，不含 client secret 或 IdP 私钥。CDK
-  将规范化 JSON 写入专用 Secrets Manager 配置 Secret；API Lambda 启动时按环境中的精确 ARN
-  读取，避免 tenant policy 挤占 Lambda 4 KiB environment 上限。
+  将规范化 JSON 写入专用 Secrets Manager 配置 Secret；该 Secret 的精确 ARN 写进 runtime bootstrap
+  配置文档（`ema_policies_secret_arn`），API Lambda 启动时经 bootstrap 文档读取，policy 与其 ARN 都不
+  占用 Lambda 4 KiB environment（SaaS runtime 的环境变量已接近上限）。
 - policy 可先 staged，但 capability 只有在 `AGENT_AUTH_EMA_ENABLED=1`、Phase≥P2、policy 非空且
   `JTI_TABLE` 同时可用时激活。任一结构错误、重复
   `(Agent Auth tenant, issuer, issuer_tenant, authenticated_client_id)` lookup key 或部署形态

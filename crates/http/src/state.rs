@@ -4544,6 +4544,9 @@ struct RuntimeBootstrapConfig {
     #[serde(default)]
     tenant_secret_dependencies:
         std::collections::BTreeMap<String, Vec<crate::governance::GovernanceSecretReference>>,
+    /// EMA policy Secret reference; kept out of the 4 KiB Lambda environment.
+    #[serde(default)]
+    ema_policies_secret_arn: Option<String>,
 }
 
 #[cfg(any(feature = "aws", test))]
@@ -4567,6 +4570,13 @@ impl RuntimeBootstrapConfig {
             return Err(
                 "runtime bootstrap config passkey origin reference is not a Secret ARN".into(),
             );
+        }
+        if config
+            .ema_policies_secret_arn
+            .as_deref()
+            .is_some_and(|arn| !is_secrets_manager_arn(arn))
+        {
+            return Err("runtime bootstrap config EMA policy reference is not a Secret ARN".into());
         }
         if !config.tenant_residency.is_object() {
             return Err("runtime bootstrap config tenant_residency must be an object".into());
@@ -4731,6 +4741,32 @@ mod runtime_bootstrap_config_tests {
         ] {
             assert!(secondary_origin_secret_name(value).is_err(), "{value}");
         }
+    }
+
+    #[test]
+    fn bootstrap_config_carries_an_optional_ema_policy_secret_reference() {
+        assert_eq!(
+            RuntimeBootstrapConfig::parse(VALID)
+                .unwrap()
+                .ema_policies_secret_arn,
+            None
+        );
+        let with_ema = VALID.replace(
+            "\"tenant_secret_dependencies\": {}",
+            "\"tenant_secret_dependencies\": {},\n        \"ema_policies_secret_arn\": \"arn:aws:secretsmanager:us-east-1:123456789012:secret:ema-AbCd12\"",
+        );
+        assert_eq!(
+            RuntimeBootstrapConfig::parse(&with_ema)
+                .unwrap()
+                .ema_policies_secret_arn
+                .as_deref(),
+            Some("arn:aws:secretsmanager:us-east-1:123456789012:secret:ema-AbCd12")
+        );
+        assert!(RuntimeBootstrapConfig::parse(&with_ema.replace(
+            "arn:aws:secretsmanager:us-east-1:123456789012:secret:ema-AbCd12",
+            "not-a-secret"
+        ))
+        .is_err());
     }
 
     #[test]
@@ -6819,9 +6855,19 @@ impl AppState {
         let inline_ema_policy_json = std::env::var("AGENT_AUTH_EMA_POLICIES")
             .ok()
             .filter(|value| !value.trim().is_empty());
-        let ema_policy_secret_arn = std::env::var("AGENT_AUTH_EMA_POLICIES_SECRET_ARN")
+        let env_ema_policy_secret_arn = std::env::var("AGENT_AUTH_EMA_POLICIES_SECRET_ARN")
             .ok()
             .filter(|value| !value.is_empty());
+        let bootstrap_ema_policy_secret_arn = runtime_bootstrap_config
+            .as_ref()
+            .and_then(|config| config.ema_policies_secret_arn.clone());
+        if env_ema_policy_secret_arn.is_some() && bootstrap_ema_policy_secret_arn.is_some() {
+            return Err(
+                "EMA policy Secret must be referenced by exactly one of the environment or the runtime bootstrap config"
+                    .into(),
+            );
+        }
+        let ema_policy_secret_arn = env_ema_policy_secret_arn.or(bootstrap_ema_policy_secret_arn);
         if inline_ema_policy_json.is_some() && ema_policy_secret_arn.is_some() {
             return Err("EMA policy must use exactly one of inline JSON or Secrets Manager".into());
         }
