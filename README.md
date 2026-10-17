@@ -9,6 +9,10 @@ and MCP resource servers.
 [![Apache 2.0 license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Rust 1.85 or newer](https://img.shields.io/badge/Rust-1.85%2B-orange.svg)](https://www.rust-lang.org/)
 
+[<img src="docs/assets/agent-auth-intro.gif" alt="Animated preview of the Agent Auth introduction video: Agent Auth signs an access token for an agent, bound to one MCP resource server; the agent presents it, a different server rejects it, and the intended server verifies it with public keys" width="800">](docs/assets/agent-auth-intro.mp4)
+
+[Watch the 60-second introduction video (MP4)](docs/assets/agent-auth-intro.mp4)
+
 Agent Auth is a standards-oriented authorization server built for software that
 acts on behalf of people or other workloads. It gives agents an explicit,
 auditable way to obtain resource-bound access tokens instead of sharing user
@@ -255,6 +259,7 @@ TypeScript/Python Resource Server SDK。1.0 起按语义化版本对 HTTP API
 [`docs/DESIGN.md`](docs/DESIGN.md) 和
 [`docs/INSTALL_DEPLOY.md`](docs/INSTALL_DEPLOY.md)。
 
+60 秒介绍视频见 [`docs/assets/agent-auth-intro.mp4`](docs/assets/agent-auth-intro.mp4)。
 中文读者建议从 [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md) 开始，
 再按角色阅读 [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md) 或部署文档。
 
