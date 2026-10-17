@@ -8,6 +8,15 @@ configuration, APIs, deployment resources, or SDKs.
 
 ## [Unreleased]
 
+### Added
+
+- A 60-second introduction video, linked from an animated preview at the top
+  of the README.
+
+### Changed
+
+- New Agent Auth logo for the web UI favicon and the README.
+
 ## [1.0.0] - 2026-10-16
 
 ### Compatibility
