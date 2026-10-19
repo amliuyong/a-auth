@@ -42,6 +42,7 @@ name = "agent-auth-authn"
 version = "1.0.0"
 dependencies = [
  "agent-auth-infra-core",
+ "agent-auth-payment",
  "argon2",
  "base64",
  "ciborium",
@@ -188,6 +189,17 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "subtle",
+]
+
+[[package]]
+name = "agent-auth-payment"
+version = "1.0.0"
+dependencies = [
+ "base64",
+ "hmac 0.12.1",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]

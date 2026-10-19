@@ -1,0 +1,738 @@
+{
+  "profile": "agent_auth_payment_v1",
+  "description": "Cross-language vectors for the agent_auth_payment_v1 terms encoding (docs/AGENT_PAYMENT.md). canonical_hex = domain || for each field u32_be(len(utf8)) || utf8; terms_digest = base64url_nopad(sha256(canonical)).",
+  "digest_domain_hex": "6167656e742d617574683a7061796d656e742d7465726d733a763100",
+  "field_order": [
+    "profile",
+    "intent_id",
+    "tenant",
+    "payer",
+    "client_id",
+    "actor",
+    "resource",
+    "order_id",
+    "funding_source.id",
+    "funding_source.version",
+    "funding_source.label",
+    "payee.id",
+    "payee.version",
+    "payee.name",
+    "amount_minor",
+    "currency",
+    "currency_exponent",
+    "execute_before"
+  ],
+  "valid": [
+    {
+      "name": "baseline_usd",
+      "intent_id": "pi_Vb0oYlS9cG2nR1xQ7tU4wE8aZ3kM6jH5fD0pL2sN9qA",
+      "terms": {
+        "tenant": "default",
+        "payer": "6l1U9eA0Kq3mZ7sT2wYcXo4vRbN8pDfGhJ5kLqWeErT",
+        "client_id": "coveai",
+        "actor": "pay-runtime",
+        "resource": "https://payments.example",
+        "order_id": "order-2026-0001",
+        "funding_source": {
+          "id": "fs_visa_4242",
+          "version": 3,
+          "label": "Visa •••• 4242"
+        },
+        "payee": {
+          "id": "merchant_books",
+          "version": 2,
+          "name": "Example Books Ltd"
+        },
+        "amount_minor": "1999",
+        "currency": "USD",
+        "currency_exponent": 2,
+        "execute_before": 1798761600
+      },
+      "canonical_hex": "6167656e742d617574683a7061796d656e742d7465726d733a763100000000156167656e745f617574685f7061796d656e745f76310000002e70695f5662306f596c53396347326e5231785137745534774538615a336b4d366a4835664430704c32734e3971410000000764656661756c740000002b366c3155396541304b71336d5a37735432775963586f347652624e3870446647684a356b4c71576545725400000006636f766561690000000b7061792d72756e74696d650000001868747470733a2f2f7061796d656e74732e6578616d706c650000000f6f726465722d323032362d303030310000000c66735f766973615f343234320000000133000000165669736120e280a2e280a2e280a2e280a220343234320000000e6d65726368616e745f626f6f6b730000000132000000114578616d706c6520426f6f6b73204c746400000004313939390000000355534400000001320000000a31373938373631363030",
+      "terms_digest": "CJtWiXqs76hMBRVmjSmjnN3Lbdqhsm39pVT-rLdrdt4"
+    },
+    {
+      "name": "unicode_labels_zero_exponent",
+      "intent_id": "pi_unicodeVectorAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "terms": {
+        "tenant": "acme",
+        "payer": "6l1U9eA0Kq3mZ7sT2wYcXo4vRbN8pDfGhJ5kLqWeErT",
+        "client_id": "coveai",
+        "actor": "pay-runtime",
+        "resource": "https://payments.example",
+        "order_id": "ORD-77",
+        "funding_source": {
+          "id": "fs_visa_4242",
+          "version": 3,
+          "label": "企业账户 •• 0001"
+        },
+        "payee": {
+          "id": "merchant_books",
+          "version": 2,
+          "name": "Café 书店 Übung"
+        },
+        "amount_minor": "120000",
+        "currency": "JPY",
+        "currency_exponent": 0,
+        "execute_before": 1798761600
+      },
+      "canonical_hex": "6167656e742d617574683a7061796d656e742d7465726d733a763100000000156167656e745f617574685f7061796d656e745f76310000002c70695f756e69636f6465566563746f72414141414141414141414141414141414141414141414141414141410000000461636d650000002b366c3155396541304b71336d5a37735432775963586f347652624e3870446647684a356b4c71576545725400000006636f766561690000000b7061792d72756e74696d650000001868747470733a2f2f7061796d656e74732e6578616d706c65000000064f52442d37370000000c66735f766973615f34323432000000013300000018e4bc81e4b89ae8b4a6e688b720e280a2e280a220303030310000000e6d65726368616e745f626f6f6b73000000013200000013436166c3a920e4b9a6e5ba9720c39c62756e6700000006313230303030000000034a505900000001300000000a31373938373631363030",
+      "terms_digest": "RekhWuvtIGG-kRBrO2HlBu9UyqyiXKNPlyZXOHnV40E"
+    },
+    {
+      "name": "max_eighteen_digit_amount",
+      "intent_id": "pi_maxAmountVectorBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+      "terms": {
+        "tenant": "default",
+        "payer": "6l1U9eA0Kq3mZ7sT2wYcXo4vRbN8pDfGhJ5kLqWeErT",
+        "client_id": "coveai",
+        "actor": "pay-runtime",
+        "resource": "https://payments.example",
+        "order_id": "order-2026-0001",
+        "funding_source": {
+          "id": "fs_visa_4242",
+          "version": 3,
+          "label": "Visa •••• 4242"
+        },
+        "payee": {
+          "id": "merchant_books",
+          "version": 2,
+          "name": "Example Books Ltd"
+        },
+        "amount_minor": "999999999999999999",
+        "currency": "USD",
+        "currency_exponent": 2,
+        "execute_before": 1798761600
+      },
+      "canonical_hex": "6167656e742d617574683a7061796d656e742d7465726d733a763100000000156167656e745f617574685f7061796d656e745f76310000002d70695f6d6178416d6f756e74566563746f724242424242424242424242424242424242424242424242424242420000000764656661756c740000002b366c3155396541304b71336d5a37735432775963586f347652624e3870446647684a356b4c71576545725400000006636f766561690000000b7061792d72756e74696d650000001868747470733a2f2f7061796d656e74732e6578616d706c650000000f6f726465722d323032362d303030310000000c66735f766973615f343234320000000133000000165669736120e280a2e280a2e280a2e280a220343234320000000e6d65726368616e745f626f6f6b730000000132000000114578616d706c6520426f6f6b73204c7464000000123939393939393939393939393939393939390000000355534400000001320000000a31373938373631363030",
+      "terms_digest": "O45qvkdF6wumjBR8ok9j_77X9dDRbbhGVA0M7JLeCUY"
+    }
+  ],
+  "invalid_terms": [
+    {
+      "name": "float_amount",
+      "intent_id": "pi_invalidVectorCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+      "terms": {
+        "tenant": "default",
+        "payer": "6l1U9eA0Kq3mZ7sT2wYcXo4vRbN8pDfGhJ5kLqWeErT",
+        "client_id": "coveai",
+        "actor": "pay-runtime",
+        "resource": "https://payments.example",
+        "order_id": "order-2026-0001",
+        "funding_source": {
+          "id": "fs_visa_4242",
+          "version": 3,
+          "label": "Visa •••• 4242"
+        },
+        "payee": {
+          "id": "merchant_books",
+          "version": 2,
+          "name": "Example Books Ltd"
+        },
+        "amount_minor": 19.99,
+        "currency": "USD",
+        "currency_exponent": 2,
+        "execute_before": 1798761600
+      }
+    },
+    {
+      "name": "numeric_amount",
+      "intent_id": "pi_invalidVectorCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+      "terms": {
+        "tenant": "default",
+        "payer": "6l1U9eA0Kq3mZ7sT2wYcXo4vRbN8pDfGhJ5kLqWeErT",
+        "client_id": "coveai",
+        "actor": "pay-runtime",
+        "resource": "https://payments.example",
+        "order_id": "order-2026-0001",
+        "funding_source": {
+          "id": "fs_visa_4242",
+          "version": 3,
+          "label": "Visa •••• 4242"
+        },
+        "payee": {
+          "id": "merchant_books",
+          "version": 2,
+          "name": "Example Books Ltd"
+        },
+        "amount_minor": 1999,
+        "currency": "USD",
+        "currency_exponent": 2,
+        "execute_before": 1798761600
+      }
+    },
+    {
+      "name": "zero_amount",
+      "intent_id": "pi_invalidVectorCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+      "terms": {
+        "tenant": "default",
+        "payer": "6l1U9eA0Kq3mZ7sT2wYcXo4vRbN8pDfGhJ5kLqWeErT",
+        "client_id": "coveai",
+        "actor": "pay-runtime",
+        "resource": "https://payments.example",
+        "order_id": "order-2026-0001",
+        "funding_source": {
+          "id": "fs_visa_4242",
+          "version": 3,
+          "label": "Visa •••• 4242"
+        },
+        "payee": {
+          "id": "merchant_books",
+          "version": 2,
+          "name": "Example Books Ltd"
+        },
+        "amount_minor": "0",
+        "currency": "USD",
+        "currency_exponent": 2,
+        "execute_before": 1798761600
+      }
+    },
+    {
+      "name": "leading_zero_amount",
+      "intent_id": "pi_invalidVectorCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+      "terms": {
+        "tenant": "default",
+        "payer": "6l1U9eA0Kq3mZ7sT2wYcXo4vRbN8pDfGhJ5kLqWeErT",
+        "client_id": "coveai",
+        "actor": "pay-runtime",
+        "resource": "https://payments.example",
+        "order_id": "order-2026-0001",
+        "funding_source": {
+          "id": "fs_visa_4242",
+          "version": 3,
+          "label": "Visa •••• 4242"
+        },
+        "payee": {
+          "id": "merchant_books",
+          "version": 2,
+          "name": "Example Books Ltd"
+        },
+        "amount_minor": "01999",
+        "currency": "USD",
+        "currency_exponent": 2,
+        "execute_before": 1798761600
+      }
+    },
+    {
+      "name": "signed_amount",
+      "intent_id": "pi_invalidVectorCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+      "terms": {
+        "tenant": "default",
+        "payer": "6l1U9eA0Kq3mZ7sT2wYcXo4vRbN8pDfGhJ5kLqWeErT",
+        "client_id": "coveai",
+        "actor": "pay-runtime",
+        "resource": "https://payments.example",
+        "order_id": "order-2026-0001",
+        "funding_source": {
+          "id": "fs_visa_4242",
+          "version": 3,
+          "label": "Visa •••• 4242"
+        },
+        "payee": {
+          "id": "merchant_books",
+          "version": 2,
+          "name": "Example Books Ltd"
+        },
+        "amount_minor": "+1999",
+        "currency": "USD",
+        "currency_exponent": 2,
+        "execute_before": 1798761600
+      }
+    },
+    {
+      "name": "decimal_point_amount",
+      "intent_id": "pi_invalidVectorCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+      "terms": {
+        "tenant": "default",
+        "payer": "6l1U9eA0Kq3mZ7sT2wYcXo4vRbN8pDfGhJ5kLqWeErT",
+        "client_id": "coveai",
+        "actor": "pay-runtime",
+        "resource": "https://payments.example",
+        "order_id": "order-2026-0001",
+        "funding_source": {
+          "id": "fs_visa_4242",
+          "version": 3,
+          "label": "Visa •••• 4242"
+        },
+        "payee": {
+          "id": "merchant_books",
+          "version": 2,
+          "name": "Example Books Ltd"
+        },
+        "amount_minor": "19.99",
+        "currency": "USD",
+        "currency_exponent": 2,
+        "execute_before": 1798761600
+      }
+    },
+    {
+      "name": "nineteen_digit_amount",
+      "intent_id": "pi_invalidVectorCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+      "terms": {
+        "tenant": "default",
+        "payer": "6l1U9eA0Kq3mZ7sT2wYcXo4vRbN8pDfGhJ5kLqWeErT",
+        "client_id": "coveai",
+        "actor": "pay-runtime",
+        "resource": "https://payments.example",
+        "order_id": "order-2026-0001",
+        "funding_source": {
+          "id": "fs_visa_4242",
+          "version": 3,
+          "label": "Visa •••• 4242"
+        },
+        "payee": {
+          "id": "merchant_books",
+          "version": 2,
+          "name": "Example Books Ltd"
+        },
+        "amount_minor": "1000000000000000000",
+        "currency": "USD",
+        "currency_exponent": 2,
+        "execute_before": 1798761600
+      }
+    },
+    {
+      "name": "lowercase_currency",
+      "intent_id": "pi_invalidVectorCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+      "terms": {
+        "tenant": "default",
+        "payer": "6l1U9eA0Kq3mZ7sT2wYcXo4vRbN8pDfGhJ5kLqWeErT",
+        "client_id": "coveai",
+        "actor": "pay-runtime",
+        "resource": "https://payments.example",
+        "order_id": "order-2026-0001",
+        "funding_source": {
+          "id": "fs_visa_4242",
+          "version": 3,
+          "label": "Visa •••• 4242"
+        },
+        "payee": {
+          "id": "merchant_books",
+          "version": 2,
+          "name": "Example Books Ltd"
+        },
+        "amount_minor": "1999",
+        "currency": "usd",
+        "currency_exponent": 2,
+        "execute_before": 1798761600
+      }
+    },
+    {
+      "name": "four_letter_currency",
+      "intent_id": "pi_invalidVectorCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+      "terms": {
+        "tenant": "default",
+        "payer": "6l1U9eA0Kq3mZ7sT2wYcXo4vRbN8pDfGhJ5kLqWeErT",
+        "client_id": "coveai",
+        "actor": "pay-runtime",
+        "resource": "https://payments.example",
+        "order_id": "order-2026-0001",
+        "funding_source": {
+          "id": "fs_visa_4242",
+          "version": 3,
+          "label": "Visa •••• 4242"
+        },
+        "payee": {
+          "id": "merchant_books",
+          "version": 2,
+          "name": "Example Books Ltd"
+        },
+        "amount_minor": "1999",
+        "currency": "USDT",
+        "currency_exponent": 2,
+        "execute_before": 1798761600
+      }
+    },
+    {
+      "name": "exponent_too_large",
+      "intent_id": "pi_invalidVectorCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+      "terms": {
+        "tenant": "default",
+        "payer": "6l1U9eA0Kq3mZ7sT2wYcXo4vRbN8pDfGhJ5kLqWeErT",
+        "client_id": "coveai",
+        "actor": "pay-runtime",
+        "resource": "https://payments.example",
+        "order_id": "order-2026-0001",
+        "funding_source": {
+          "id": "fs_visa_4242",
+          "version": 3,
+          "label": "Visa •••• 4242"
+        },
+        "payee": {
+          "id": "merchant_books",
+          "version": 2,
+          "name": "Example Books Ltd"
+        },
+        "amount_minor": "1999",
+        "currency": "USD",
+        "currency_exponent": 5,
+        "execute_before": 1798761600
+      }
+    },
+    {
+      "name": "negative_exponent",
+      "intent_id": "pi_invalidVectorCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+      "terms": {
+        "tenant": "default",
+        "payer": "6l1U9eA0Kq3mZ7sT2wYcXo4vRbN8pDfGhJ5kLqWeErT",
+        "client_id": "coveai",
+        "actor": "pay-runtime",
+        "resource": "https://payments.example",
+        "order_id": "order-2026-0001",
+        "funding_source": {
+          "id": "fs_visa_4242",
+          "version": 3,
+          "label": "Visa •••• 4242"
+        },
+        "payee": {
+          "id": "merchant_books",
+          "version": 2,
+          "name": "Example Books Ltd"
+        },
+        "amount_minor": "1999",
+        "currency": "USD",
+        "currency_exponent": -1,
+        "execute_before": 1798761600
+      }
+    },
+    {
+      "name": "string_exponent",
+      "intent_id": "pi_invalidVectorCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+      "terms": {
+        "tenant": "default",
+        "payer": "6l1U9eA0Kq3mZ7sT2wYcXo4vRbN8pDfGhJ5kLqWeErT",
+        "client_id": "coveai",
+        "actor": "pay-runtime",
+        "resource": "https://payments.example",
+        "order_id": "order-2026-0001",
+        "funding_source": {
+          "id": "fs_visa_4242",
+          "version": 3,
+          "label": "Visa •••• 4242"
+        },
+        "payee": {
+          "id": "merchant_books",
+          "version": 2,
+          "name": "Example Books Ltd"
+        },
+        "amount_minor": "1999",
+        "currency": "USD",
+        "currency_exponent": "2",
+        "execute_before": 1798761600
+      }
+    },
+    {
+      "name": "zero_execute_before",
+      "intent_id": "pi_invalidVectorCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+      "terms": {
+        "tenant": "default",
+        "payer": "6l1U9eA0Kq3mZ7sT2wYcXo4vRbN8pDfGhJ5kLqWeErT",
+        "client_id": "coveai",
+        "actor": "pay-runtime",
+        "resource": "https://payments.example",
+        "order_id": "order-2026-0001",
+        "funding_source": {
+          "id": "fs_visa_4242",
+          "version": 3,
+          "label": "Visa •••• 4242"
+        },
+        "payee": {
+          "id": "merchant_books",
+          "version": 2,
+          "name": "Example Books Ltd"
+        },
+        "amount_minor": "1999",
+        "currency": "USD",
+        "currency_exponent": 2,
+        "execute_before": 0
+      }
+    },
+    {
+      "name": "float_execute_before",
+      "intent_id": "pi_invalidVectorCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+      "terms": {
+        "tenant": "default",
+        "payer": "6l1U9eA0Kq3mZ7sT2wYcXo4vRbN8pDfGhJ5kLqWeErT",
+        "client_id": "coveai",
+        "actor": "pay-runtime",
+        "resource": "https://payments.example",
+        "order_id": "order-2026-0001",
+        "funding_source": {
+          "id": "fs_visa_4242",
+          "version": 3,
+          "label": "Visa •••• 4242"
+        },
+        "payee": {
+          "id": "merchant_books",
+          "version": 2,
+          "name": "Example Books Ltd"
+        },
+        "amount_minor": "1999",
+        "currency": "USD",
+        "currency_exponent": 2,
+        "execute_before": 1798761600.5
+      }
+    },
+    {
+      "name": "zero_funding_version",
+      "intent_id": "pi_invalidVectorCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+      "terms": {
+        "tenant": "default",
+        "payer": "6l1U9eA0Kq3mZ7sT2wYcXo4vRbN8pDfGhJ5kLqWeErT",
+        "client_id": "coveai",
+        "actor": "pay-runtime",
+        "resource": "https://payments.example",
+        "order_id": "order-2026-0001",
+        "funding_source": {
+          "id": "fs_visa_4242",
+          "version": 0,
+          "label": "Visa •••• 4242"
+        },
+        "payee": {
+          "id": "merchant_books",
+          "version": 2,
+          "name": "Example Books Ltd"
+        },
+        "amount_minor": "1999",
+        "currency": "USD",
+        "currency_exponent": 2,
+        "execute_before": 1798761600
+      }
+    },
+    {
+      "name": "string_payee_version",
+      "intent_id": "pi_invalidVectorCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+      "terms": {
+        "tenant": "default",
+        "payer": "6l1U9eA0Kq3mZ7sT2wYcXo4vRbN8pDfGhJ5kLqWeErT",
+        "client_id": "coveai",
+        "actor": "pay-runtime",
+        "resource": "https://payments.example",
+        "order_id": "order-2026-0001",
+        "funding_source": {
+          "id": "fs_visa_4242",
+          "version": 3,
+          "label": "Visa •••• 4242"
+        },
+        "payee": {
+          "id": "merchant_books",
+          "version": "2",
+          "name": "Example Books Ltd"
+        },
+        "amount_minor": "1999",
+        "currency": "USD",
+        "currency_exponent": 2,
+        "execute_before": 1798761600
+      }
+    },
+    {
+      "name": "empty_actor",
+      "intent_id": "pi_invalidVectorCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+      "terms": {
+        "tenant": "default",
+        "payer": "6l1U9eA0Kq3mZ7sT2wYcXo4vRbN8pDfGhJ5kLqWeErT",
+        "client_id": "coveai",
+        "actor": "",
+        "resource": "https://payments.example",
+        "order_id": "order-2026-0001",
+        "funding_source": {
+          "id": "fs_visa_4242",
+          "version": 3,
+          "label": "Visa •••• 4242"
+        },
+        "payee": {
+          "id": "merchant_books",
+          "version": 2,
+          "name": "Example Books Ltd"
+        },
+        "amount_minor": "1999",
+        "currency": "USD",
+        "currency_exponent": 2,
+        "execute_before": 1798761600
+      }
+    },
+    {
+      "name": "whitespace_in_order",
+      "intent_id": "pi_invalidVectorCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+      "terms": {
+        "tenant": "default",
+        "payer": "6l1U9eA0Kq3mZ7sT2wYcXo4vRbN8pDfGhJ5kLqWeErT",
+        "client_id": "coveai",
+        "actor": "pay-runtime",
+        "resource": "https://payments.example",
+        "order_id": "order 1",
+        "funding_source": {
+          "id": "fs_visa_4242",
+          "version": 3,
+          "label": "Visa •••• 4242"
+        },
+        "payee": {
+          "id": "merchant_books",
+          "version": 2,
+          "name": "Example Books Ltd"
+        },
+        "amount_minor": "1999",
+        "currency": "USD",
+        "currency_exponent": 2,
+        "execute_before": 1798761600
+      }
+    },
+    {
+      "name": "control_in_label",
+      "intent_id": "pi_invalidVectorCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+      "terms": {
+        "tenant": "default",
+        "payer": "6l1U9eA0Kq3mZ7sT2wYcXo4vRbN8pDfGhJ5kLqWeErT",
+        "client_id": "coveai",
+        "actor": "pay-runtime",
+        "resource": "https://payments.example",
+        "order_id": "order-2026-0001",
+        "funding_source": {
+          "id": "fs_visa_4242",
+          "version": 3,
+          "label": "Visa •••• 4242"
+        },
+        "payee": {
+          "id": "merchant_books",
+          "version": 2,
+          "name": "Example\nBooks"
+        },
+        "amount_minor": "1999",
+        "currency": "USD",
+        "currency_exponent": 2,
+        "execute_before": 1798761600
+      }
+    },
+    {
+      "name": "padded_label",
+      "intent_id": "pi_invalidVectorCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+      "terms": {
+        "tenant": "default",
+        "payer": "6l1U9eA0Kq3mZ7sT2wYcXo4vRbN8pDfGhJ5kLqWeErT",
+        "client_id": "coveai",
+        "actor": "pay-runtime",
+        "resource": "https://payments.example",
+        "order_id": "order-2026-0001",
+        "funding_source": {
+          "id": "fs_visa_4242",
+          "version": 3,
+          "label": "Visa •••• 4242"
+        },
+        "payee": {
+          "id": "merchant_books",
+          "version": 2,
+          "name": " Example Books Ltd"
+        },
+        "amount_minor": "1999",
+        "currency": "USD",
+        "currency_exponent": 2,
+        "execute_before": 1798761600
+      }
+    },
+    {
+      "name": "http_resource",
+      "intent_id": "pi_invalidVectorCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+      "terms": {
+        "tenant": "default",
+        "payer": "6l1U9eA0Kq3mZ7sT2wYcXo4vRbN8pDfGhJ5kLqWeErT",
+        "client_id": "coveai",
+        "actor": "pay-runtime",
+        "resource": "http://payments.example",
+        "order_id": "order-2026-0001",
+        "funding_source": {
+          "id": "fs_visa_4242",
+          "version": 3,
+          "label": "Visa •••• 4242"
+        },
+        "payee": {
+          "id": "merchant_books",
+          "version": 2,
+          "name": "Example Books Ltd"
+        },
+        "amount_minor": "1999",
+        "currency": "USD",
+        "currency_exponent": 2,
+        "execute_before": 1798761600
+      }
+    },
+    {
+      "name": "missing_payer",
+      "intent_id": "pi_invalidVectorCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+      "terms": {
+        "tenant": "default",
+        "client_id": "coveai",
+        "actor": "pay-runtime",
+        "resource": "https://payments.example",
+        "order_id": "order-2026-0001",
+        "funding_source": {
+          "id": "fs_visa_4242",
+          "version": 3,
+          "label": "Visa •••• 4242"
+        },
+        "payee": {
+          "id": "merchant_books",
+          "version": 2,
+          "name": "Example Books Ltd"
+        },
+        "amount_minor": "1999",
+        "currency": "USD",
+        "currency_exponent": 2,
+        "execute_before": 1798761600
+      }
+    },
+    {
+      "name": "unknown_terms_field",
+      "intent_id": "pi_invalidVectorCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+      "terms": {
+        "tenant": "default",
+        "payer": "6l1U9eA0Kq3mZ7sT2wYcXo4vRbN8pDfGhJ5kLqWeErT",
+        "client_id": "coveai",
+        "actor": "pay-runtime",
+        "resource": "https://payments.example",
+        "order_id": "order-2026-0001",
+        "funding_source": {
+          "id": "fs_visa_4242",
+          "version": 3,
+          "label": "Visa •••• 4242"
+        },
+        "payee": {
+          "id": "merchant_books",
+          "version": 2,
+          "name": "Example Books Ltd"
+        },
+        "amount_minor": "1999",
+        "currency": "USD",
+        "currency_exponent": 2,
+        "execute_before": 1798761600,
+        "fee_minor": "10"
+      }
+    },
+    {
+      "name": "unknown_funding_field",
+      "intent_id": "pi_invalidVectorCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+      "terms": {
+        "tenant": "default",
+        "payer": "6l1U9eA0Kq3mZ7sT2wYcXo4vRbN8pDfGhJ5kLqWeErT",
+        "client_id": "coveai",
+        "actor": "pay-runtime",
+        "resource": "https://payments.example",
+        "order_id": "order-2026-0001",
+        "funding_source": {
+          "id": "fs_visa_4242",
+          "version": 3,
+          "label": "Visa •••• 4242",
+          "account_number": "4242424242424242"
+        },
+        "payee": {
+          "id": "merchant_books",
+          "version": 2,
+          "name": "Example Books Ltd"
+        },
+        "amount_minor": "1999",
+        "currency": "USD",
+        "currency_exponent": 2,
+        "execute_before": 1798761600
+      }
+    }
+  ]
+}

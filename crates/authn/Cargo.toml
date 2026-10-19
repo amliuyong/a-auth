@@ -8,6 +8,8 @@ description = "Agent Auth spec 003 [a] — 用户认证层纯逻辑(magic-link p
 
 [dependencies]
 agent-auth-infra-core = { path = "../infra-core" }
+# Payment RAR profile type: always a strong-assurance authorization (issue #77).
+agent-auth-payment = { path = "../payment" }
 hmac = { workspace = true }
 sha2 = { workspace = true }
 subtle = { workspace = true }
