@@ -55,6 +55,22 @@ export {
   type PolicyEvaluator,
 } from "./rar.js";
 export {
+  PAYMENT_RAR_TYPE_V1,
+  PAYMENT_EXECUTE_SCOPE,
+  PAYMENT_TERMS_DIGEST_DOMAIN,
+  PaymentAuthorizationError,
+  validatePaymentTerms,
+  paymentTermsCanonicalBytes,
+  paymentTermsDigest,
+  verifyPaymentAuthorization,
+  type PaymentFundingSourceRef,
+  type PaymentPayeeRef,
+  type PaymentTerms,
+  type PaymentAuthorizationErrorCode,
+  type PaymentExpectation,
+  type VerifiedPaymentAuthorization,
+} from "./payment.js";
+export {
   verifyDpopProof,
   computeJkt,
   computeAth,
