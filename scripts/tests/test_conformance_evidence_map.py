@@ -151,14 +151,14 @@ class ConformanceEvidenceMapTests(unittest.TestCase):
             EVIDENCE_MAP,
             WORKFLOW,
         )
-        self.assertEqual(counts["total"], 149)
-        self.assertEqual(counts["complete"], 146)
+        self.assertEqual(counts["total"], 158)
+        self.assertEqual(counts["complete"], 154)
         self.assertEqual(counts["unconditional_must"], 109)
         self.assertEqual(counts["exact_unconditional_must"], 109)
         self.assertEqual(counts["complete_without_exact"], 0)
         self.assertEqual(counts["applicability_unconditional"], 116)
-        self.assertEqual(counts["applicability_profile"], 30)
-        self.assertEqual(counts["applicability_not_applicable"], 3)
+        self.assertEqual(counts["applicability_profile"], 38)
+        self.assertEqual(counts["applicability_not_applicable"], 4)
         self.assertEqual(
             exact_ids,
             [
@@ -308,6 +308,14 @@ class ConformanceEvidenceMapTests(unittest.TestCase):
                 "13.6",
                 "13.7",
                 "13.8",
+                "14.1",
+                "14.2",
+                "14.3",
+                "14.4",
+                "14.5",
+                "14.6",
+                "14.7",
+                "14.8",
             ],
         )
         mapping = json.loads(EVIDENCE_MAP.read_text(encoding="utf-8"))
@@ -1564,7 +1572,7 @@ class ConformanceEvidenceMapTests(unittest.TestCase):
 
     def test_repository_aggregate_counts_are_pinned(self) -> None:
         mapping = json.loads(EVIDENCE_MAP.read_text(encoding="utf-8"))
-        self.assertEqual(len(mapping["targets"]), 1041)
+        self.assertEqual(len(mapping["targets"]), 1077)
         rust_runner = (
             REPO_ROOT / "scripts" / "run_conformance_exact_tests.sh"
         ).read_text(encoding="utf-8")
@@ -1573,10 +1581,10 @@ class ConformanceEvidenceMapTests(unittest.TestCase):
             rust_runner,
             flags=re.MULTILINE,
         )
-        self.assertEqual(len(calls), 881)
+        self.assertEqual(len(calls), 910)
         self.assertEqual(
             len(set(calls)),
-            881,
+            910,
         )
         web_runner = (
             REPO_ROOT / "scripts" / "run_web_conformance_exact_tests.sh"
@@ -1586,8 +1594,8 @@ class ConformanceEvidenceMapTests(unittest.TestCase):
             web_runner,
             flags=re.MULTILINE,
         )
-        self.assertEqual(len(web_calls), 31)
-        self.assertEqual(len(set(web_calls)), 31)
+        self.assertEqual(len(web_calls), 32)
+        self.assertEqual(len(set(web_calls)), 32)
         infra_runner = (
             REPO_ROOT / "scripts" / "run_infra_conformance_exact_tests.sh"
         ).read_text(encoding="utf-8")

@@ -172,6 +172,8 @@ run_playwright_exact web/e2e/account-credentials.spec.ts c12_5_last_passkey_remo
 run_playwright_exact web/e2e/account-credentials.spec.ts c12_5_credential_mutation_reauthentication_path
 run_playwright_exact web/e2e/account-credentials.spec.ts c12_5_recovery_rotation_lockout_prevention
 
+run_playwright_exact web/e2e/consent.spec.ts c14_3_consent_displays_exact_payment_terms_and_acknowledges_digest
+
 expected_exact_tests="$(
   grep -Ec '^run_playwright_exact [^ ]+ [^ ]+$' "$script_path"
 )"

@@ -247,8 +247,9 @@ fn module(state: &AppState) -> Result<&PaymentModule, PaymentError> {
     state.payments.as_deref().ok_or(PaymentError::NotFound)
 }
 
-fn tenant(state: &AppState, headers: &HeaderMap) -> Result<String, Response> {
+fn tenant(state: &AppState, headers: &HeaderMap) -> Result<String, PaymentError> {
     crate::tenant::tenant_or_400(state, headers)
+        .map_err(|_| PaymentError::InvalidRequest("invalid host"))
 }
 
 async fn load(
@@ -446,7 +447,7 @@ pub async fn prepare_handler(
     };
     let tenant = match tenant(&state, &headers) {
         Ok(tenant) => tenant,
-        Err(response) => return response,
+        Err(error) => return error.into_response(),
     };
     match prepare(&state, module, &tenant, &headers, &body).await {
         Ok((status, intent)) => ok(status, &intent),
@@ -473,8 +474,7 @@ pub async fn get_handler(
 ) -> Response {
     let result = async {
         let module = module(&state)?;
-        let tenant =
-            tenant(&state, &headers).map_err(|_| PaymentError::InvalidRequest("invalid host"))?;
+        let tenant = tenant(&state, &headers)?;
         let caller = authenticate(&state, module, &tenant, &headers).await?;
         let intent = load(module, &tenant, &intent_id).await?;
         require_reader(&caller, &intent)?;
@@ -507,8 +507,7 @@ pub async fn cancel_handler(
 ) -> Response {
     let result = async {
         let module = module(&state)?;
-        let tenant =
-            tenant(&state, &headers).map_err(|_| PaymentError::InvalidRequest("invalid host"))?;
+        let tenant = tenant(&state, &headers)?;
         let caller = authenticate(&state, module, &tenant, &headers).await?;
         let intent = load(module, &tenant, &intent_id).await?;
         require_payer_client(&caller, &intent)?;
@@ -560,8 +559,7 @@ pub async fn execute_handler(
 ) -> Response {
     let result = async {
         let module = module(&state)?;
-        let tenant =
-            tenant(&state, &headers).map_err(|_| PaymentError::InvalidRequest("invalid host"))?;
+        let tenant = tenant(&state, &headers)?;
         super::execute::execute(&state, module, &tenant, &headers, &intent_id).await
     }
     .await;
@@ -590,8 +588,7 @@ pub async fn reconcile_handler(
 ) -> Response {
     let result = async {
         let module = module(&state)?;
-        let tenant =
-            tenant(&state, &headers).map_err(|_| PaymentError::InvalidRequest("invalid host"))?;
+        let tenant = tenant(&state, &headers)?;
         let caller = authenticate(&state, module, &tenant, &headers).await?;
         let intent = load(module, &tenant, &intent_id).await?;
         require_reader(&caller, &intent)?;
@@ -624,8 +621,7 @@ pub async fn callback_handler(
 ) -> Response {
     let result = async {
         let module = module(&state)?;
-        let tenant =
-            tenant(&state, &headers).map_err(|_| PaymentError::InvalidRequest("invalid host"))?;
+        let tenant = tenant(&state, &headers)?;
         let signature = headers
             .get("x-payment-signature")
             .and_then(|value| value.to_str().ok());

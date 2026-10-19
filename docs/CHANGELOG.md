@@ -10,6 +10,18 @@ configuration, APIs, deployment resources, or SDKs.
 
 ### Added
 
+- Single-transaction agent payment authorization (issue #77), disabled unless
+  a payment resource is configured. A payer's client freezes one payment
+  intent, the user approves exactly that payment with fresh strong assurance
+  for one designated workload, and the workload executes it once through a
+  one-hop exchange. The new `agent_auth_payment_v1` RAR profile, the
+  `/payments` resource routes and the consent-page payment card are
+  documented in [`AGENT_PAYMENT.md`](AGENT_PAYMENT.md). Acceptance uses a
+  controlled synthetic channel only; no real payment channel is supported.
+- `verifyPaymentAuthorization` (TypeScript) and
+  `verify_payment_authorization` (Python) SDK checks for payment execution,
+  with shared cross-language terms-digest vectors. Generic RAR enforcement is
+  unchanged.
 - A 60-second introduction video, linked from an animated preview at the top
   of the README.
 

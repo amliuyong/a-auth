@@ -280,7 +280,7 @@ impl PaymentStore for DynamoPaymentStore {
                 _ => break,
             }
         }
-        intents.sort_by(|a, b| a.updated_at.cmp(&b.updated_at));
+        intents.sort_by_key(|intent| intent.updated_at);
         intents.truncate(limit);
         Ok(intents)
     }

@@ -665,15 +665,10 @@ impl Fixture {
     }
 }
 
-fn reconcile_internal<'a>(
-    f: &'a Fixture,
-    intent_id: &'a str,
-) -> impl std::future::Future<Output = PaymentIntent> + 'a {
-    async move {
-        agent_auth_http::payment::recovery::reconcile_intent(f.module(), "", intent_id)
-            .await
-            .unwrap()
-    }
+async fn reconcile_internal(f: &Fixture, intent_id: &str) -> PaymentIntent {
+    agent_auth_http::payment::recovery::reconcile_intent(f.module(), "", intent_id)
+        .await
+        .unwrap()
 }
 
 #[tokio::test]
@@ -2085,4 +2080,82 @@ async fn payment_dynamodb_attempt_survives_runtime_restart() {
         .await
         .unwrap();
     assert!(unsettled.is_empty());
+}
+
+#[tokio::test]
+async fn payment_par_continuation_is_admitted_against_the_frozen_intent() {
+    let mut f = Fixture::new().await;
+    f.state.phase = Phase::P3;
+    f.router = build_router(f.state.clone()).0;
+    let intent_id = f.prepared("order-par").await;
+    let push = |details: Value| {
+        let request = AuthzRequest {
+            details: Some(details),
+            ..AuthzRequest::payment(&intent_id)
+        };
+        Request::builder()
+            .method("POST")
+            .uri("/par")
+            .header("host", HOST)
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(request.query()))
+            .unwrap()
+    };
+    let redeem_request_uri = |request_uri: &str| {
+        let query = form(&[("client_id", CLIENT), ("request_uri", request_uri)]);
+        browser("GET", &format!("/authorize?{query}"), &f.alice, None)
+    };
+
+    // A pushed request with client-supplied terms is rejected when redeemed.
+    let (status, _, pushed) = send(
+        &f.router,
+        push(json!([{"type": PAYMENT_TYPE, "intent_id": intent_id, "amount_minor": "1"}])),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{pushed}");
+    let (status, _, body) = send(
+        &f.router,
+        redeem_request_uri(pushed["request_uri"].as_str().unwrap()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "tampered PAR: {body}");
+
+    let (status, _, pushed) = send(&f.router, push(payment_details(&intent_id))).await;
+    assert_eq!(status, StatusCode::CREATED, "{pushed}");
+    let (status, headers, body) = send(
+        &f.router,
+        redeem_request_uri(pushed["request_uri"].as_str().unwrap()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{body}");
+    let location = url::Url::parse(headers["location"].to_str().unwrap()).unwrap();
+    assert_eq!(location.path(), "/consent");
+    let query = location.query().unwrap().to_string();
+    let (status, _, context) = send(
+        &f.router,
+        browser("GET", &format!("/consent/context?{query}"), &f.alice, None),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{context}");
+    assert_eq!(context["payment"]["intent_id"], intent_id);
+    let digest = context["payment"]["terms_digest"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (status, decision) = f.decide(&f.alice, &query, &context, Some(&digest)).await;
+    assert_eq!(status, StatusCode::OK, "{decision}");
+    let issued = f.redeem(CLIENT, &decision, PAYMENTS).await;
+    let subject = issued["access_token"].as_str().unwrap();
+    assert_eq!(
+        claims(subject)["authorization_details"][0]["terms_digest"],
+        digest
+    );
+    let (status, delegated) = f.exchange(subject, ACTOR).await;
+    assert_eq!(status, StatusCode::OK, "{delegated}");
+    let (status, body) = f
+        .execute(delegated["access_token"].as_str().unwrap(), &intent_id)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["status"], "SUCCEEDED");
+    assert_eq!(f.channel_calls().await, 1);
 }

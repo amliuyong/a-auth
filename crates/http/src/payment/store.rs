@@ -263,7 +263,7 @@ impl PaymentStore for MemoryPaymentStore {
             .filter(|((owner, _), intent)| owner == tenant && intent.status.is_unsettled())
             .map(|(_, intent)| intent.clone())
             .collect();
-        unsettled.sort_by(|a, b| a.updated_at.cmp(&b.updated_at));
+        unsettled.sort_by_key(|intent| intent.updated_at);
         unsettled.truncate(limit);
         Ok(unsettled)
     }

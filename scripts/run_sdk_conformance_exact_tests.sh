@@ -92,6 +92,13 @@ run_vitest_exact sdk/ts/test/dpop.test.ts c8_9_dpop_proof_binds_request_token_an
 run_vitest_exact sdk/ts/test/sdk.test.ts c8_10b_offline_sdk_rejects_grant_backed_rar_summary
 run_vitest_exact sdk/ts/test/mcp-interop.test.ts c8_8_and_c8_8a_official_mcp_discovery_and_step_up
 
+run_vitest_exact sdk/ts/test/payment.test.ts c14_1_payment_terms_vectors_match_canonical_encoding
+run_pytest_exact sdk/python/tests/test_payment.py test_c14_1_payment_terms_vectors_match_canonical_encoding
+run_vitest_exact sdk/ts/test/payment.test.ts c14_4_payment_authorization_requires_exactly_the_approved_detail
+run_vitest_exact sdk/ts/test/payment.test.ts c14_4_generic_rar_enforcement_still_denies_payment_entries
+run_pytest_exact sdk/python/tests/test_payment.py test_c14_4_payment_authorization_requires_exactly_the_approved_detail
+run_pytest_exact sdk/python/tests/test_payment.py test_c14_4_generic_rar_enforcement_still_denies_payment_entries
+
 expected_exact_tests="$(
   grep -Ec '^run_(pytest|vitest)_exact [^ ]+ [^ ]+$' "$0"
 )"
