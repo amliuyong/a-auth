@@ -242,9 +242,13 @@ a new consent cannot reset it. A payment token never extends
 | `POST /payments/intents/{intent_id}/reconcile` | Same as `GET` | Recover the persisted attempt; never a new attempt |
 | `POST /payments/channel/callback` | Channel, signed `x-payment-signature` | Authenticated result for the persisted attempt |
 
-The internal recovery task calls `payment::recovery::reconcile_intent` or
-`reconcile_unsettled` with the persisted record only. Recovery does not need a
-user token to remain valid, and it grants no right to start a transaction.
+Recovery works from the persisted record only. `payment::recovery::reconcile_intent`
+recovers one attempt; `reconcile_unsettled` is the internal recovery pass over
+a tenant's unsettled attempts. The pass reconciles each attempt independently,
+so one failing record never stops the others. Recovery does not need a user
+token to remain valid, and it grants no right to start a transaction. In this
+phase the pass is invoked in-process by the acceptance suite. Scheduling it
+in a deployed worker is part of enabling a real channel.
 Every response is `Cache-Control: no-store`. Errors are
 `{"error", "error_description"}` with Bearer challenges on `401` and
 `insufficient_scope`.
@@ -286,8 +290,11 @@ status and `execute_before > now`, and it persists:
 The channel is called only after that write. Concurrent or repeated executes
 with a valid authorization return the existing record. They never derive
 another key or call the channel again. A lost acceptance response returns
-`503`, and the retry returns the persisted attempt. Issuance failures and
-lost token responses never trigger a payment.
+`503`, and the retry returns the persisted attempt; the attempt is then
+submitted by recovery with its persisted key. An authorization that was
+revoked after acceptance can no longer execute or read; the payer's client
+keeps its query rights and recovery needs no user token. Issuance failures
+and lost token responses never trigger a payment.
 
 ## Execution states and recovery
 
@@ -369,16 +376,17 @@ Resource servers that execute payments use the strict verification path, not
 
 Both require:
 
-- an active token for exactly the payment audience;
-- `payments:execute`;
+- an online introspection result with `active: true`; offline JWT claims are
+  rejected, so use introspection without a result cache;
+- exactly the payment audience and `payments:execute`;
+- strong `acr`;
 - one delegation hop to the actor;
 - `sub` equal to the payer;
-- exactly one canonical detail with a recomputed digest.
+- exactly one canonical detail with a recomputed digest;
+- the persisted intent's terms or digest, which the caller must pass.
 
-Pass the persisted intent's terms or digest. Use online introspection without
-a result cache. Never fall back to the generic RAR evaluation when the check
-fails. In the generic path a payment entry remains an unknown type and is
-denied.
+Never fall back to the generic RAR evaluation when the check fails. In the
+generic path a payment entry remains an unknown type and is denied.
 
 ## Validation
 

@@ -8,7 +8,7 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 
-use super::routes::PaymentError;
+use super::PaymentError;
 use super::PaymentModule;
 use crate::state::AppState;
 
@@ -38,15 +38,6 @@ impl Caller {
     }
 }
 
-fn bearer(headers: &HeaderMap) -> Option<&str> {
-    let raw = headers
-        .get(axum::http::header::AUTHORIZATION)?
-        .to_str()
-        .ok()?;
-    let (scheme, token) = raw.split_once(' ')?;
-    (scheme.eq_ignore_ascii_case("bearer") && !token.trim().is_empty()).then(|| token.trim())
-}
-
 /// Authenticate the bearer token for `module`'s audience.
 pub(crate) async fn authenticate(
     state: &AppState,
@@ -54,12 +45,14 @@ pub(crate) async fn authenticate(
     tenant: &str,
     headers: &HeaderMap,
 ) -> Result<Caller, PaymentError> {
-    let token = bearer(headers).ok_or(PaymentError::InvalidToken("missing bearer token"))?;
+    let token = crate::tenant_admin::bearer(headers)
+        .filter(|token| !token.is_empty())
+        .ok_or(PaymentError::InvalidToken("missing bearer token"))?;
     let claims = match crate::introspect::authoritative_claims(
         state,
         tenant,
         headers,
-        token,
+        &token,
         std::slice::from_ref(&module.config.resource),
     )
     .await

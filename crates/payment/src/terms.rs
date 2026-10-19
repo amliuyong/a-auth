@@ -81,7 +81,7 @@ impl PaymentTerms {
         identifier(&self.payer, "payer")?;
         identifier(&self.client_id, "client_id")?;
         identifier(&self.actor, "actor")?;
-        resource(&self.resource)?;
+        validate_resource(&self.resource)?;
         identifier(&self.order_id, "order_id")?;
         identifier(&self.funding_source.id, "funding_source.id")?;
         version(self.funding_source.version, "funding_source.version")?;
@@ -143,11 +143,6 @@ impl PaymentTerms {
     pub fn digest(&self, intent_id: &str) -> String {
         URL_SAFE_NO_PAD.encode(Sha256::digest(self.canonical_bytes(intent_id)))
     }
-
-    /// Parsed amount (validated terms only).
-    pub fn amount(&self) -> u64 {
-        parse_amount_minor(&self.amount_minor).unwrap_or(0)
-    }
 }
 
 /// Validate an intent identifier with the same rule as other identifiers.
@@ -183,7 +178,8 @@ fn identifier(value: &str, field: &'static str) -> Result<(), TermsError> {
     Ok(())
 }
 
-fn resource(value: &str) -> Result<(), TermsError> {
+/// An absolute `https://` resource identifier of printable ASCII.
+pub fn validate_resource(value: &str) -> Result<(), TermsError> {
     if value.len() > MAX_RESOURCE_BYTES
         || !value.starts_with("https://")
         || value.len() == "https://".len()

@@ -5,7 +5,7 @@
 //! source, actor and deadline are read here from the payment module and the
 //! trusted registry, so consent displays and stores exactly the frozen terms.
 
-use agent_auth_payment::{PaymentIntent, PaymentStatus};
+use agent_auth_payment::{FundingSourceRef, PayeeRef, PaymentIntent, PaymentStatus};
 use axum::{http::StatusCode, response::IntoResponse};
 use serde::Serialize;
 use serde_json::Value;
@@ -30,6 +30,26 @@ pub struct PaymentPayeeView {
     pub id: String,
     pub version: u64,
     pub name: String,
+}
+
+impl From<&FundingSourceRef> for PaymentFundingSourceView {
+    fn from(source: &FundingSourceRef) -> Self {
+        Self {
+            id: source.id.clone(),
+            version: source.version,
+            label: source.label.clone(),
+        }
+    }
+}
+
+impl From<&PayeeRef> for PaymentPayeeView {
+    fn from(payee: &PayeeRef) -> Self {
+        Self {
+            id: payee.id.clone(),
+            version: payee.version,
+            name: payee.name.clone(),
+        }
+    }
 }
 
 /// The exact single payment the user is asked to approve.
@@ -133,7 +153,7 @@ pub(crate) async fn admit(
     {
         return Err(invalid("payment intent is not awaiting this authorization"));
     }
-    match current_registry_versions(state, module, tenant, &intent).await {
+    match registry_terms_are_current(module, tenant, &intent).await {
         Ok(true) => {}
         Ok(false) => return Err(invalid("payment terms are no longer current")),
         Err(()) => return Err(unavailable()),
@@ -155,16 +175,8 @@ pub(crate) async fn admit(
         amount_minor: terms.amount_minor.clone(),
         currency: terms.currency.clone(),
         currency_exponent: terms.currency_exponent,
-        funding_source: PaymentFundingSourceView {
-            id: terms.funding_source.id.clone(),
-            version: terms.funding_source.version,
-            label: terms.funding_source.label.clone(),
-        },
-        payee: PaymentPayeeView {
-            id: terms.payee.id.clone(),
-            version: terms.payee.version,
-            name: terms.payee.name.clone(),
-        },
+        funding_source: (&terms.funding_source).into(),
+        payee: (&terms.payee).into(),
         actor: terms.actor.clone(),
         execute_before: terms.execute_before,
         resource: terms.resource.clone(),
@@ -189,8 +201,7 @@ pub(crate) fn payer_subject(
 
 /// True when the frozen funding source and payee are still the registry's
 /// current, active versions and the payer still owns the funding source.
-pub(crate) async fn current_registry_versions(
-    _state: &AppState,
+pub(crate) async fn registry_terms_are_current(
     module: &super::PaymentModule,
     tenant: &str,
     intent: &PaymentIntent,

@@ -1572,7 +1572,7 @@ class ConformanceEvidenceMapTests(unittest.TestCase):
 
     def test_repository_aggregate_counts_are_pinned(self) -> None:
         mapping = json.loads(EVIDENCE_MAP.read_text(encoding="utf-8"))
-        self.assertEqual(len(mapping["targets"]), 1077)
+        self.assertEqual(len(mapping["targets"]), 1079)
         rust_runner = (
             REPO_ROOT / "scripts" / "run_conformance_exact_tests.sh"
         ).read_text(encoding="utf-8")
@@ -1581,10 +1581,10 @@ class ConformanceEvidenceMapTests(unittest.TestCase):
             rust_runner,
             flags=re.MULTILINE,
         )
-        self.assertEqual(len(calls), 910)
+        self.assertEqual(len(calls), 912)
         self.assertEqual(
             len(set(calls)),
-            910,
+            912,
         )
         web_runner = (
             REPO_ROOT / "scripts" / "run_web_conformance_exact_tests.sh"

@@ -93,7 +93,8 @@ pub trait PaymentStore: Send + Sync {
     ) -> impl Future<Output = Result<Vec<PaymentIntent>, StoreError>> + Send;
 }
 
-/// Order uniqueness key: tenant, trusted payee identity and business order id.
+/// Order uniqueness key within a tenant partition: trusted payee identity and
+/// business order id. Stores combine it with the tenant.
 pub fn order_key(intent: &PaymentIntent) -> (String, String) {
     (intent.terms.payee.id.clone(), intent.terms.order_id.clone())
 }
@@ -181,19 +182,17 @@ impl PaymentStore for MemoryPaymentStore {
                 let closed = state
                     .intents
                     .get(&(tenant.to_string(), current.clone()))
-                    .is_some_and(|old| {
-                        old.attempt.is_none()
-                            && matches!(
-                                old.status,
-                                PaymentStatus::Expired | PaymentStatus::Cancelled
-                            )
-                    });
+                    .is_some_and(PaymentIntent::is_replaceable);
                 if !closed {
                     return Ok(CreateOutcome::OrderTaken(current.clone()));
                 }
             }
             (Some(current), _) => return Ok(CreateOutcome::OrderTaken(current.clone())),
-            (None, Some(_)) => return Err(StoreError::Permanent("missing order key".into())),
+            (None, Some(_)) => {
+                return Err(StoreError::Transient(
+                    "payment order binding changed during creation".into(),
+                ))
+            }
         }
         state.orders.insert(order_key, intent.intent_id.clone());
         state.intents.insert(intent_key, intent.clone());

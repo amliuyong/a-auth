@@ -59,6 +59,7 @@ def _claims(terms: dict, details: object) -> dict:
         "aud": [terms["resource"]],
         "scope": PAYMENT_EXECUTE_SCOPE,
         "act": {"sub": terms["actor"]},
+        "acr": "urn:agent-auth:assurance:strong",
         "sub": terms["payer"],
         "authorization_details": details,
     }
@@ -154,7 +155,12 @@ def test_c14_4_payment_authorization_requires_exactly_the_approved_detail():
     digest = payment_terms_digest(intent_id, terms)
 
     def verify(c: dict, **overrides):
-        kwargs = {"resource": resource, "intent_id": intent_id, "actor": actor}
+        kwargs = {
+            "resource": resource,
+            "intent_id": intent_id,
+            "actor": actor,
+            "terms_digest": digest,
+        }
         kwargs.update(overrides)
         return verify_payment_authorization(c, **kwargs)
 
@@ -186,9 +192,15 @@ def test_c14_4_payment_authorization_requires_exactly_the_approved_detail():
     aliased_result = verify(aliased)
     aliased["authorization_details"][0]["terms"]["amount_minor"] = "1"
     assert aliased_result.terms["amount_minor"] == terms["amount_minor"], "result is a copy"
-    # JWT claims (no `active`) and a single scope among many are accepted.
-    assert verify(without_claim("active")).intent_id == intent_id
+    # A single scope among many is accepted; the persisted terms alone also bind the token.
     assert verify(with_claim(scope=f"openid {PAYMENT_EXECUTE_SCOPE} payments:prepare")).actor == actor
+    assert verify(claims, terms=terms, terms_digest=None).intent_id == intent_id
+    # The persisted intent must always be supplied, and offline JWT claims are not enough.
+    with pytest.raises(TypeError):
+        verify(claims, terms=None, terms_digest=None)
+    assert rejected(without_claim("active")) == "inactive"
+    assert rejected(without_claim("acr")) == "insufficient_assurance"
+    assert rejected(with_claim(acr="urn:agent-auth:assurance:baseline")) == "insufficient_assurance"
 
     # Token state, audience, scope and actor.
     assert rejected(with_claim(active=False)) == "inactive"
@@ -313,6 +325,7 @@ def test_c14_4_generic_rar_enforcement_still_denies_payment_entries():
             resource=resource,
             intent_id=intent_id,
             actor=terms["actor"],
+            terms=terms,
         )
         == "missing_payment_authorization"
     )

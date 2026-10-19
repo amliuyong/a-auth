@@ -19,7 +19,7 @@ use agent_auth_payment::{
 use axum::{
     body::Bytes,
     extract::{Path, State},
-    http::{header, HeaderMap, HeaderValue, StatusCode},
+    http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
@@ -34,70 +34,10 @@ use super::authority::{authenticate, Caller};
 use super::consent::{PaymentFundingSourceView, PaymentPayeeView};
 use super::registry::PaymentRegistry;
 use super::store::{CasGuard, CreateOutcome, PaymentStore};
+use super::PaymentError;
 use super::PaymentModule;
 use crate::ports::ClientStore;
 use crate::state::AppState;
-
-/// Payment resource errors (`{"error", "error_description"}`, never cached).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PaymentError {
-    NotFound,
-    InvalidRequest(&'static str),
-    InvalidToken(&'static str),
-    InsufficientScope(&'static str),
-    Forbidden(&'static str),
-    Conflict(&'static str),
-    Unavailable(&'static str),
-}
-
-impl IntoResponse for PaymentError {
-    fn into_response(self) -> Response {
-        let (status, error, description) = match self {
-            Self::NotFound => (
-                StatusCode::NOT_FOUND,
-                "not_found",
-                "payment intent not found",
-            ),
-            Self::InvalidRequest(d) => (StatusCode::BAD_REQUEST, "invalid_request", d),
-            Self::InvalidToken(d) => (StatusCode::UNAUTHORIZED, "invalid_token", d),
-            Self::InsufficientScope(d) => (StatusCode::FORBIDDEN, "insufficient_scope", d),
-            Self::Forbidden(d) => (StatusCode::FORBIDDEN, "access_denied", d),
-            Self::Conflict(d) => (StatusCode::CONFLICT, "conflict", d),
-            Self::Unavailable(d) => (
-                StatusCode::SERVICE_UNAVAILABLE,
-                "temporarily_unavailable",
-                d,
-            ),
-        };
-        let mut response = (
-            status,
-            [(header::CACHE_CONTROL, "no-store")],
-            Json(json!({"error": error, "error_description": description})),
-        )
-            .into_response();
-        match status {
-            StatusCode::UNAUTHORIZED => {
-                response.headers_mut().insert(
-                    header::WWW_AUTHENTICATE,
-                    HeaderValue::from_static("Bearer error=\"invalid_token\""),
-                );
-            }
-            StatusCode::FORBIDDEN if error == "insufficient_scope" => {
-                response.headers_mut().insert(
-                    header::WWW_AUTHENTICATE,
-                    HeaderValue::from_static("Bearer error=\"insufficient_scope\""),
-                );
-            }
-            StatusCode::SERVICE_UNAVAILABLE => {
-                response
-                    .headers_mut()
-                    .insert(header::RETRY_AFTER, HeaderValue::from_static("1"));
-            }
-            _ => {}
-        }
-        response
-    }
-}
 
 /// Intent preparation request. Payer, tenant and client come from the token.
 #[derive(Debug, Deserialize, ToSchema)]
@@ -192,16 +132,8 @@ impl PaymentIntentView {
             amount_minor: terms.amount_minor.clone(),
             currency: terms.currency.clone(),
             currency_exponent: terms.currency_exponent,
-            funding_source: PaymentFundingSourceView {
-                id: terms.funding_source.id.clone(),
-                version: terms.funding_source.version,
-                label: terms.funding_source.label.clone(),
-            },
-            payee: PaymentPayeeView {
-                id: terms.payee.id.clone(),
-                version: terms.payee.version,
-                name: terms.payee.name.clone(),
-            },
+            funding_source: (&terms.funding_source).into(),
+            payee: (&terms.payee).into(),
             client_id: terms.client_id.clone(),
             actor: terms.actor.clone(),
             resource: terms.resource.clone(),
@@ -250,18 +182,6 @@ fn module(state: &AppState) -> Result<&PaymentModule, PaymentError> {
 fn tenant(state: &AppState, headers: &HeaderMap) -> Result<String, PaymentError> {
     crate::tenant::tenant_or_400(state, headers)
         .map_err(|_| PaymentError::InvalidRequest("invalid host"))
-}
-
-async fn load(
-    module: &PaymentModule,
-    tenant: &str,
-    intent_id: &str,
-) -> Result<PaymentIntent, PaymentError> {
-    match module.store.get(tenant, intent_id).await {
-        Ok(Some(intent)) => Ok(intent),
-        Ok(None) => Err(PaymentError::NotFound),
-        Err(_) => Err(PaymentError::Unavailable("payment store unavailable")),
-    }
 }
 
 /// The payer's own (non-delegated) client token.
@@ -397,7 +317,7 @@ async fn prepare(
         Ok(CreateOutcome::OrderTaken(existing)) => existing,
         Err(_) => return Err(PaymentError::Unavailable("payment store unavailable")),
     };
-    let existing = load(module, tenant, &existing_id).await?;
+    let existing = module.load(tenant, &existing_id).await?;
     let existing = super::recovery::expire_if_due(module, tenant, existing).await?;
     if existing.terms == intent.terms {
         return Ok((StatusCode::OK, existing));
@@ -476,7 +396,7 @@ pub async fn get_handler(
         let module = module(&state)?;
         let tenant = tenant(&state, &headers)?;
         let caller = authenticate(&state, module, &tenant, &headers).await?;
-        let intent = load(module, &tenant, &intent_id).await?;
+        let intent = module.load(&tenant, &intent_id).await?;
         require_reader(&caller, &intent)?;
         super::recovery::expire_if_due(module, &tenant, intent).await
     }
@@ -509,7 +429,7 @@ pub async fn cancel_handler(
         let module = module(&state)?;
         let tenant = tenant(&state, &headers)?;
         let caller = authenticate(&state, module, &tenant, &headers).await?;
-        let intent = load(module, &tenant, &intent_id).await?;
+        let intent = module.load(&tenant, &intent_id).await?;
         require_payer_client(&caller, &intent)?;
         if !caller.has_scope(agent_auth_payment::SCOPE_PREPARE) {
             return Err(PaymentError::InsufficientScope(
@@ -590,7 +510,7 @@ pub async fn reconcile_handler(
         let module = module(&state)?;
         let tenant = tenant(&state, &headers)?;
         let caller = authenticate(&state, module, &tenant, &headers).await?;
-        let intent = load(module, &tenant, &intent_id).await?;
+        let intent = module.load(&tenant, &intent_id).await?;
         require_reader(&caller, &intent)?;
         super::recovery::reconcile_intent(module, &tenant, &intent_id).await
     }
@@ -637,7 +557,7 @@ pub async fn callback_handler(
                         PaymentError::InvalidRequest("malformed callback")
                     }
                 })?;
-        let intent = load(module, &tenant, &event.reference).await?;
+        let intent = module.load(&tenant, &event.reference).await?;
         if intent
             .attempt
             .as_ref()

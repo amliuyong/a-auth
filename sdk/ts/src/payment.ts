@@ -13,9 +13,10 @@
 // - the WHOLE `authorization_details` array to be exactly one canonical payment detail with exact
 //   member sets, `locations == [terms.resource]`, `actions == ["execute"]` and a recomputed digest.
 //
-// Callers MUST obtain `claims` from online introspection (`IntrospectionClient` with
-// `cacheTtlSecs: 0`) so revocation is honoured at execution time, and MUST NOT fall back to
-// `enforceRar` when this function throws.
+// `claims` MUST be an online introspection result (`IntrospectionClient` with `cacheTtlSecs: 0`,
+// `active: true`) so revocation is honoured at execution time; offline JWT claims are rejected.
+// Callers pass the persisted intent's terms or digest and MUST NOT fall back to `enforceRar` when
+// this function throws.
 //
 // The terms digest never hashes JSON: every field is written in a fixed order as
 // `u32_be(len(utf8)) || utf8` after a domain separator, integers as canonical decimal ASCII.
@@ -29,6 +30,8 @@ export const PAYMENT_RAR_TYPE_V1 = "agent_auth_payment_v1";
 export const PAYMENT_EXECUTE_SCOPE = "payments:execute";
 
 const PAYMENT_EXECUTE_ACTION = "execute";
+/** The payment profile always requires the strong Agent Auth assurance class. */
+const STRONG_ACR = "urn:agent-auth:assurance:strong";
 const DOMAIN_TEXT = "agent-auth:payment-terms:v1\0";
 
 /**
@@ -114,6 +117,7 @@ export type PaymentAuthorizationErrorCode =
   | "inactive"
   | "audience_mismatch"
   | "insufficient_scope"
+  | "insufficient_assurance"
   | "actor_mismatch"
   | "missing_payment_authorization"
   | "malformed_payment_authorization"
@@ -142,9 +146,9 @@ export interface PaymentExpectation {
   intentId: string;
   /** The workload executing (must equal `act.sub` and `terms.actor`). */
   actor: string;
-  /** The persisted frozen terms; when given every field must be equal. */
+  /** The persisted frozen terms; every field must be equal. Pass this or `termsDigest`. */
   terms?: PaymentTerms;
-  /** The persisted terms digest; when given it must be equal. */
+  /** The persisted terms digest; it must be equal. Pass this or `terms`. */
   termsDigest?: string;
 }
 
@@ -499,9 +503,9 @@ function sameTerms(actual: PaymentTerms, expected: unknown): boolean {
 /**
  * Strict payment execution check over verified token claims or an RFC 7662 introspection body.
  *
- * The caller has already verified signature/issuer or performed online introspection (required
- * for payments: use `IntrospectionClient` with `cacheTtlSecs: 0`). Checks, in order: active,
- * single-element `aud == expected.resource`, `payments:execute` scope, single-hop
+ * `claims` must come from authenticated online introspection (`IntrospectionClient` with
+ * `cacheTtlSecs: 0`). Checks, in order: `active === true`, single-element
+ * `aud == expected.resource`, `payments:execute` scope, strong `acr`, single-hop
  * `act.sub == expected.actor`, exactly one canonical payment detail in the whole
  * `authorization_details` array (exact members, `locations`, `actions`, recomputed digest), then
  * intent id, terms resource/actor, `sub == terms.payer` and the optional persisted terms /
@@ -524,10 +528,15 @@ export function verifyPaymentAuthorization(
       "verifyPaymentAuthorization: expected.resource, intentId and actor must be strings",
     );
   }
+  if (expected.terms === undefined && expected.termsDigest === undefined) {
+    throw new TypeError(
+      "verifyPaymentAuthorization: pass the persisted intent's terms or termsDigest",
+    );
+  }
 
-  // 1. An introspection body must say active:true; verified JWT claims carry no `active`.
-  if (!isPlainRecord(claims) || (hasOwn(claims, "active") && claims.active !== true)) {
-    fail("inactive", "token is not active");
+  // 1. Only an online introspection result that says active:true is accepted.
+  if (!isPlainRecord(claims) || own(claims, "active") !== true) {
+    fail("inactive", "an active online introspection result is required");
   }
 
   // 2. Single-element audience equal to this payment resource (bare string rejected, C2.5a).
@@ -545,6 +554,11 @@ export function verifyPaymentAuthorization(
   const scope = own(claims, "scope");
   if (typeof scope !== "string" || !scope.split(" ").includes(PAYMENT_EXECUTE_SCOPE)) {
     fail("insufficient_scope", `token lacks scope ${PAYMENT_EXECUTE_SCOPE}`);
+  }
+
+  // Payment authorizations always require strong assurance.
+  if (own(claims, "acr") !== STRONG_ACR) {
+    fail("insufficient_assurance", "payment authorization requires strong assurance");
   }
 
   // 4. Exactly one delegation hop to the expected actor.

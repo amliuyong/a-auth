@@ -12,8 +12,8 @@ pub mod terms;
 
 pub use execution::{
     derive_attempt_keys, Applied, AttemptKeys, AuthorizationEvidence, ChannelEvidence,
-    ChannelOutcome, ChannelReport, ChannelState, EvidenceSource, ExecutionAttempt, PaymentIntent,
-    PaymentStatus, StatusChange,
+    ChannelOutcome, ChannelReport, ChannelState, EvidenceDisposition, EvidenceSource,
+    ExecutionAttempt, PaymentIntent, PaymentStatus, StatusChange,
 };
 pub use profile::{
     canonical_detail, contains_payment_detail, is_payment_detail, parse_canonical_detail,

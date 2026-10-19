@@ -10859,7 +10859,7 @@
       "framework": "vitest",
       "path": "sdk/ts/test/payment.test.ts",
       "selector": "c14_4_payment_authorization_requires_exactly_the_approved_detail",
-      "description": "The TypeScript strict payment check rejects inactive, wrong-audience, missing-scope, wrong or multi-hop actor, wrong payer, missing/mixed/duplicated/unknown-member details, other intents, tampered terms and digests.",
+      "description": "The TypeScript strict payment check requires an active online introspection result, strong acr and the persisted terms or digest, and rejects wrong audience, missing scope, wrong or multi-hop actor, wrong payer, missing/mixed/duplicated/unknown-member details, other intents, tampered terms and digests.",
       "runner": "scripts/run_sdk_conformance_exact_tests.sh",
       "ci_target": "ci.sdk.exact"
     },
@@ -10879,7 +10879,7 @@
       "framework": "pytest",
       "path": "sdk/python/tests/test_payment.py",
       "selector": "test_c14_4_payment_authorization_requires_exactly_the_approved_detail",
-      "description": "The Python strict payment check rejects inactive, wrong-audience, missing-scope, wrong or multi-hop actor, wrong payer, missing/mixed/duplicated/unknown-member details, other intents, tampered terms and digests.",
+      "description": "The Python strict payment check requires an active online introspection result, strong acr and the persisted terms or digest, and rejects wrong audience, missing scope, wrong or multi-hop actor, wrong payer, missing/mixed/duplicated/unknown-member details, other intents, tampered terms and digests.",
       "runner": "scripts/run_sdk_conformance_exact_tests.sh",
       "ci_target": "ci.sdk.exact"
     },
@@ -10916,7 +10916,7 @@
       "coverage_level": "exact",
       "path": "crates/http/tests/payment_e2e.rs",
       "selector": "payment_concurrent_and_repeated_execution_share_one_attempt",
-      "description": "Eight concurrent executions, a fresh exchange, a second consent attempt and re-preparation of the same order share one attempt, one idempotency key and one channel transaction.",
+      "description": "Eight concurrent executions, a fresh exchange, a refreshed 3LO credential, a second consent attempt and re-preparation of the same order share one attempt, one idempotency key and one channel transaction.",
       "runner": "scripts/run_conformance_exact_tests.sh",
       "ci_target": "ci.conformance.exact"
     },
@@ -10982,7 +10982,7 @@
       "coverage_level": "exact",
       "path": "crates/http/tests/payment_e2e.rs",
       "selector": "payment_callbacks_are_authenticated_matched_and_monotonic",
-      "description": "Forged or re-signed callbacks are rejected, duplicates are no-ops, a late pending cannot reopen success, contradictory or mismatching authentic evidence is retained for review, callbacks for another key are refused, and only a definitive decline yields FAILED.",
+      "description": "Forged or re-signed callbacks are rejected, duplicates are no-ops, a late pending cannot reopen success, contradictory or mismatching authentic evidence is retained for review, callbacks for another key are refused, and only a definitive decline yields FAILED. A callback arriving before the submission result is recorded settles the same attempt.",
       "runner": "scripts/run_conformance_exact_tests.sh",
       "ci_target": "ci.conformance.exact"
     },
@@ -11040,6 +11040,24 @@
       "path": "crates/http/tests/payment_e2e.rs",
       "selector": "payment_par_continuation_is_admitted_against_the_frozen_intent",
       "description": "A PAR continuation is admitted against the frozen intent when the request_uri is redeemed: client-supplied terms are rejected, and the pushed reference completes strong consent, redemption, the one-hop exchange and one execution.",
+      "runner": "scripts/run_conformance_exact_tests.sh",
+      "ci_target": "ci.conformance.exact"
+    },
+    "exact.c14.4.http-tenant": {
+      "kind": "repo_test",
+      "coverage_level": "exact",
+      "path": "crates/http/tests/payment_e2e.rs",
+      "selector": "payment_intents_and_authority_are_partitioned_by_tenant",
+      "description": "In a two-tenant SaaS runtime, t1 credentials are inactive at t2's issuer, t2's payer, client and actor cannot see, consent to or execute a t1 intent, the same order id is independent per tenant, and each tenant still executes its own intent once.",
+      "runner": "scripts/run_conformance_exact_tests.sh",
+      "ci_target": "ci.conformance.exact"
+    },
+    "exact.c14.7.http-recovery-pass": {
+      "kind": "repo_test",
+      "coverage_level": "exact",
+      "path": "crates/http/tests/payment_e2e.rs",
+      "selector": "payment_internal_recovery_pass_settles_every_unsettled_attempt_without_tokens",
+      "description": "The internal recovery pass settles a lost-acceptance attempt and unknown attempts with their persisted keys after every Grant is revoked, reports an unreadable record in its slot without stopping the others, and leaves exactly one channel transaction per attempt.",
       "runner": "scripts/run_conformance_exact_tests.sh",
       "ci_target": "ci.conformance.exact"
     }
@@ -13480,7 +13498,8 @@
         "exact.c14.4.typescript-sdk",
         "exact.c14.4.typescript-generic-unchanged",
         "exact.c14.4.python-sdk",
-        "exact.c14.4.python-generic-unchanged"
+        "exact.c14.4.python-generic-unchanged",
+        "exact.c14.4.http-tenant"
       ],
       "recorded_references": []
     },
@@ -13515,7 +13534,8 @@
         "exact.c14.7.http-window",
         "exact.c14.7.http-callbacks",
         "exact.c14.7.domain-settlement",
-        "exact.c14.7.lost-accept"
+        "exact.c14.7.lost-accept",
+        "exact.c14.7.http-recovery-pass"
       ],
       "recorded_references": []
     },

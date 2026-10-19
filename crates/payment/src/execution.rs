@@ -47,21 +47,6 @@ impl PaymentStatus {
         }
     }
 
-    pub fn parse(value: &str) -> Option<Self> {
-        [
-            Self::Prepared,
-            Self::Accepted,
-            Self::Pending,
-            Self::Unknown,
-            Self::Succeeded,
-            Self::Failed,
-            Self::Expired,
-            Self::Cancelled,
-        ]
-        .into_iter()
-        .find(|status| status.as_str() == value)
-    }
-
     /// An execution attempt exists and has not reached a channel-final result.
     pub const fn is_unsettled(self) -> bool {
         matches!(self, Self::Accepted | Self::Pending | Self::Unknown)
@@ -113,6 +98,24 @@ pub enum EvidenceSource {
     Callback,
 }
 
+/// How one channel observation was applied to the attempt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EvidenceDisposition {
+    /// Moved an unsettled attempt to the reported state.
+    Applied,
+    /// Repeated the already recorded result.
+    Duplicate,
+    /// An older, non-final report that arrived after a final one.
+    Stale,
+    /// No authoritative answer (timeout, transport loss or 5xx).
+    Indeterminate,
+    /// Authentic but disagrees with the attempt's amount, currency, payee or transaction.
+    Mismatch,
+    /// A final result contradicting the recorded final result.
+    Conflict,
+}
+
 /// One channel observation, kept for reconciliation and audit.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -123,8 +126,7 @@ pub struct ChannelEvidence {
     pub state: Option<ChannelState>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub channel_transaction_id: Option<String>,
-    /// `applied`, `duplicate`, `stale`, `indeterminate`, `mismatch` or `conflict`.
-    pub disposition: String,
+    pub disposition: EvidenceDisposition,
 }
 
 /// A channel answer as reported by the adapter.
@@ -238,6 +240,15 @@ impl PaymentIntent {
         }
     }
 
+    /// Closed without ever being accepted: the order may receive a new intent.
+    pub fn is_replaceable(&self) -> bool {
+        self.attempt.is_none()
+            && matches!(
+                self.status,
+                PaymentStatus::Expired | PaymentStatus::Cancelled
+            )
+    }
+
     /// True when the frozen digest still matches the frozen terms.
     pub fn is_intact(&self) -> bool {
         self.terms.digest(&self.intent_id) == self.terms_digest
@@ -328,7 +339,14 @@ impl PaymentIntent {
                     return Applied::Unchanged;
                 }
                 let mut next = self.next(PaymentStatus::Unknown, source_name(source), now);
-                push_evidence(&mut next, source, None, None, "indeterminate", now);
+                push_evidence(
+                    &mut next,
+                    source,
+                    None,
+                    None,
+                    EvidenceDisposition::Indeterminate,
+                    now,
+                );
                 return Applied::Changed(Box::new(next));
             }
             ChannelOutcome::Reported(report) => report,
@@ -347,7 +365,7 @@ impl PaymentIntent {
                 source,
                 Some(report.state),
                 Some(&report.channel_transaction_id),
-                "mismatch",
+                EvidenceDisposition::Mismatch,
                 now,
             );
             next.attempt.as_mut().expect("attempt").needs_review = true;
@@ -359,20 +377,22 @@ impl PaymentIntent {
             ChannelState::Declined => PaymentStatus::Failed,
         };
         let disposition = match (self.status, target) {
-            (from, to) if from == to => "duplicate",
-            (PaymentStatus::Succeeded | PaymentStatus::Failed, PaymentStatus::Pending) => "stale",
+            (from, to) if from == to => EvidenceDisposition::Duplicate,
+            (PaymentStatus::Succeeded | PaymentStatus::Failed, PaymentStatus::Pending) => {
+                EvidenceDisposition::Stale
+            }
             (PaymentStatus::Succeeded, PaymentStatus::Failed)
-            | (PaymentStatus::Failed, PaymentStatus::Succeeded) => "conflict",
-            (from, _) if from.is_unsettled() => "applied",
+            | (PaymentStatus::Failed, PaymentStatus::Succeeded) => EvidenceDisposition::Conflict,
+            (from, _) if from.is_unsettled() => EvidenceDisposition::Applied,
             _ => return Applied::Unchanged,
         };
-        if disposition == "duplicate"
+        if disposition == EvidenceDisposition::Duplicate
             && attempt.channel_transaction_id.as_deref()
                 == Some(report.channel_transaction_id.as_str())
         {
             return Applied::Unchanged;
         }
-        let to = if disposition == "applied" {
+        let to = if disposition == EvidenceDisposition::Applied {
             target
         } else {
             self.status
@@ -390,7 +410,7 @@ impl PaymentIntent {
         if next_attempt.channel_transaction_id.is_none() {
             next_attempt.channel_transaction_id = Some(report.channel_transaction_id.clone());
         }
-        if disposition == "conflict" {
+        if disposition == EvidenceDisposition::Conflict {
             next_attempt.needs_review = true;
         }
         Applied::Changed(Box::new(next))
@@ -410,7 +430,7 @@ fn push_evidence(
     source: EvidenceSource,
     state: Option<ChannelState>,
     channel_transaction_id: Option<&str>,
-    disposition: &str,
+    disposition: EvidenceDisposition,
     now: i64,
 ) {
     let attempt = intent.attempt.as_mut().expect("attempt");
@@ -420,7 +440,7 @@ fn push_evidence(
         source,
         state,
         channel_transaction_id: channel_transaction_id.map(str::to_string),
-        disposition: disposition.to_string(),
+        disposition,
     });
 }
 
@@ -616,7 +636,7 @@ mod tests {
                 .last()
                 .unwrap()
                 .disposition,
-            "stale"
+            EvidenceDisposition::Stale
         );
         // Contradictory final evidence is retained for review, never overwritten.
         let conflict = changed(stale.apply_outcome(
@@ -684,7 +704,11 @@ mod tests {
             PaymentStatus::Expired,
             PaymentStatus::Cancelled,
         ] {
-            assert_eq!(PaymentStatus::parse(status.as_str()), Some(status));
+            let encoded = serde_json::to_value(status).unwrap();
+            assert_eq!(
+                serde_json::from_value::<PaymentStatus>(encoded).unwrap(),
+                status
+            );
             assert_eq!(
                 serde_json::to_value(status).unwrap(),
                 serde_json::json!(status.as_str())

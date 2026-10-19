@@ -40,6 +40,7 @@ PaymentAuthorizationErrorCode = Literal[
     "inactive",
     "audience_mismatch",
     "insufficient_scope",
+    "insufficient_assurance",
     "actor_mismatch",
     "missing_payment_authorization",
     "malformed_payment_authorization",
@@ -51,6 +52,8 @@ PaymentAuthorizationErrorCode = Literal[
 ]
 
 _EXECUTE_ACTION = "execute"
+# The payment profile always requires the strong Agent Auth assurance class.
+_STRONG_ACR = "urn:agent-auth:assurance:strong"
 
 _MAX_IDENTIFIER_BYTES = 256
 _MAX_RESOURCE_BYTES = 2048
@@ -341,18 +344,21 @@ def verify_payment_authorization(
 ) -> VerifiedPaymentAuthorization:
     """Payment-specific authorization check performed before accepting one execution.
 
-    `claims` are authenticated JWT claims or an RFC 7662 introspection response. `resource` is this
-    payment resource server's audience, `intent_id` the intent being executed, `actor` the workload
-    that must execute it. Pass the stored intent's `terms` and/or `terms_digest` to bind the token to
-    the frozen intent (strongly recommended). Raises `PaymentAuthorizationError` on any mismatch.
+    `claims` must be an authenticated online RFC 7662 introspection response (no result cache);
+    offline JWT claims are rejected. `resource` is this payment resource server's audience,
+    `intent_id` the intent being executed, `actor` the workload that must execute it. The stored
+    intent's `terms` and/or `terms_digest` are required to bind the token to the frozen intent.
+    Raises `PaymentAuthorizationError` on any mismatch; never fall back to `enforce_rar`.
     """
     if not all(isinstance(value, str) for value in (resource, intent_id, actor)):
         raise TypeError("resource, intent_id and actor must be strings")
-    # JWT claims carry no `active`; an introspection response must say exactly `true`.
-    if not isinstance(claims, Mapping) or (
-        "active" in claims and claims["active"] is not True
-    ):
-        raise PaymentAuthorizationError("inactive", "token is not active")
+    if terms is None and terms_digest is None:
+        raise TypeError("pass the persisted intent's terms or terms_digest")
+    # Only an online introspection result that says exactly `active: true` is accepted.
+    if not isinstance(claims, Mapping) or claims.get("active") is not True:
+        raise PaymentAuthorizationError(
+            "inactive", "an active online introspection result is required"
+        )
 
     audience = claims.get("aud")
     if not _is_exact_string_list(audience, resource):
@@ -364,6 +370,11 @@ def verify_payment_authorization(
     if not isinstance(scope, str) or PAYMENT_EXECUTE_SCOPE not in scope.split(" "):
         raise PaymentAuthorizationError(
             "insufficient_scope", f"scope {PAYMENT_EXECUTE_SCOPE} is required"
+        )
+
+    if claims.get("acr") != _STRONG_ACR:
+        raise PaymentAuthorizationError(
+            "insufficient_assurance", "payment authorization requires strong assurance"
         )
 
     act = claims.get("act")

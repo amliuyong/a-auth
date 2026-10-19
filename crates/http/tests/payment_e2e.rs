@@ -16,7 +16,7 @@ use agent_auth_http::payment::{ControlledParts, PaymentConfig, PaymentModule};
 use agent_auth_http::ports::{PlatformJwk, SessionRecord, SessionStore, WorkloadTrustStore};
 use agent_auth_http::state::{GrantStoreImpl, JwksFetcherImpl};
 use agent_auth_http::{build_router, AppState, Phase};
-use agent_auth_payment::{ChannelState, PaymentIntent, PaymentStatus};
+use agent_auth_payment::{ChannelState, EvidenceDisposition, PaymentIntent, PaymentStatus};
 use agent_auth_workload::{TrustBinding, TrustMechanism};
 use axum::body::Body;
 use axum::http::{HeaderMap, Request, StatusCode};
@@ -28,6 +28,9 @@ use serde_json::{json, Value};
 use tower::ServiceExt;
 
 const HOST: &str = "localhost";
+const SAAS_ZONE: &str = "aws.example.com";
+const T1_HOST: &str = "t1.aws.example.com";
+const T2_HOST: &str = "t2.aws.example.com";
 const PAYMENTS: &str = "https://payments.example";
 const OTHER_RESOURCE: &str = "https://covedb.example";
 const CLIENT: &str = "coveai";
@@ -73,10 +76,20 @@ async fn send(router: &axum::Router, request: Request<Body>) -> (StatusCode, Hea
 }
 
 fn browser(method: &str, path: &str, cookie: &str, body: Option<Value>) -> Request<Body> {
+    browser_at(HOST, method, path, cookie, body)
+}
+
+fn browser_at(
+    host: &str,
+    method: &str,
+    path: &str,
+    cookie: &str,
+    body: Option<Value>,
+) -> Request<Body> {
     let builder = Request::builder()
         .method(method)
         .uri(path)
-        .header("host", HOST)
+        .header("host", host)
         .header("cookie", cookie);
     match body {
         Some(body) => builder
@@ -185,12 +198,18 @@ struct Authorized {
     subject_token: String,
     /// The designated actor's delegated token.
     delegated: String,
+    /// The 3LO client's rotating refresh token for the payment Grant.
+    refresh_token: String,
 }
 
 struct Fixture {
     router: axum::Router,
     state: AppState,
     parts: ControlledParts,
+    /// Issuer host of this fixture's tenant.
+    host: &'static str,
+    /// Storage partition of this fixture's tenant (`""` when partitioning is off).
+    tenant: &'static str,
     alice: String,
     bob: String,
     alice_prepare: String,
@@ -200,6 +219,15 @@ struct Fixture {
 }
 
 async fn strong_session(state: &AppState, user_id: &str, auth_time: i64) -> String {
+    strong_session_in(state, "", user_id, auth_time).await
+}
+
+async fn strong_session_in(
+    state: &AppState,
+    tenant: &str,
+    user_id: &str,
+    auth_time: i64,
+) -> String {
     let session_id = format!(
         "strong-{}-{}",
         user_id.replace([':', '@', '.'], "-"),
@@ -209,7 +237,7 @@ async fn strong_session(state: &AppState, user_id: &str, auth_time: i64) -> Stri
     state
         .sessions
         .create(
-            "",
+            tenant,
             SessionRecord {
                 session_id: session_id.clone(),
                 user_id: user_id.to_string(),
@@ -228,27 +256,41 @@ async fn strong_session(state: &AppState, user_id: &str, auth_time: i64) -> Stri
     format!("__Host-agent_auth_session={session_id}")
 }
 
-impl Fixture {
-    async fn new() -> Self {
-        Self::with_config(Some(config())).await
+/// Seed identities in every tenant partition, configure the platform JWKS and
+/// the controlled payment module, and build the router.
+async fn runtime(
+    mut state: AppState,
+    payment: Option<PaymentConfig>,
+    tenants: &[&str],
+) -> (axum::Router, AppState, ControlledParts, rsa::RsaPrivateKey) {
+    use agent_auth_http::ports::ClientStore;
+    state.phase = Phase::P2;
+    state.seed_dev_client(CLIENT, REDIRECT, None).await;
+    state.seed_dev_client(OTHER_CLIENT, REDIRECT, None).await;
+    for actor in [ACTOR, OTHER_ACTOR] {
+        state.seed_workload_client(actor).await;
     }
-
-    async fn with_config(payment: Option<PaymentConfig>) -> Self {
-        let mut state = AppState::dev(HOST);
-        state.phase = Phase::P2;
-        state.seed_dev_client(CLIENT, REDIRECT, None).await;
-        state.seed_dev_client(OTHER_CLIENT, REDIRECT, None).await;
-        state.seed_dev_user("alice@example.com").await;
-        state.seed_dev_user("bob@example.com").await;
+    for tenant in tenants {
+        if !tenant.is_empty() {
+            for client in [CLIENT, OTHER_CLIENT, ACTOR, OTHER_ACTOR] {
+                let record = state.clients.get("", client).await.unwrap().unwrap();
+                state.clients.put(tenant, record).await.unwrap();
+            }
+        }
+        state
+            .seed_dev_user_in_tenant(tenant, "alice@example.com")
+            .await;
+        state
+            .seed_dev_user_in_tenant(tenant, "bob@example.com")
+            .await;
         for actor in [ACTOR, OTHER_ACTOR] {
-            state.seed_workload_client(actor).await;
             state
                 .workload_trust
                 .put(
-                    "",
+                    tenant,
                     actor.into(),
                     TrustBinding {
-                        tenant_id: "default".into(),
+                        tenant_id: if tenant.is_empty() { "default" } else { tenant }.into(),
                         mechanism: TrustMechanism::Oidc {
                             platform_issuer: PLATFORM.into(),
                             jwks_uri: JWKS.into(),
@@ -260,38 +302,87 @@ impl Fixture {
                 .await
                 .unwrap();
         }
-        let key = rsa::RsaPrivateKey::new(&mut rand::thread_rng(), 2048).unwrap();
-        let public = key.to_public_key();
-        let fetcher = MemoryJwksFetcher::default();
-        fetcher
-            .set(
-                JWKS,
-                vec![PlatformJwk {
-                    kid: Some("platform-key".into()),
-                    kty: Some("RSA".into()),
-                    n: B64.encode(public.n().to_bytes_be()),
-                    e: B64.encode(public.e().to_bytes_be()),
-                    alg: Some("RS256".into()),
-                    ..Default::default()
-                }],
-            )
-            .await;
-        state.jwks_fetcher = Arc::new(JwksFetcherImpl::Memory(fetcher));
-        let (module, parts) = PaymentModule::controlled(
-            payment.clone().unwrap_or_else(config),
-            b"controlled-callback-secret",
+    }
+    let key = rsa::RsaPrivateKey::new(&mut rand::thread_rng(), 2048).unwrap();
+    let public = key.to_public_key();
+    let fetcher = MemoryJwksFetcher::default();
+    fetcher
+        .set(
+            JWKS,
+            vec![PlatformJwk {
+                kid: Some("platform-key".into()),
+                kty: Some("RSA".into()),
+                n: B64.encode(public.n().to_bytes_be()),
+                e: B64.encode(public.e().to_bytes_be()),
+                alg: Some("RS256".into()),
+                ..Default::default()
+            }],
         )
-        .unwrap();
-        if payment.is_some() {
-            state.payments = Some(Arc::new(module));
-        }
-        let (router, _) = build_router(state.clone());
-        let alice = strong_session(&state, ALICE, now()).await;
-        let bob = strong_session(&state, BOB, now()).await;
+        .await;
+    state.jwks_fetcher = Arc::new(JwksFetcherImpl::Memory(fetcher));
+    let (module, parts) = PaymentModule::controlled(
+        payment.clone().unwrap_or_else(config),
+        b"controlled-callback-secret",
+    )
+    .unwrap();
+    if payment.is_some() {
+        state.payments = Some(Arc::new(module));
+    }
+    let (router, _) = build_router(state.clone());
+    (router, state, parts, key)
+}
+
+impl Fixture {
+    async fn new() -> Self {
+        Self::with_config(Some(config())).await
+    }
+
+    async fn with_config(payment: Option<PaymentConfig>) -> Self {
+        let state = AppState::dev(HOST);
+        let (router, state, parts, key) = runtime(state, payment, &[""]).await;
+        Self::for_tenant(router, state, parts, key, HOST, "").await
+    }
+
+    /// Two SaaS tenants sharing one runtime: the same users, clients, actors
+    /// and synthetic registry entries exist in each partition.
+    async fn saas_pair() -> (Self, Self) {
+        let mut state = AppState::dev(T1_HOST);
+        state.form = agent_auth_discovery::Form::Saas {
+            zone: SAAS_ZONE.into(),
+            control_host: format!("c.{SAAS_ZONE}"),
+        };
+        state.tenant_partitioning = true;
+        state.saas_tenants = Arc::new(vec!["t1".into(), "t2".into()]);
+        let (router, state, parts, key) = runtime(state, Some(config()), &["t1", "t2"]).await;
+        let t1 = Self::for_tenant(
+            router.clone(),
+            state.clone(),
+            parts.clone(),
+            key.clone(),
+            T1_HOST,
+            "t1",
+        )
+        .await;
+        let t2 = Self::for_tenant(router, state, parts, key, T2_HOST, "t2").await;
+        (t1, t2)
+    }
+
+    async fn for_tenant(
+        router: axum::Router,
+        state: AppState,
+        parts: ControlledParts,
+        key: rsa::RsaPrivateKey,
+        host: &'static str,
+        tenant: &'static str,
+    ) -> Self {
+        let alice = strong_session_in(&state, tenant, ALICE, now()).await;
+        let bob = strong_session_in(&state, tenant, BOB, now()).await;
         let mut fixture = Self {
             router,
             state,
             parts,
+            host,
+            tenant,
             alice,
             bob,
             alice_prepare: String::new(),
@@ -317,7 +408,7 @@ impl Fixture {
                 .parts
                 .registry
                 .put_funding_source(
-                    "",
+                    tenant,
                     FundingSource {
                         funding_source_id: id.into(),
                         owner,
@@ -337,7 +428,7 @@ impl Fixture {
         self.parts
             .registry
             .put_payee(
-                "",
+                self.tenant,
                 Payee {
                     payee_id: "merchant_books".into(),
                     version,
@@ -357,7 +448,7 @@ impl Fixture {
         let header =
             B64.encode(json!({"alg":"RS256","typ":"JWT","kid":"platform-key"}).to_string());
         let payload = B64.encode(
-            json!({"iss":PLATFORM,"sub":actor,"aud":format!("https://{HOST}"),"iat":issued,"exp":issued+300})
+            json!({"iss":PLATFORM,"sub":actor,"aud":format!("https://{}", self.host),"iat":issued,"exp":issued+300})
                 .to_string(),
         );
         let input = format!("{header}.{payload}");
@@ -373,7 +464,8 @@ impl Fixture {
     ) -> Result<(String, Value), (StatusCode, HeaderMap, Value)> {
         let (status, headers, body) = send(
             &self.router,
-            browser(
+            browser_at(
+                self.host,
                 "GET",
                 &format!("/authorize?{}", request.query()),
                 session,
@@ -393,7 +485,13 @@ impl Fixture {
         let query = location.query().unwrap().to_string();
         let (status, headers, context) = send(
             &self.router,
-            browser("GET", &format!("/consent/context?{query}"), session, None),
+            browser_at(
+                self.host,
+                "GET",
+                &format!("/consent/context?{query}"),
+                session,
+                None,
+            ),
         )
         .await;
         if status != StatusCode::OK {
@@ -420,7 +518,7 @@ impl Fixture {
         }
         let (status, _, body) = send(
             &self.router,
-            browser("POST", "/consent/decision", session, Some(body)),
+            browser_at(self.host, "POST", "/consent/decision", session, Some(body)),
         )
         .await;
         (status, body)
@@ -432,7 +530,7 @@ impl Fixture {
             Request::builder()
                 .method("POST")
                 .uri("/token")
-                .header("host", HOST)
+                .header("host", self.host)
                 .header("content-type", "application/x-www-form-urlencoded")
                 .body(Body::from(form(fields)))
                 .unwrap(),
@@ -525,7 +623,13 @@ impl Fixture {
     async fn prepare(&self, token: &str, body: Value) -> (StatusCode, Value) {
         let (status, _, body) = send(
             &self.router,
-            api("POST", "/payments/intents", Some(token), Some(body)),
+            api_at(
+                self.host,
+                "POST",
+                "/payments/intents",
+                Some(token),
+                Some(body),
+            ),
         )
         .await;
         (status, body)
@@ -559,13 +663,15 @@ impl Fixture {
             intent_id,
             subject_token,
             delegated: delegated["access_token"].as_str().unwrap().to_string(),
+            refresh_token: issued["refresh_token"].as_str().unwrap().to_string(),
         }
     }
 
     async fn execute(&self, token: &str, intent_id: &str) -> (StatusCode, Value) {
         let (status, _, body) = send(
             &self.router,
-            api(
+            api_at(
+                self.host,
                 "POST",
                 &format!("/payments/intents/{intent_id}/execute"),
                 Some(token),
@@ -579,7 +685,8 @@ impl Fixture {
     async fn get(&self, token: &str, intent_id: &str) -> (StatusCode, Value) {
         let (status, _, body) = send(
             &self.router,
-            api(
+            api_at(
+                self.host,
                 "GET",
                 &format!("/payments/intents/{intent_id}"),
                 Some(token),
@@ -593,7 +700,8 @@ impl Fixture {
     async fn reconcile(&self, token: &str, intent_id: &str) -> (StatusCode, Value) {
         let (status, _, body) = send(
             &self.router,
-            api(
+            api_at(
+                self.host,
                 "POST",
                 &format!("/payments/intents/{intent_id}/reconcile"),
                 Some(token),
@@ -610,7 +718,7 @@ impl Fixture {
             Request::builder()
                 .method("POST")
                 .uri("/payments/channel/callback")
-                .header("host", HOST)
+                .header("host", self.host)
                 .header("content-type", "application/json")
                 .header("x-payment-signature", signature)
                 .body(Body::from(body.to_vec()))
@@ -621,7 +729,12 @@ impl Fixture {
     }
 
     async fn record(&self, intent_id: &str) -> PaymentIntent {
-        self.parts.store.get("", intent_id).await.unwrap().unwrap()
+        self.parts
+            .store
+            .get(self.tenant, intent_id)
+            .await
+            .unwrap()
+            .unwrap()
     }
 
     async fn idempotency_key(&self, intent_id: &str) -> String {
@@ -633,8 +746,11 @@ impl Fixture {
     }
 
     async fn grant_ids(&self) -> Vec<String> {
-        let (status, _, grants) =
-            send(&self.router, browser("GET", "/grants", &self.alice, None)).await;
+        let (status, _, grants) = send(
+            &self.router,
+            browser_at(self.host, "GET", "/grants", &self.alice, None),
+        )
+        .await;
         assert_eq!(status, StatusCode::OK, "{grants}");
         grants
             .as_array()
@@ -654,7 +770,13 @@ impl Fixture {
     async fn revoke(&self, grant_id: &str) {
         let (status, _, body) = send(
             &self.router,
-            browser("DELETE", &format!("/grants/{grant_id}"), &self.alice, None),
+            browser_at(
+                self.host,
+                "DELETE",
+                &format!("/grants/{grant_id}"),
+                &self.alice,
+                None,
+            ),
         )
         .await;
         assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
@@ -666,7 +788,7 @@ impl Fixture {
 }
 
 async fn reconcile_internal(f: &Fixture, intent_id: &str) -> PaymentIntent {
-    agent_auth_http::payment::recovery::reconcile_intent(f.module(), "", intent_id)
+    agent_auth_http::payment::recovery::reconcile_intent(f.module(), f.tenant, intent_id)
         .await
         .unwrap()
 }
@@ -1596,6 +1718,32 @@ async fn payment_concurrent_and_repeated_execution_share_one_attempt() {
         .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert!(attempts.contains(body["attempt"]["attempt_id"].as_str().unwrap()));
+    // Refreshing the 3LO credential keeps the exact payment detail and cannot
+    // reset the consumed intent either.
+    let (status, refreshed) = f
+        .token(&[
+            ("grant_type", "refresh_token"),
+            ("client_id", CLIENT),
+            ("refresh_token", &a.refresh_token),
+            ("resource", PAYMENTS),
+        ])
+        .await;
+    assert_eq!(status, StatusCode::OK, "{refreshed}");
+    let refreshed_subject = refreshed["access_token"].as_str().unwrap();
+    assert_eq!(
+        claims(refreshed_subject)["authorization_details"],
+        claims(&a.subject_token)["authorization_details"]
+    );
+    let (status, after_refresh) = f.exchange(refreshed_subject, ACTOR).await;
+    assert_eq!(status, StatusCode::OK, "{after_refresh}");
+    let (status, body) = f
+        .execute(
+            after_refresh["access_token"].as_str().unwrap(),
+            &a.intent_id,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(attempts.contains(body["attempt"]["attempt_id"].as_str().unwrap()));
     // A second consent for an executed intent is refused.
     let (status, _, body) = send(
         &f.router,
@@ -1858,14 +2006,14 @@ async fn payment_callbacks_are_authenticated_matched_and_monotonic() {
     assert_eq!(record.status, PaymentStatus::Succeeded);
     let attempt = record.attempt.unwrap();
     assert!(attempt.needs_review);
-    let dispositions: Vec<_> = attempt
-        .evidence
-        .iter()
-        .map(|e| e.disposition.as_str())
-        .collect();
-    assert!(dispositions.contains(&"stale"), "{dispositions:?}");
-    assert!(dispositions.contains(&"conflict"), "{dispositions:?}");
-    assert!(dispositions.contains(&"mismatch"), "{dispositions:?}");
+    let dispositions: Vec<_> = attempt.evidence.iter().map(|e| e.disposition).collect();
+    for expected in [
+        EvidenceDisposition::Stale,
+        EvidenceDisposition::Conflict,
+        EvidenceDisposition::Mismatch,
+    ] {
+        assert!(dispositions.contains(&expected), "{dispositions:?}");
+    }
     // A callback for a different attempt key is not applied to this intent.
     let mut other_key: Value = serde_json::from_slice(&success_body).unwrap();
     other_key["idempotency_key"] = json!("pk_other");
@@ -1873,6 +2021,35 @@ async fn payment_callbacks_are_authenticated_matched_and_monotonic() {
     let signature = f.parts.adapter.sign(&other_key);
     let (status, body) = f.callback(&other_key, &signature).await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+
+    // A callback that arrives before the submission result is recorded
+    // settles the same attempt; later recovery changes nothing.
+    let early = f.authorized("order-callback-first").await;
+    f.parts
+        .adapter
+        .push_submit_fault(SubmitFault::LoseResponseAfterProcessing)
+        .await;
+    let (status, body) = f.execute(&early.delegated, &early.intent_id).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["status"], "UNKNOWN");
+    let early_key = f.idempotency_key(&early.intent_id).await;
+    assert!(
+        f.parts
+            .adapter
+            .settle(&early_key, ChannelState::Succeeded)
+            .await
+    );
+    let (early_body, early_signature) = f
+        .parts
+        .adapter
+        .callback_for(&early_key, "evt_early")
+        .await
+        .unwrap();
+    let (status, body) = f.callback(&early_body, &early_signature).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["status"], "SUCCEEDED");
+    let before = f.record(&early.intent_id).await;
+    assert_eq!(reconcile_internal(&f, &early.intent_id).await, before);
 
     // A definitive decline is the only path to FAILED.
     f.parts
@@ -1883,7 +2060,7 @@ async fn payment_callbacks_are_authenticated_matched_and_monotonic() {
     let (status, body) = f.execute(&declined.delegated, &declined.intent_id).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["status"], "FAILED");
-    assert_eq!(f.channel_calls().await, 2);
+    assert_eq!(f.channel_calls().await, 3);
 }
 
 #[tokio::test]
@@ -2158,4 +2335,120 @@ async fn payment_par_continuation_is_admitted_against_the_frozen_intent() {
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["status"], "SUCCEEDED");
     assert_eq!(f.channel_calls().await, 1);
+}
+
+#[tokio::test]
+async fn payment_internal_recovery_pass_settles_every_unsettled_attempt_without_tokens() {
+    let f = Fixture::new().await;
+    // An accepted attempt whose acceptance response was lost (never submitted)
+    // and two attempts whose submission outcome is unknown.
+    let lost = f.authorized("order-pass-lost").await;
+    f.parts.store.lose_next_accept_response();
+    let (status, body) = f.execute(&lost.delegated, &lost.intent_id).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    let mut unknown = Vec::new();
+    for order in ["order-pass-timeout-1", "order-pass-timeout-2"] {
+        let a = f.authorized(order).await;
+        f.parts
+            .adapter
+            .push_submit_fault(SubmitFault::TimeoutBeforeProcessing)
+            .await;
+        let (_, body) = f.execute(&a.delegated, &a.intent_id).await;
+        assert_eq!(body["status"], "UNKNOWN");
+        unknown.push(a);
+    }
+    // Every user authority is gone; recovery depends on none of it.
+    for grant in f.grant_ids().await {
+        f.revoke(&grant).await;
+    }
+    let module = f.module();
+    let pending = module.store.list_unsettled("", 10).await.unwrap();
+    assert_eq!(pending.len(), 3);
+    // One record cannot be read during the first pass: the pass reports it
+    // and still recovers the others.
+    f.parts.store.fail_next_get();
+    let first = agent_auth_http::payment::recovery::reconcile_unsettled(module, "", 10)
+        .await
+        .unwrap();
+    assert_eq!(first.len(), 3);
+    assert_eq!(first.iter().filter(|r| r.is_err()).count(), 1);
+    assert!(first
+        .iter()
+        .flatten()
+        .all(|intent| intent.status == PaymentStatus::Succeeded));
+    let second = agent_auth_http::payment::recovery::reconcile_unsettled(module, "", 10)
+        .await
+        .unwrap();
+    assert_eq!(second.len(), 1);
+    assert_eq!(second[0].as_ref().unwrap().status, PaymentStatus::Succeeded);
+    assert!(module
+        .store
+        .list_unsettled("", 10)
+        .await
+        .unwrap()
+        .is_empty());
+    let transactions = f.parts.adapter.transactions().await;
+    assert_eq!(transactions.len(), 3, "one channel transaction per attempt");
+    for intent in [
+        &lost.intent_id,
+        &unknown[0].intent_id,
+        &unknown[1].intent_id,
+    ] {
+        let key = f.idempotency_key(intent).await;
+        assert!(transactions.iter().any(|t| t.idempotency_key == key));
+    }
+}
+
+#[tokio::test]
+async fn payment_intents_and_authority_are_partitioned_by_tenant() {
+    let (t1, t2) = Fixture::saas_pair().await;
+    let a = t1.authorized("order-tenant").await;
+    let record = t1.record(&a.intent_id).await;
+    assert_eq!(record.terms.tenant, "t1");
+
+    // t1 credentials are not active at t2's issuer.
+    for (method, path, token) in [
+        (
+            "POST",
+            format!("/payments/intents/{}/execute", a.intent_id),
+            &a.delegated,
+        ),
+        (
+            "GET",
+            format!("/payments/intents/{}", a.intent_id),
+            &t1.alice_prepare,
+        ),
+    ] {
+        let (status, _, body) = send(
+            &t2.router,
+            api_at(T2_HOST, method, &path, Some(token), None),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED, "{method} {path}: {body}");
+    }
+    // t2's own payer, client and actor cannot see, consent to or execute it.
+    let (status, body) = t2.get(&t2.alice_prepare, &a.intent_id).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    match t2
+        .consent(&t2.alice, &AuthzRequest::payment(&a.intent_id))
+        .await
+    {
+        Err((status, _, body)) => assert_eq!(status, StatusCode::BAD_REQUEST, "{body}"),
+        Ok((_, context)) => panic!("t2 displayed a t1 intent: {context}"),
+    }
+    let b = t2.authorized("order-tenant").await;
+    assert_ne!(
+        b.intent_id, a.intent_id,
+        "orders are unique per tenant only"
+    );
+    let (status, body) = t2.execute(&b.delegated, &a.intent_id).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    assert_eq!(t1.channel_calls().await, 0);
+
+    for (fixture, intent) in [(&t1, &a), (&t2, &b)] {
+        let (status, body) = fixture.execute(&intent.delegated, &intent.intent_id).await;
+        assert_eq!(status, StatusCode::OK, "{}: {body}", fixture.tenant);
+        assert_eq!(body["status"], "SUCCEEDED");
+    }
+    assert_eq!(t1.parts.adapter.transactions().await.len(), 2);
 }

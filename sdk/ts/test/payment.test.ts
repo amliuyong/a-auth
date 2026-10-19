@@ -85,6 +85,7 @@ function claimsWith(overrides: Record<string, unknown> = {}): Record<string, unk
     aud: [resource],
     scope: PAYMENT_EXECUTE_SCOPE,
     act: { sub: terms.actor },
+    acr: "urn:agent-auth:assurance:strong",
     sub: terms.payer,
     authorization_details: [structuredClone(detail)],
     ...overrides,
@@ -95,7 +96,12 @@ function claimsWith(overrides: Record<string, unknown> = {}): Record<string, unk
   return claims;
 }
 
-const expected: PaymentExpectation = { resource, intentId, actor: terms.actor };
+const expected: PaymentExpectation = {
+  resource,
+  intentId,
+  actor: terms.actor,
+  termsDigest: baseline.terms_digest,
+};
 
 describe("agent_auth_payment_v1 terms", () => {
   it("c14_1_payment_terms_vectors_match_canonical_encoding", () => {
@@ -208,20 +214,25 @@ describe("verifyPaymentAuthorization", () => {
     });
     expect(Object.isFrozen(verified)).toBe(true);
     expect(Object.isFrozen(verified.terms)).toBe(true);
-    // Verified JWT claims carry no `active`; scope may hold other tokens.
-    const jwtLike = verifyPaymentAuthorization(
-      claimsWith({ active: undefined, scope: `payments:prepare ${PAYMENT_EXECUTE_SCOPE}` }),
-      expected,
+    // Scope may hold other tokens; the persisted terms alone are also a valid binding.
+    const withTerms = verifyPaymentAuthorization(
+      claimsWith({ scope: `payments:prepare ${PAYMENT_EXECUTE_SCOPE}` }),
+      { resource, intentId, actor: terms.actor, terms },
     );
-    expect(jwtLike.subject).toBe(terms.payer);
+    expect(withTerms.subject).toBe(terms.payer);
+    // The persisted intent must always be supplied.
+    expect(() =>
+      verifyPaymentAuthorization(claimsWith(), { resource, intentId, actor: terms.actor }),
+    ).toThrow(TypeError);
 
     const verify = (claims: Record<string, unknown>, exp: PaymentExpectation = expected) =>
       errorCode(() => verifyPaymentAuthorization(claims, exp));
     const withDetail = (entry: unknown) => claimsWith({ authorization_details: [entry] });
 
-    // 1. active
+    // 1. active online introspection result (offline JWT claims carry no `active`)
     expect(verify(claimsWith({ active: false }))).toBe("inactive");
     expect(verify(claimsWith({ active: "true" }))).toBe("inactive");
+    expect(verify(claimsWith({ active: undefined }))).toBe("inactive");
 
     // 2. audience
     expect(verify(claimsWith({ aud: ["https://other-payments.example"] }))).toBe(
@@ -238,6 +249,12 @@ describe("verifyPaymentAuthorization", () => {
     expect(verify(claimsWith({ scope: undefined }))).toBe("insufficient_scope");
     expect(verify(claimsWith({ scope: "payments:executeX" }))).toBe("insufficient_scope");
     expect(verify(claimsWith({ scope: [PAYMENT_EXECUTE_SCOPE] }))).toBe("insufficient_scope");
+
+    // strong assurance
+    expect(verify(claimsWith({ acr: undefined }))).toBe("insufficient_assurance");
+    expect(verify(claimsWith({ acr: "urn:agent-auth:assurance:baseline" }))).toBe(
+      "insufficient_assurance",
+    );
 
     // 4. single-hop actor
     expect(verify(claimsWith({ act: undefined }))).toBe("actor_mismatch");

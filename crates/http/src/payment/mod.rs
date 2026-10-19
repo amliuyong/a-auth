@@ -13,6 +13,7 @@
 pub mod adapter;
 pub(crate) mod authority;
 pub(crate) mod consent;
+mod error;
 pub(crate) mod execute;
 pub mod recovery;
 pub mod registry;
@@ -20,8 +21,10 @@ pub mod routes;
 pub mod store;
 
 use adapter::{ControlledPaymentAdapter, PaymentAdapterImpl};
+use agent_auth_payment::PaymentIntent;
+pub use error::PaymentError;
 use registry::{MemoryPaymentRegistry, PaymentRegistryImpl};
-use store::{MemoryPaymentStore, PaymentStoreImpl};
+use store::{MemoryPaymentStore, PaymentStore, PaymentStoreImpl};
 
 /// Deployment-level payment profile.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,10 +43,7 @@ pub struct PaymentConfig {
 
 impl PaymentConfig {
     pub fn validate(&self) -> Result<(), &'static str> {
-        if !self.resource.starts_with("https://")
-            || self.resource.len() <= "https://".len()
-            || !self.resource.bytes().all(|b| (0x21..=0x7e).contains(&b))
-        {
+        if agent_auth_payment::terms::validate_resource(&self.resource).is_err() {
             return Err("payment resource must be an absolute https URI");
         }
         if !agent_auth_payment::terms::is_currency_code(&self.currency) {
@@ -92,6 +92,19 @@ impl PaymentModule {
             registry,
             adapter,
         })
+    }
+
+    /// Read an intent; an absent intent is `NotFound` and a store failure fails closed.
+    pub(crate) async fn load(
+        &self,
+        tenant: &str,
+        intent_id: &str,
+    ) -> Result<PaymentIntent, PaymentError> {
+        match self.store.get(tenant, intent_id).await {
+            Ok(Some(intent)) => Ok(intent),
+            Ok(None) => Err(PaymentError::NotFound),
+            Err(_) => Err(PaymentError::Unavailable("payment store unavailable")),
+        }
     }
 
     /// Controlled acceptance profile: memory store and registry with the

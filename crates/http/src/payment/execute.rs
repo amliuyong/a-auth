@@ -11,8 +11,8 @@ use axum::http::HeaderMap;
 use serde_json::Value;
 
 use super::authority::{authenticate, Caller};
-use super::routes::PaymentError;
 use super::store::{CasGuard, PaymentStore};
+use super::PaymentError;
 use super::PaymentModule;
 use crate::ports::GrantStore;
 use crate::state::AppState;
@@ -85,11 +85,7 @@ pub(crate) async fn execute(
     intent_id: &str,
 ) -> Result<PaymentIntent, PaymentError> {
     let caller = authenticate(state, module, tenant, headers).await?;
-    let intent = match module.store.get(tenant, intent_id).await {
-        Ok(Some(intent)) => intent,
-        Ok(None) => return Err(PaymentError::NotFound),
-        Err(_) => return Err(PaymentError::Unavailable("payment store unavailable")),
-    };
+    let intent = module.load(tenant, intent_id).await?;
     if !intent.is_intact() || intent.terms.resource != module.config.resource {
         return Err(PaymentError::Conflict(
             "payment intent failed its integrity check",
@@ -109,7 +105,7 @@ pub(crate) async fn execute(
             ))
         }
     }
-    match super::consent::current_registry_versions(state, module, tenant, &intent).await {
+    match super::consent::registry_terms_are_current(module, tenant, &intent).await {
         Ok(true) => {}
         Ok(false) => {
             return Err(PaymentError::Conflict(
@@ -152,13 +148,13 @@ pub(crate) async fn execute(
         Ok(false) => {
             // Another request accepted first, or the deadline passed: report
             // the persisted record instead of attempting anything new.
-            return match module.store.get(tenant, intent_id).await {
-                Ok(Some(current)) if current.attempt.is_some() => Ok(current),
-                Ok(Some(_)) => Err(PaymentError::Conflict(
+            let current = module.load(tenant, intent_id).await?;
+            return if current.attempt.is_some() {
+                Ok(current)
+            } else {
+                Err(PaymentError::Conflict(
                     "payment intent can no longer be executed",
-                )),
-                Ok(None) => Err(PaymentError::NotFound),
-                Err(_) => Err(PaymentError::Unavailable("payment store unavailable")),
+                ))
             };
         }
         Err(_) => {
