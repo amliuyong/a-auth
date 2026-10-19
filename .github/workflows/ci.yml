@@ -119,6 +119,19 @@ jobs:
           cargo test -p agent-auth-http --features aws --test workload_e2e --locked \
             multi_hop_dynamodb_authority_survives_runtime_restart -- --exact --ignored --nocapture
 
+      - name: Run agent payment HTTP acceptance
+        run: |
+          source ./scripts/rust_test_stack.sh
+          cargo test -p agent-auth-http --features aws --test payment_e2e --locked
+
+      - name: Verify payment attempt recovery across HTTP runtime restart
+        env:
+          A_AUTH_TEST_DYNAMODB_ENDPOINT: http://127.0.0.1:8000
+        run: |
+          source ./scripts/rust_test_stack.sh
+          cargo test -p agent-auth-http --features aws --test payment_e2e --locked \
+            payment_dynamodb_attempt_survives_runtime_restart -- --exact --ignored --nocapture
+
       - name: Run data-governance integration tests
         run: cargo test -p agent-auth-http --test data_governance_e2e --locked
 

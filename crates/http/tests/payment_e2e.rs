@@ -1932,3 +1932,157 @@ async fn payment_audit_links_grant_intent_attempt_and_channel_without_secrets() 
     assert!(!serialized.contains("4242424242424242"));
     assert!(!body.to_string().contains(&attempt.idempotency_key));
 }
+
+#[cfg(feature = "aws")]
+#[tokio::test]
+#[ignore = "requires A_AUTH_TEST_DYNAMODB_ENDPOINT pointing to local DynamoDB"]
+async fn payment_dynamodb_attempt_survives_runtime_restart() {
+    use agent_auth_http::adapters::aws::DynamoPaymentStore;
+    use agent_auth_http::payment::adapter::PaymentAdapterImpl;
+    use agent_auth_http::payment::registry::PaymentRegistryImpl;
+    use agent_auth_http::payment::store::PaymentStoreImpl;
+    use aws_sdk_dynamodb::types::{
+        AttributeDefinition, BillingMode, KeySchemaElement, KeyType, ScalarAttributeType,
+    };
+    let endpoint = std::env::var("A_AUTH_TEST_DYNAMODB_ENDPOINT").expect("local DynamoDB endpoint");
+    let parsed = url::Url::parse(&endpoint).unwrap();
+    assert_eq!(parsed.scheme(), "http");
+    assert_eq!(
+        parsed.host_str(),
+        Some("127.0.0.1"),
+        "this test only writes to a local DynamoDB emulator"
+    );
+    let new_db = || {
+        aws_sdk_dynamodb::Client::from_conf(
+            aws_sdk_dynamodb::Config::builder()
+                .behavior_version_latest()
+                .region(aws_sdk_dynamodb::config::Region::new("us-east-1"))
+                .credentials_provider(aws_sdk_dynamodb::config::Credentials::for_tests())
+                .endpoint_url(&endpoint)
+                .build(),
+        )
+    };
+    let table = format!("a-auth-issue-77-{}", rand::random::<u64>());
+    new_db()
+        .create_table()
+        .table_name(&table)
+        .billing_mode(BillingMode::PayPerRequest)
+        .attribute_definitions(
+            AttributeDefinition::builder()
+                .attribute_name("pk")
+                .attribute_type(ScalarAttributeType::S)
+                .build()
+                .unwrap(),
+        )
+        .key_schema(
+            KeySchemaElement::builder()
+                .attribute_name("pk")
+                .key_type(KeyType::Hash)
+                .build()
+                .unwrap(),
+        )
+        .send()
+        .await
+        .unwrap();
+    let mut f = Fixture::new().await;
+    // One payment runtime: a fresh DynamoDB client and store over the same
+    // external table, with the same synthetic registry and channel.
+    let runtime = |db: aws_sdk_dynamodb::Client| {
+        Arc::new(
+            PaymentModule::new(
+                config(),
+                PaymentStoreImpl::Dynamo(DynamoPaymentStore::new(db, &table)),
+                PaymentRegistryImpl::Memory(f.parts.registry.clone()),
+                PaymentAdapterImpl::Controlled(f.parts.adapter.clone()),
+            )
+            .unwrap(),
+        )
+    };
+    f.state.payments = Some(runtime(new_db()));
+    f.router = build_router(f.state.clone()).0;
+
+    // Real conditional writes: concurrent executions share one attempt.
+    let concurrent = f.authorized("order-ddb-concurrent").await;
+    let mut handles = Vec::new();
+    for _ in 0..8 {
+        let router = f.router.clone();
+        let token = concurrent.delegated.clone();
+        let intent_id = concurrent.intent_id.clone();
+        handles.push(tokio::spawn(async move {
+            send(
+                &router,
+                api(
+                    "POST",
+                    &format!("/payments/intents/{intent_id}/execute"),
+                    Some(&token),
+                    None,
+                ),
+            )
+            .await
+        }));
+    }
+    let mut attempts = std::collections::BTreeSet::new();
+    for handle in handles {
+        let (status, _, body) = handle.await.unwrap();
+        assert_eq!(status, StatusCode::OK, "{body}");
+        attempts.insert(body["attempt"]["attempt_id"].as_str().unwrap().to_string());
+    }
+    assert_eq!(attempts.len(), 1);
+    assert_eq!(f.parts.adapter.transactions().await.len(), 1);
+    // Order uniqueness is enforced by the same table.
+    let record = DynamoPaymentStore::new(new_db(), &table)
+        .get("", &concurrent.intent_id)
+        .await
+        .unwrap()
+        .unwrap();
+    let (status, body) = f
+        .prepare(
+            &f.alice_prepare,
+            f.order("order-ddb-concurrent", "1999", record.terms.execute_before),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["intent_id"], concurrent.intent_id);
+    let (status, body) = f
+        .prepare(
+            &f.alice_prepare,
+            f.order("order-ddb-concurrent", "2999", record.terms.execute_before),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+
+    // The channel never received the submission; the runtime goes away.
+    let restarted = f.authorized("order-ddb-restart").await;
+    f.parts
+        .adapter
+        .push_submit_fault(SubmitFault::TimeoutBeforeProcessing)
+        .await;
+    let (status, body) = f.execute(&restarted.delegated, &restarted.intent_id).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["status"], "UNKNOWN");
+    let persisted = DynamoPaymentStore::new(new_db(), &table)
+        .get("", &restarted.intent_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(persisted.status, PaymentStatus::Unknown);
+    let key = persisted.attempt.unwrap().idempotency_key;
+
+    // A new runtime recovers from the external record with the same key.
+    f.state.payments = Some(runtime(new_db()));
+    f.router = build_router(f.state.clone()).0;
+    let (status, body) = f.reconcile(&f.alice_prepare, &restarted.intent_id).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["status"], "SUCCEEDED");
+    let (status, body) = f.execute(&restarted.delegated, &restarted.intent_id).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["status"], "SUCCEEDED");
+    let transactions = f.parts.adapter.transactions().await;
+    assert_eq!(transactions.len(), 2, "one channel transaction per intent");
+    assert!(transactions.iter().any(|t| t.idempotency_key == key));
+    let unsettled = DynamoPaymentStore::new(new_db(), &table)
+        .list_unsettled("", 10)
+        .await
+        .unwrap();
+    assert!(unsettled.is_empty());
+}
