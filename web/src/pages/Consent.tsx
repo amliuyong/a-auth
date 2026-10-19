@@ -6,8 +6,10 @@ import { Layout } from '../Layout';
 import type { components } from '../api/schema';
 import { api } from '../api/client';
 import { consentContextQuery } from '../consentQuery';
+import { formatMinorUnits } from '../paymentAmount';
 
 type ConsentContext = components['schemas']['ConsentContext'];
+type PaymentConsentView = components['schemas']['PaymentConsentView'];
 type RarEntry = {
   type?: string;
   locations?: string[];
@@ -16,6 +18,90 @@ type RarEntry = {
   resource_subset?: string[];
   max_records?: number;
 };
+
+/** RFC 9396 type of the single-transaction payment authorization (rendered by its own card). */
+const PAYMENT_RAR_TYPE = 'agent_auth_payment_v1';
+/** Largest Unix-seconds instant a JS Date can represent. */
+const MAX_DATE_SECONDS = 8_640_000_000_000;
+
+type PaymentDisplay = {
+  amount: string;
+  fundingSource: string;
+  payee: string;
+  orderId: string;
+  actor: string;
+  deadline: Date;
+  intentId: string;
+};
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
+function isPaymentDetail(value: unknown): value is Record<string, unknown> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    (value as Record<string, unknown>).type === PAYMENT_RAR_TYPE
+  );
+}
+
+/**
+ * Display model of the server-validated payment terms, or `null` when the view is malformed
+ * or inconsistent with the rest of the context. A `null` result keeps approval disabled
+ * (fail closed): the page never shows a guessed amount, payee or funding source.
+ */
+function paymentDisplay(
+  payment: PaymentConsentView,
+  workloadActor: string | null | undefined,
+  details: unknown[],
+): PaymentDisplay | null {
+  if (typeof payment !== 'object' || payment === null) return null;
+  const amount = formatMinorUnits(payment.amount_minor, payment.currency_exponent);
+  if (amount === null) return null;
+  if (typeof payment.currency !== 'string' || !/^[A-Z]{3}$/.test(payment.currency)) return null;
+  if (
+    !Number.isSafeInteger(payment.execute_before) ||
+    payment.execute_before <= 0 ||
+    payment.execute_before > MAX_DATE_SECONDS
+  ) {
+    return null;
+  }
+  const fundingSource = payment.funding_source?.label;
+  const payee = payment.payee?.name;
+  if (
+    ![
+      payment.terms_digest,
+      payment.intent_id,
+      payment.order_id,
+      payment.actor,
+      fundingSource,
+      payee,
+    ].every(isNonEmptyString)
+  ) {
+    return null;
+  }
+  // The payment may only be executed by the delegated workload this consent names.
+  if (payment.actor !== workloadActor) return null;
+  // Every canonical payment detail must describe this exact intent and terms.
+  const consistent = details
+    .filter(isPaymentDetail)
+    .every(
+      (entry) =>
+        entry.intent_id === payment.intent_id && entry.terms_digest === payment.terms_digest,
+    );
+  if (!consistent) return null;
+  return {
+    amount: `${amount} ${payment.currency}`,
+    fundingSource,
+    payee,
+    orderId: payment.order_id,
+    actor: payment.actor,
+    deadline: new Date(payment.execute_before * 1000),
+    intentId: payment.intent_id,
+  };
+}
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === 'string');
@@ -47,7 +133,7 @@ function isRarEntry(value: unknown): value is RarEntry {
  * 展示上下文与 anti-CSRF token 由后端 `GET /consent/context` 下发(consent 走 cookie 会话)。
  */
 export function Consent() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { search } = useLocation();
   const authorizeQuery = search.startsWith('?') ? search.slice(1) : search;
   const [loadedContext, setLoadedContext] = useState<{
@@ -125,7 +211,27 @@ export function Consent() {
         : [];
   // RFC 9396 authorization_details(RAR;spec 010 §4 / DESIGN §721):仅渲染后端已做准入
   // 校验的结构化约束，不再信任浏览器 query 中未经验证的 RAR。
-  const rar = (context?.authorization_details ?? []).filter(isRarEntry);
+  // Payment-typed entries are shown only by the dedicated payment card below.
+  const details = context?.authorization_details ?? [];
+  const rar = details.filter((entry) => !isPaymentDetail(entry)).filter(isRarEntry);
+  // Single-transaction payment authorization (issue #77): every displayed value comes from the
+  // server-validated `payment` view, never from the browser query.
+  const payment = context?.payment ?? null;
+  const paymentView =
+    payment !== null ? paymentDisplay(payment, context?.workload_actor, details) : null;
+  // A malformed payment view, or a payment-typed detail without one, cannot be approved.
+  const paymentBlocked =
+    context !== null &&
+    (payment !== null ? paymentView === null : details.some(isPaymentDetail));
+  // The server binds the CSRF token to the displayed terms digest, so both decisions of a payment
+  // authorization echo it; any other authorization keeps the body without this key.
+  const paymentTermsDigest =
+    payment !== null && isNonEmptyString(payment.terms_digest) ? payment.terms_digest : undefined;
+  const fmtDeadline = (deadline: Date): string =>
+    new Intl.DateTimeFormat(i18n.resolvedLanguage ?? i18n.language, {
+      dateStyle: 'full',
+      timeStyle: 'long',
+    }).format(deadline);
   const fmtInstant = (v: string | number | undefined): string | null => {
     if (v === undefined) return null;
     if (typeof v === 'number') return new Date(v * 1000).toISOString();
@@ -135,6 +241,7 @@ export function Consent() {
 
   const submit = async (decision: 'approve' | 'deny') => {
     if (!context) return;
+    if (decision === 'approve' && paymentBlocked) return;
     setLoading(decision);
     setError(null);
     try {
@@ -142,6 +249,9 @@ export function Consent() {
         body: {
           decision, csrf, authorize_query: authorizeQuery,
           workload_actor: context.workload_actor,
+          ...(paymentTermsDigest === undefined
+            ? {}
+            : { payment_terms_digest: paymentTermsDigest }),
         },
       });
       if (response.status === 401) {
@@ -235,6 +345,63 @@ export function Consent() {
               style={{ marginBottom: 12 }}
             />
           )}
+          {paymentView && (
+            <Card
+              id="agent-auth-consent-payment"
+              size="small"
+              title={t('consent.payment.title')}
+              style={{ marginBottom: 12, borderColor: '#faad14' }}
+            >
+              <Alert
+                type="warning"
+                showIcon
+                message={t('consent.payment.onlyThisPayment')}
+                style={{ marginBottom: 12 }}
+              />
+              <Descriptions size="small" column={1} bordered>
+                <Descriptions.Item label={t('consent.payment.amount')}>
+                  <Typography.Text strong style={{ fontSize: 18 }}>
+                    {paymentView.amount}
+                  </Typography.Text>
+                </Descriptions.Item>
+                <Descriptions.Item label={t('consent.payment.payee')}>
+                  {paymentView.payee}
+                </Descriptions.Item>
+                <Descriptions.Item label={t('consent.payment.fundingSource')}>
+                  {paymentView.fundingSource}
+                </Descriptions.Item>
+                <Descriptions.Item label={t('consent.payment.order')}>
+                  <Typography.Text code>{paymentView.orderId}</Typography.Text>
+                </Descriptions.Item>
+                <Descriptions.Item label={t('consent.payment.actor')}>
+                  <Typography.Text code>{paymentView.actor}</Typography.Text>
+                </Descriptions.Item>
+                <Descriptions.Item label={t('consent.payment.deadline')}>
+                  <time dateTime={paymentView.deadline.toISOString()}>
+                    {fmtDeadline(paymentView.deadline)}
+                  </time>
+                </Descriptions.Item>
+              </Descriptions>
+              <Typography.Paragraph
+                type="secondary"
+                style={{ marginTop: 8, marginBottom: 0, fontSize: 12 }}
+              >
+                {t('consent.payment.intent')}:{' '}
+                <Typography.Text type="secondary" code style={{ fontSize: 12 }}>
+                  {paymentView.intentId}
+                </Typography.Text>
+              </Typography.Paragraph>
+            </Card>
+          )}
+          {paymentBlocked && (
+            <Alert
+              id="agent-auth-consent-payment-invalid"
+              type="error"
+              showIcon
+              message={t('consent.payment.invalid')}
+              style={{ marginBottom: 12 }}
+            />
+          )}
         </>
       )}
 
@@ -304,7 +471,7 @@ export function Consent() {
           type="primary"
           onClick={() => submit('approve')}
           loading={loading === 'approve'}
-          disabled={!context}
+          disabled={!context || paymentBlocked}
         >
           {loading === 'approve' ? t('consent.approving') : t('consent.approve')}
         </Button>

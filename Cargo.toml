@@ -11,6 +11,7 @@ members = [
     "crates/ciba",
     "crates/ema",
     "crates/grant",
+    "crates/payment",
     "crates/authz",
     "crates/http",
 ]

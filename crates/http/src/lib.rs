@@ -53,6 +53,7 @@ pub mod mtls;
 pub mod origin_auth;
 pub mod passkey_flow;
 pub mod password_login;
+pub mod payment;
 pub mod policy_freshness;
 mod poll_claim;
 pub mod ports;
@@ -126,7 +127,8 @@ pub use agent_auth_discovery::{Phase, SubjectType};
         (name = "account", description = "用户账户安全:登录会话列表与自助吊销(C12.5)"),
         (name = "admin", description = "Admin 控制台:仪表盘聚合 + client 管理(admin_token 超级权限,spec 025)"),
         (name = "data_governance", description = "Tenant-scoped privacy export, legal hold, erasure, and offboarding(C12.7)"),
-        (name = "scim", description = "Tenant-scoped SCIM 2.0 Users lifecycle and Groups provisioning(C12.2/C12.3)")
+        (name = "scim", description = "Tenant-scoped SCIM 2.0 Users lifecycle and Groups provisioning(C12.2/C12.3)"),
+        (name = "payments", description = "Single-transaction agent payment resource server: prepare, execute, query and reconcile one frozen intent (issue #77; disabled unless configured)")
     ),
     components(schemas(admin::ListUsersStatus))
 )]
@@ -204,6 +206,9 @@ fn cors_none_router() -> OpenApiRouter<AppState> {
         .merge(admin_federation_attributes::router())
         .merge(admin::router())
         .merge(register::manage_router()) // RFC 7592 管理端点(Bearer,非浏览器 fetch)
+        // Payment resource server (issue #77): bearer/channel-signed server-to-server
+        // calls only, so no CORS is published.
+        .merge(payment::routes::router())
 }
 
 /// 汇聚所有端点路由(OpenApiRouter 让路由与 OpenAPI 同源)。CORS 按 C10.10 分组:
@@ -401,6 +406,7 @@ mod tests {
             "admin_federation_attributes::router()",
             "admin::router()",
             "register::manage_router()",
+            "payment::routes::router()",
         ];
         assert_eq!(no_cors.matches(".merge(").count(), no_cors_routes.len());
         for route in no_cors_routes {

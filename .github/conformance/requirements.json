@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
   "document": "docs/CONFORMANCE.md",
-  "requirement_ids_sha256": "a3c5eae8b56b7c01fe1ecd9a9de0fdf8c33a065945f5fc4f5907346610270071",
+  "requirement_ids_sha256": "e480e2a52168265bb7fe34b2ef3ada23522e1c2f273f4297199957cf35e7b569",
   "expected_counts": {
-    "total": 149,
-    "complete": 146,
+    "total": 158,
+    "complete": 154,
     "partial": 1,
-    "missing": 2
+    "missing": 3
   },
   "incomplete_requirements": [
     {
@@ -32,6 +32,14 @@
       "classification": "disabled_not_applicable",
       "tracking_issues": [],
       "reason": "The claims-tier shared-key profile is not enabled in the default per-tenant-CMK SaaS deployment."
+    },
+    {
+      "id": "14.9",
+      "status": "missing",
+      "applicability": "not_applicable",
+      "classification": "disabled_not_applicable",
+      "tracking_issues": [],
+      "reason": "Real payment channel acceptance is NOT_RUN: no channel has been selected or tested and the payment resource is disabled in deployed profiles."
     }
   ]
 }

@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "document": "docs/CONFORMANCE.md",
-  "requirement_ids_sha256": "a3c5eae8b56b7c01fe1ecd9a9de0fdf8c33a065945f5fc4f5907346610270071",
+  "requirement_ids_sha256": "e480e2a52168265bb7fe34b2ef3ada23522e1c2f273f4297199957cf35e7b569",
   "targets": {
     "ci.conformance.exact": {
       "kind": "workflow_step",
@@ -10655,6 +10655,411 @@
       "package": "agent-auth-http",
       "cargo_selector": "ratelimit_gate::tests::all_public_token_grants_gate_before_their_production_sign_call",
       "ci_target": "ci.conformance.exact"
+    },
+    "exact.c14.1.vectors": {
+      "kind": "repo_test",
+      "coverage_level": "exact",
+      "path": "crates/payment/src/terms.rs",
+      "selector": "payment_terms_canonical_encoding_matches_cross_language_vectors",
+      "description": "Rust reproduces the canonical bytes and digest of every valid cross-language vector, including multi-byte labels and the 18-digit amount ceiling.",
+      "runner": "scripts/run_conformance_exact_tests.sh",
+      "cargo_target": "lib",
+      "manifest": "crates/payment/Cargo.toml",
+      "package": "agent-auth-payment",
+      "cargo_selector": "terms::tests::payment_terms_canonical_encoding_matches_cross_language_vectors",
+      "ci_target": "ci.conformance.exact"
+    },
+    "exact.c14.1.invalid-vectors": {
+      "kind": "repo_test",
+      "coverage_level": "exact",
+      "path": "crates/payment/src/terms.rs",
+      "selector": "payment_terms_reject_every_invalid_vector",
+      "description": "Every invalid vector (float or numeric amount, zero/leading-zero/signed/decimal amount, currency and exponent shape, deadline, versions, identifier and label rules, http resource, missing or unknown members) is rejected.",
+      "runner": "scripts/run_conformance_exact_tests.sh",
+      "cargo_target": "lib",
+      "manifest": "crates/payment/Cargo.toml",
+      "package": "agent-auth-payment",
+      "cargo_selector": "terms::tests::payment_terms_reject_every_invalid_vector",
+      "ci_target": "ci.conformance.exact"
+    },
+    "exact.c14.1.digest-binding": {
+      "kind": "repo_test",
+      "coverage_level": "exact",
+      "path": "crates/payment/src/terms.rs",
+      "selector": "payment_terms_digest_binds_every_field_and_ignores_json_key_order",
+      "description": "Changing any frozen field changes the digest, length framing prevents field-boundary collisions, and JSON member order cannot change it.",
+      "runner": "scripts/run_conformance_exact_tests.sh",
+      "cargo_target": "lib",
+      "manifest": "crates/payment/Cargo.toml",
+      "package": "agent-auth-payment",
+      "cargo_selector": "terms::tests::payment_terms_digest_binds_every_field_and_ignores_json_key_order",
+      "ci_target": "ci.conformance.exact"
+    },
+    "exact.c14.1.amount-rules": {
+      "kind": "repo_test",
+      "coverage_level": "exact",
+      "path": "crates/payment/src/terms.rs",
+      "selector": "payment_amount_rules_are_exact",
+      "description": "amount_minor accepts only ^[1-9][0-9]{0,17}$ ASCII decimal strings.",
+      "runner": "scripts/run_conformance_exact_tests.sh",
+      "cargo_target": "lib",
+      "manifest": "crates/payment/Cargo.toml",
+      "package": "agent-auth-payment",
+      "cargo_selector": "terms::tests::payment_amount_rules_are_exact",
+      "ci_target": "ci.conformance.exact"
+    },
+    "exact.c14.1.typescript-vectors": {
+      "kind": "repo_test",
+      "coverage_level": "exact",
+      "framework": "vitest",
+      "path": "sdk/ts/test/payment.test.ts",
+      "selector": "c14_1_payment_terms_vectors_match_canonical_encoding",
+      "description": "The TypeScript SDK reproduces every valid vector's canonical bytes and digest and rejects every invalid vector.",
+      "runner": "scripts/run_sdk_conformance_exact_tests.sh",
+      "ci_target": "ci.sdk.exact"
+    },
+    "exact.c14.1.python-vectors": {
+      "kind": "repo_test",
+      "coverage_level": "exact",
+      "framework": "pytest",
+      "path": "sdk/python/tests/test_payment.py",
+      "selector": "test_c14_1_payment_terms_vectors_match_canonical_encoding",
+      "description": "The Python SDK reproduces every valid vector's canonical bytes and digest and rejects every invalid vector.",
+      "runner": "scripts/run_sdk_conformance_exact_tests.sh",
+      "ci_target": "ci.sdk.exact"
+    },
+    "exact.c14.2.http-prepare": {
+      "kind": "repo_test",
+      "coverage_level": "exact",
+      "path": "crates/http/tests/payment_e2e.rs",
+      "selector": "payment_prepare_derives_identity_and_enforces_terms",
+      "description": "Real HTTP preparation takes tenant, payer and client only from the token, rejects identity or unknown body members, float/zero/leading-zero/over-limit amounts, other currencies, out-of-window deadlines, non-workload actors, another payer's funding source and unknown payees, refuses tokens without payments:prepare and delegated tokens, returns the same intent for an identical retry and 409 for a different client, actor, amount or payer on the same order.",
+      "runner": "scripts/run_conformance_exact_tests.sh",
+      "ci_target": "ci.conformance.exact"
+    },
+    "exact.c14.2.order-uniqueness": {
+      "kind": "repo_test",
+      "coverage_level": "exact",
+      "path": "crates/http/src/payment/store.rs",
+      "selector": "payment_store_binds_one_intent_per_order_until_it_closes_unaccepted",
+      "description": "The store binds one intent per tenant, payee and order; only an expired or cancelled never-accepted intent can be replaced and an accepted one never.",
+      "runner": "scripts/run_conformance_exact_tests.sh",
+      "cargo_target": "lib",
+      "manifest": "crates/http/Cargo.toml",
+      "package": "agent-auth-http",
+      "cargo_selector": "payment::store::tests::payment_store_binds_one_intent_per_order_until_it_closes_unaccepted",
+      "ci_target": "ci.conformance.exact"
+    },
+    "exact.c14.3.http-consent": {
+      "kind": "repo_test",
+      "coverage_level": "exact",
+      "path": "crates/http/tests/payment_e2e.rs",
+      "selector": "payment_consent_requires_fresh_strong_explicit_digest_acknowledgement",
+      "description": "Baseline sessions are sent to strong step-up, prompt=none returns consent_required, approvals without or with a wrong digest and edited continuations fail CSRF, actor substitution and registry changes between display and approval are rejected, and the continuation cannot be approved twice; no channel call occurs.",
+      "runner": "scripts/run_conformance_exact_tests.sh",
+      "ci_target": "ci.conformance.exact"
+    },
+    "exact.c14.3.stale-strong": {
+      "kind": "repo_test",
+      "coverage_level": "exact",
+      "path": "crates/http/tests/payment_e2e.rs",
+      "selector": "payment_consent_rejects_strong_authentication_that_is_stale_at_approval",
+      "description": "A strong authentication that was fresh when authorization began but is older than the strong max_age at approval is rejected with unmet_authentication_requirements.",
+      "runner": "scripts/run_conformance_exact_tests.sh",
+      "ci_target": "ci.conformance.exact"
+    },
+    "exact.c14.3.http-admission": {
+      "kind": "repo_test",
+      "coverage_level": "exact",
+      "path": "crates/http/tests/payment_e2e.rs",
+      "selector": "payment_authorization_rejects_mismatched_or_tampered_requests",
+      "description": "/authorize and direct consent reject another client, another or missing actor, other or extra resources, mixed generic RAR, two payment entries, client-supplied amounts or terms, wrong locations or actions, unknown profile versions, unknown or cancelled intents, and another payer's session.",
+      "runner": "scripts/run_conformance_exact_tests.sh",
+      "ci_target": "ci.conformance.exact"
+    },
+    "exact.c14.3.disabled": {
+      "kind": "repo_test",
+      "coverage_level": "exact",
+      "path": "crates/http/tests/payment_e2e.rs",
+      "selector": "payment_profile_is_unavailable_until_the_payment_resource_is_configured",
+      "description": "Without a configured payment resource the /payments routes are absent and /authorize rejects the payment profile.",
+      "runner": "scripts/run_conformance_exact_tests.sh",
+      "ci_target": "ci.conformance.exact"
+    },
+    "exact.c14.3.reference-shape": {
+      "kind": "repo_test",
+      "coverage_level": "exact",
+      "path": "crates/payment/src/profile.rs",
+      "selector": "payment_request_reference_accepts_only_one_exact_reference",
+      "description": "The request reference admits exactly one payment entry with members limited to type, intent_id, exact locations and actions.",
+      "runner": "scripts/run_conformance_exact_tests.sh",
+      "cargo_target": "lib",
+      "manifest": "crates/payment/Cargo.toml",
+      "package": "agent-auth-payment",
+      "cargo_selector": "profile::tests::payment_request_reference_accepts_only_one_exact_reference",
+      "ci_target": "ci.conformance.exact"
+    },
+    "exact.c14.3.strong-policy": {
+      "kind": "repo_test",
+      "coverage_level": "exact",
+      "path": "crates/authn/src/assurance.rs",
+      "selector": "payment_profile_requires_strong_without_a_configured_action",
+      "description": "The payment profile requires strong assurance even when no high-risk RAR action is configured.",
+      "runner": "scripts/run_conformance_exact_tests.sh",
+      "cargo_target": "lib",
+      "manifest": "crates/authn/Cargo.toml",
+      "package": "agent-auth-authn",
+      "cargo_selector": "assurance::tests::payment_profile_requires_strong_without_a_configured_action",
+      "ci_target": "ci.conformance.exact"
+    },
+    "exact.c14.3.consent-page": {
+      "kind": "repo_test",
+      "coverage_level": "exact",
+      "framework": "playwright",
+      "path": "web/e2e/consent.spec.ts",
+      "selector": "c14_3_consent_displays_exact_payment_terms_and_acknowledges_digest",
+      "description": "The consent page renders the server-validated amount, currency, funding source, payee, order, actor, deadline and only-this-payment statement, keeps payment entries out of the generic RAR card, and approves with exactly the displayed terms digest.",
+      "runner": "scripts/run_web_conformance_exact_tests.sh",
+      "ci_target": "ci.web.exact"
+    },
+    "exact.c14.4.http-flow": {
+      "kind": "repo_test",
+      "coverage_level": "exact",
+      "path": "crates/http/tests/payment_e2e.rs",
+      "selector": "payment_prepare_consent_execute_and_query_use_only_http",
+      "description": "Real HTTP prepare, per-payment strong consent, code redemption, one-hop exchange, execute and query produce exactly one channel transaction whose amount, currency, payee, funding source, reference and key equal the frozen intent; issuance never calls the channel and a repeated execute returns the same attempt.",
+      "runner": "scripts/run_conformance_exact_tests.sh",
+      "ci_target": "ci.conformance.exact"
+    },
+    "exact.c14.4.http-rejections": {
+      "kind": "repo_test",
+      "coverage_level": "exact",
+      "path": "crates/http/tests/payment_e2e.rs",
+      "selector": "payment_execute_rejections_never_call_the_channel",
+      "description": "Execution rejects the 3LO token without act, the prepare token, another designated actor, another payer, tokens without payment RAR or with a permissive generic RAR, another audience, garbage or missing tokens and another issuer host, and the AS refuses a second hop; the channel receives no call until a valid execution.",
+      "runner": "scripts/run_conformance_exact_tests.sh",
+      "ci_target": "ci.conformance.exact"
+    },
+    "exact.c14.4.exactly-one-detail": {
+      "kind": "repo_test",
+      "coverage_level": "exact",
+      "path": "crates/payment/src/profile.rs",
+      "selector": "payment_execution_requires_exactly_the_approved_detail",
+      "description": "The execution check requires the whole authorization_details array to be exactly the canonical detail of this intent and resource with equal terms and digest.",
+      "runner": "scripts/run_conformance_exact_tests.sh",
+      "cargo_target": "lib",
+      "manifest": "crates/payment/Cargo.toml",
+      "package": "agent-auth-payment",
+      "cargo_selector": "profile::tests::payment_execution_requires_exactly_the_approved_detail",
+      "ci_target": "ci.conformance.exact"
+    },
+    "exact.c14.4.typescript-sdk": {
+      "kind": "repo_test",
+      "coverage_level": "exact",
+      "framework": "vitest",
+      "path": "sdk/ts/test/payment.test.ts",
+      "selector": "c14_4_payment_authorization_requires_exactly_the_approved_detail",
+      "description": "The TypeScript strict payment check requires an active online introspection result, strong acr and the persisted terms or digest, and rejects wrong audience, missing scope, wrong or multi-hop actor, wrong payer, missing/mixed/duplicated/unknown-member details, other intents, tampered terms and digests.",
+      "runner": "scripts/run_sdk_conformance_exact_tests.sh",
+      "ci_target": "ci.sdk.exact"
+    },
+    "exact.c14.4.typescript-generic-unchanged": {
+      "kind": "repo_test",
+      "coverage_level": "exact",
+      "framework": "vitest",
+      "path": "sdk/ts/test/payment.test.ts",
+      "selector": "c14_4_generic_rar_enforcement_still_denies_payment_entries",
+      "description": "Generic TypeScript enforceRar semantics are unchanged and deny a payment entry.",
+      "runner": "scripts/run_sdk_conformance_exact_tests.sh",
+      "ci_target": "ci.sdk.exact"
+    },
+    "exact.c14.4.python-sdk": {
+      "kind": "repo_test",
+      "coverage_level": "exact",
+      "framework": "pytest",
+      "path": "sdk/python/tests/test_payment.py",
+      "selector": "test_c14_4_payment_authorization_requires_exactly_the_approved_detail",
+      "description": "The Python strict payment check requires an active online introspection result, strong acr and the persisted terms or digest, and rejects wrong audience, missing scope, wrong or multi-hop actor, wrong payer, missing/mixed/duplicated/unknown-member details, other intents, tampered terms and digests.",
+      "runner": "scripts/run_sdk_conformance_exact_tests.sh",
+      "ci_target": "ci.sdk.exact"
+    },
+    "exact.c14.4.python-generic-unchanged": {
+      "kind": "repo_test",
+      "coverage_level": "exact",
+      "framework": "pytest",
+      "path": "sdk/python/tests/test_payment.py",
+      "selector": "test_c14_4_generic_rar_enforcement_still_denies_payment_entries",
+      "description": "Generic Python enforce_rar semantics are unchanged and deny a payment entry.",
+      "runner": "scripts/run_sdk_conformance_exact_tests.sh",
+      "ci_target": "ci.sdk.exact"
+    },
+    "exact.c14.5.http-revocation": {
+      "kind": "repo_test",
+      "coverage_level": "exact",
+      "path": "crates/http/tests/payment_e2e.rs",
+      "selector": "payment_revocation_disablement_expiry_and_unavailable_checks_block_new_acceptance",
+      "description": "A revoked Grant, disabled user, expired intent, changed funding-source version, and unavailable authorization, registry or payment store each block new acceptance with no channel call; an expired never-accepted order requires a new intent and consent.",
+      "runner": "scripts/run_conformance_exact_tests.sh",
+      "ci_target": "ci.conformance.exact"
+    },
+    "exact.c14.5.http-revocation-race": {
+      "kind": "repo_test",
+      "coverage_level": "exact",
+      "path": "crates/http/tests/payment_e2e.rs",
+      "selector": "payment_concurrent_revocation_after_the_online_check_is_an_accepted_boundary",
+      "description": "A revocation landing after the online check but before the acceptance write meets an accepted attempt whose check time precedes acceptance; the revoked token cannot execute again while recovery continues without a user token.",
+      "runner": "scripts/run_conformance_exact_tests.sh",
+      "ci_target": "ci.conformance.exact"
+    },
+    "exact.c14.6.http-single-attempt": {
+      "kind": "repo_test",
+      "coverage_level": "exact",
+      "path": "crates/http/tests/payment_e2e.rs",
+      "selector": "payment_concurrent_and_repeated_execution_share_one_attempt",
+      "description": "Eight concurrent executions, a fresh exchange, a refreshed 3LO credential, a second consent attempt and re-preparation of the same order share one attempt, one idempotency key and one channel transaction.",
+      "runner": "scripts/run_conformance_exact_tests.sh",
+      "ci_target": "ci.conformance.exact"
+    },
+    "exact.c14.6.store-cas": {
+      "kind": "repo_test",
+      "coverage_level": "exact",
+      "path": "crates/http/src/payment/store.rs",
+      "selector": "payment_store_compare_and_set_rejects_stale_revision_status_and_deadline",
+      "description": "Acceptance is a compare-and-set on revision, status and the execute_before deadline, so a second acceptance from the same snapshot loses.",
+      "runner": "scripts/run_conformance_exact_tests.sh",
+      "cargo_target": "lib",
+      "manifest": "crates/http/Cargo.toml",
+      "package": "agent-auth-http",
+      "cargo_selector": "payment::store::tests::payment_store_compare_and_set_rejects_stale_revision_status_and_deadline",
+      "ci_target": "ci.conformance.exact"
+    },
+    "exact.c14.6.dynamo-cas": {
+      "kind": "repo_test",
+      "coverage_level": "exact",
+      "path": "crates/http/src/adapters/aws/payment.rs",
+      "selector": "dynamo_payment_cas_maps_condition_failure_to_false_and_sends_the_deadline",
+      "description": "The DynamoDB acceptance write is conditional on revision, status and execute_before and stores no token material.",
+      "runner": "scripts/run_conformance_exact_tests.sh",
+      "cargo_target": "lib",
+      "manifest": "crates/http/Cargo.toml",
+      "package": "agent-auth-http",
+      "cargo_selector": "adapters::aws::payment::tests::dynamo_payment_cas_maps_condition_failure_to_false_and_sends_the_deadline",
+      "ci_target": "ci.conformance.exact"
+    },
+    "exact.c14.6.domain-accept-once": {
+      "kind": "repo_test",
+      "coverage_level": "exact",
+      "path": "crates/payment/src/execution.rs",
+      "selector": "payment_acceptance_happens_once_and_only_before_the_deadline",
+      "description": "The domain allows one acceptance before the deadline and no cancellation or second acceptance afterwards.",
+      "runner": "scripts/run_conformance_exact_tests.sh",
+      "cargo_target": "lib",
+      "manifest": "crates/payment/Cargo.toml",
+      "package": "agent-auth-payment",
+      "cargo_selector": "execution::tests::payment_acceptance_happens_once_and_only_before_the_deadline",
+      "ci_target": "ci.conformance.exact"
+    },
+    "exact.c14.7.http-faults": {
+      "kind": "repo_test",
+      "coverage_level": "exact",
+      "path": "crates/http/tests/payment_e2e.rs",
+      "selector": "payment_recovery_reuses_the_persisted_attempt_after_faults",
+      "description": "Lost acceptance responses, a crash after acceptance before submission, a lost submission response, timeouts, 5xx and unreachable queries during revocation all recover through the persisted attempt with its original key; unknown never becomes failed and each intent has exactly one channel transaction.",
+      "runner": "scripts/run_conformance_exact_tests.sh",
+      "ci_target": "ci.conformance.exact"
+    },
+    "exact.c14.7.http-window": {
+      "kind": "repo_test",
+      "coverage_level": "exact",
+      "path": "crates/http/tests/payment_e2e.rs",
+      "selector": "payment_recovery_outside_the_idempotency_window_waits_for_review",
+      "description": "Outside the channel idempotency retention window recovery neither resubmits nor derives a new key and flags the unchanged attempt for review.",
+      "runner": "scripts/run_conformance_exact_tests.sh",
+      "ci_target": "ci.conformance.exact"
+    },
+    "exact.c14.7.http-callbacks": {
+      "kind": "repo_test",
+      "coverage_level": "exact",
+      "path": "crates/http/tests/payment_e2e.rs",
+      "selector": "payment_callbacks_are_authenticated_matched_and_monotonic",
+      "description": "Forged or re-signed callbacks are rejected, duplicates are no-ops, a late pending cannot reopen success, contradictory or mismatching authentic evidence is retained for review, callbacks for another key are refused, and only a definitive decline yields FAILED. A callback arriving before the submission result is recorded settles the same attempt.",
+      "runner": "scripts/run_conformance_exact_tests.sh",
+      "ci_target": "ci.conformance.exact"
+    },
+    "exact.c14.7.domain-settlement": {
+      "kind": "repo_test",
+      "coverage_level": "exact",
+      "path": "crates/payment/src/execution.rs",
+      "selector": "payment_unknown_results_settle_only_from_authoritative_channel_reports",
+      "description": "Only authoritative channel reports settle an attempt; indeterminate answers never move pending, unknown or final results.",
+      "runner": "scripts/run_conformance_exact_tests.sh",
+      "cargo_target": "lib",
+      "manifest": "crates/payment/Cargo.toml",
+      "package": "agent-auth-payment",
+      "cargo_selector": "execution::tests::payment_unknown_results_settle_only_from_authoritative_channel_reports",
+      "ci_target": "ci.conformance.exact"
+    },
+    "exact.c14.7.lost-accept": {
+      "kind": "repo_test",
+      "coverage_level": "exact",
+      "path": "crates/http/src/payment/store.rs",
+      "selector": "payment_store_lost_acceptance_response_still_commits_once",
+      "description": "A lost acceptance response leaves exactly the committed attempt.",
+      "runner": "scripts/run_conformance_exact_tests.sh",
+      "cargo_target": "lib",
+      "manifest": "crates/http/Cargo.toml",
+      "package": "agent-auth-http",
+      "cargo_selector": "payment::store::tests::payment_store_lost_acceptance_response_still_commits_once",
+      "ci_target": "ci.conformance.exact"
+    },
+    "exact.c14.8.http-audit": {
+      "kind": "repo_test",
+      "coverage_level": "exact",
+      "path": "crates/http/tests/payment_e2e.rs",
+      "selector": "payment_audit_links_grant_intent_attempt_and_channel_without_secrets",
+      "description": "The record links the Grant, intent, attempt and channel transaction with actor, client, acr and a hashed token jti, keeps the status history, and stores no raw token, card number or idempotency key in API views.",
+      "runner": "scripts/run_conformance_exact_tests.sh",
+      "ci_target": "ci.conformance.exact"
+    },
+    "exact.c14.8.audit-history": {
+      "kind": "repo_test",
+      "coverage_level": "exact",
+      "path": "crates/payment/src/execution.rs",
+      "selector": "payment_status_round_trips_and_records_audit_history",
+      "description": "Statuses serialize canonically and every status change records its source in the audit history without token material.",
+      "runner": "scripts/run_conformance_exact_tests.sh",
+      "cargo_target": "lib",
+      "manifest": "crates/payment/Cargo.toml",
+      "package": "agent-auth-payment",
+      "cargo_selector": "execution::tests::payment_status_round_trips_and_records_audit_history",
+      "ci_target": "ci.conformance.exact"
+    },
+    "exact.c14.3.http-par": {
+      "kind": "repo_test",
+      "coverage_level": "exact",
+      "path": "crates/http/tests/payment_e2e.rs",
+      "selector": "payment_par_continuation_is_admitted_against_the_frozen_intent",
+      "description": "A PAR continuation is admitted against the frozen intent when the request_uri is redeemed: client-supplied terms are rejected, and the pushed reference completes strong consent, redemption, the one-hop exchange and one execution.",
+      "runner": "scripts/run_conformance_exact_tests.sh",
+      "ci_target": "ci.conformance.exact"
+    },
+    "exact.c14.4.http-tenant": {
+      "kind": "repo_test",
+      "coverage_level": "exact",
+      "path": "crates/http/tests/payment_e2e.rs",
+      "selector": "payment_intents_and_authority_are_partitioned_by_tenant",
+      "description": "In a two-tenant SaaS runtime, t1 credentials are inactive at t2's issuer, t2's payer, client and actor cannot see, consent to or execute a t1 intent, the same order id is independent per tenant, and each tenant still executes its own intent once.",
+      "runner": "scripts/run_conformance_exact_tests.sh",
+      "ci_target": "ci.conformance.exact"
+    },
+    "exact.c14.7.http-recovery-pass": {
+      "kind": "repo_test",
+      "coverage_level": "exact",
+      "path": "crates/http/tests/payment_e2e.rs",
+      "selector": "payment_internal_recovery_pass_settles_every_unsettled_attempt_without_tokens",
+      "description": "The internal recovery pass settles a lost-acceptance attempt and unknown attempts with their persisted keys after every Grant is revoked, reports an unreadable record in its slot without stopping the others, and leaves exactly one channel transaction per attempt.",
+      "runner": "scripts/run_conformance_exact_tests.sh",
+      "ci_target": "ci.conformance.exact"
     }
   },
   "requirements": {
@@ -13041,6 +13446,115 @@
         "recorded.c13.8.okta-dev-live",
         "recorded.c13.8.okta-saas-live"
       ]
+    },
+    "14.1": {
+      "applicability": "required_for_claimed_profile",
+      "applicability_basis": "Feature-scoped: applies when the payment resource is configured.",
+      "coverage_level": "exact",
+      "automated_targets": [
+        "exact.c14.1.vectors",
+        "exact.c14.1.invalid-vectors",
+        "exact.c14.1.digest-binding",
+        "exact.c14.1.amount-rules",
+        "exact.c14.1.typescript-vectors",
+        "exact.c14.1.python-vectors"
+      ],
+      "recorded_references": []
+    },
+    "14.2": {
+      "applicability": "required_for_claimed_profile",
+      "applicability_basis": "Feature-scoped: applies when the payment resource is configured.",
+      "coverage_level": "exact",
+      "automated_targets": [
+        "exact.c14.2.http-prepare",
+        "exact.c14.2.order-uniqueness"
+      ],
+      "recorded_references": []
+    },
+    "14.3": {
+      "applicability": "required_for_claimed_profile",
+      "applicability_basis": "Feature-scoped: applies when the payment resource is configured.",
+      "coverage_level": "exact",
+      "automated_targets": [
+        "exact.c14.3.http-consent",
+        "exact.c14.3.stale-strong",
+        "exact.c14.3.http-admission",
+        "exact.c14.3.disabled",
+        "exact.c14.3.http-par",
+        "exact.c14.3.reference-shape",
+        "exact.c14.3.strong-policy",
+        "exact.c14.3.consent-page"
+      ],
+      "recorded_references": []
+    },
+    "14.4": {
+      "applicability": "required_for_claimed_profile",
+      "applicability_basis": "Feature-scoped: applies when the payment resource is configured.",
+      "coverage_level": "exact",
+      "automated_targets": [
+        "exact.c14.4.http-flow",
+        "exact.c14.4.http-rejections",
+        "exact.c14.4.exactly-one-detail",
+        "exact.c14.4.typescript-sdk",
+        "exact.c14.4.typescript-generic-unchanged",
+        "exact.c14.4.python-sdk",
+        "exact.c14.4.python-generic-unchanged",
+        "exact.c14.4.http-tenant"
+      ],
+      "recorded_references": []
+    },
+    "14.5": {
+      "applicability": "required_for_claimed_profile",
+      "applicability_basis": "Feature-scoped: applies when the payment resource is configured.",
+      "coverage_level": "exact",
+      "automated_targets": [
+        "exact.c14.5.http-revocation",
+        "exact.c14.5.http-revocation-race"
+      ],
+      "recorded_references": []
+    },
+    "14.6": {
+      "applicability": "required_for_claimed_profile",
+      "applicability_basis": "Feature-scoped: applies when the payment resource is configured.",
+      "coverage_level": "exact",
+      "automated_targets": [
+        "exact.c14.6.http-single-attempt",
+        "exact.c14.6.store-cas",
+        "exact.c14.6.dynamo-cas",
+        "exact.c14.6.domain-accept-once"
+      ],
+      "recorded_references": []
+    },
+    "14.7": {
+      "applicability": "required_for_claimed_profile",
+      "applicability_basis": "Feature-scoped: applies when the payment resource is configured.",
+      "coverage_level": "exact",
+      "automated_targets": [
+        "exact.c14.7.http-faults",
+        "exact.c14.7.http-window",
+        "exact.c14.7.http-callbacks",
+        "exact.c14.7.domain-settlement",
+        "exact.c14.7.lost-accept",
+        "exact.c14.7.http-recovery-pass"
+      ],
+      "recorded_references": []
+    },
+    "14.8": {
+      "applicability": "required_for_claimed_profile",
+      "applicability_basis": "Feature-scoped: applies when the payment resource is configured.",
+      "coverage_level": "exact",
+      "automated_targets": [
+        "exact.c14.8.http-audit",
+        "exact.c14.8.audit-history"
+      ],
+      "recorded_references": []
+    },
+    "14.9": {
+      "applicability": "not_applicable",
+      "applicability_basis": "No real payment channel is selected; the payment resource is disabled in every deployed profile.",
+      "coverage_level": "none",
+      "automated_targets": [],
+      "recorded_references": []
     }
   }
 }

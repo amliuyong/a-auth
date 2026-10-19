@@ -828,6 +828,7 @@ async fn run_authorize(
     // Query extractor 不解嵌套 JSON),percent-decode → 解析数组 → **准入校验**(type∈词汇表 + 字段∈词汇表
     // + 值格式,grant::rar::validate_admission)。**phase 门控**:P0/P1 拒(fail-closed——静默忽略会让
     // 客户端以为拿到细粒度收窄实则 token 更宽,危险);P2+ 接受。空/无参 → 无 RAR(继续)。
+    let mut payment_request: Option<serde_json::Value> = None;
     let authorization_details: Vec<serde_json::Value> = match raw_query
         .as_deref()
         .unwrap_or("")
@@ -856,7 +857,11 @@ async fn run_authorize(
             };
             // 准入 + **locations 越界校验**(评审 codex HIGH:带 locations 的 RAR MUST 命中授权 resource
             // 集,否则落空 → SDK 视缺失 RAR 为 scope 放行 = 签出比 RAR 请求更宽的 token)。
-            if let Err(e) =
+            // The payment profile is admitted separately, against its frozen intent,
+            // once the tenant and client are known (issue #77).
+            if agent_auth_payment::contains_payment_detail(&parsed) {
+                payment_request = Some(parsed.clone());
+            } else if let Err(e) =
                 agent_auth_grant::rar::validate_admission_for_resources(&parsed, &resource_params)
             {
                 // 准入不合规(未知 type/未知约束字段/值格式/超量/locations 越界)→ invalid_authorization_details。
@@ -1094,6 +1099,21 @@ async fn run_authorize(
     .await
     {
         return response;
+    }
+    if let Some(details) = payment_request.as_ref() {
+        if let Err(response) = crate::payment::consent::admit(
+            state,
+            &tenant,
+            &p.client_id,
+            p.workload_actor.as_deref(),
+            &resource_params,
+            details,
+            None,
+        )
+        .await
+        {
+            return response;
+        }
     }
 
     // ⚠️ authorize **永不直接签 code**(修评审 CRITICAL:有会话直接签会跳过用户 consent 同意,

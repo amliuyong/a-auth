@@ -7,6 +7,7 @@
 
 use std::collections::BTreeSet;
 
+use agent_auth_payment::PAYMENT_RAR_TYPE;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -111,17 +112,20 @@ impl AssurancePolicy {
         self.strong_max_age_secs
     }
 
+    /// A payment authorization always requires strong assurance; it does not
+    /// depend on the deployment's configurable high-risk action list.
     pub fn rar_requires_strong(&self, authorization_details: &[Value]) -> bool {
         authorization_details.iter().any(|detail| {
-            detail
-                .get("actions")
-                .and_then(Value::as_array)
-                .is_some_and(|actions| {
-                    actions
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .any(|action| self.high_risk_rar_actions.contains(action))
-                })
+            detail.get("type").and_then(Value::as_str) == Some(PAYMENT_RAR_TYPE)
+                || detail
+                    .get("actions")
+                    .and_then(Value::as_array)
+                    .is_some_and(|actions| {
+                        actions
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .any(|action| self.high_risk_rar_actions.contains(action))
+                    })
         })
     }
 
@@ -239,6 +243,23 @@ mod tests {
         })]));
         assert!(policy.admin_requires_strong("access.manage"));
         assert!(!policy.admin_requires_strong("tenant.read"));
+    }
+
+    #[test]
+    fn payment_profile_requires_strong_without_a_configured_action() {
+        let no_actions = AssurancePolicy::new(300, [], []).unwrap();
+        assert!(no_actions.rar_requires_strong(&[json!({
+            "type": PAYMENT_RAR_TYPE,
+            "intent_id": "pi_one"
+        })]));
+        assert!(no_actions.rar_requires_strong(&[json!({
+            "type": PAYMENT_RAR_TYPE,
+            "actions": ["execute"]
+        })]));
+        assert!(!no_actions.rar_requires_strong(&[json!({
+            "type": "agent_auth_rar_v1",
+            "actions": ["transfer"]
+        })]));
     }
 
     #[test]

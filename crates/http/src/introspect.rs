@@ -160,33 +160,56 @@ pub async fn introspect_handler(
         return (StatusCode::UNAUTHORIZED, "该 client 无 introspect 权限").into_response();
     }
 
+    match authoritative_claims(&state, &tenant, &headers, &req.token, &caller.resource_ids).await {
+        Ok(Some(out)) => Json(serde_json::Value::Object(out)).into_response(),
+        Ok(None) => inactive().into_response(),
+        Err(response) => response,
+    }
+}
+
+/// Authoritative online token check shared by `/introspect` and in-process
+/// resource servers such as the payment module. The caller is already
+/// authenticated and bound to `allowed_audiences`.
+///
+/// Every inactive outcome is `Ok(None)` (no reason is leaked); an active token
+/// yields the RFC 7662 body. `Err` carries a 503 response when an authority
+/// store is unavailable, and callers must fail closed on it.
+pub(crate) async fn authoritative_claims(
+    state: &AppState,
+    tenant: &str,
+    headers: &HeaderMap,
+    token: &str,
+    allowed_audiences: &[String],
+) -> Result<Option<serde_json::Map<String, serde_json::Value>>, axum::response::Response> {
     // 2. 验 token(sig + exp/nbf);任一不过 → active:false(不泄露原因)。
-    let signer = match crate::tenant_keys::signer_or_503(&state, &tenant).await {
+    let signer = match crate::tenant_keys::signer_or_503(state, tenant).await {
         Ok(signer) => signer,
-        Err(response) => return response,
+        Err(response) => return Err(response),
     };
     let jwks_keys = match signer.public_jwks().await {
         Ok(k) => k,
-        Err(_) => return (StatusCode::SERVICE_UNAVAILABLE, "signer unavailable").into_response(),
+        Err(_) => {
+            return Err((StatusCode::SERVICE_UNAVAILABLE, "signer unavailable").into_response())
+        }
     };
     let jwks: Vec<crate::jwks::Jwk> = jwks_keys.iter().map(crate::jwks::to_jwk).collect();
     let now = crate::token::current_unix_secs_pub();
     // 严格 access token 基线:sig + exp/nbf + typ=at+jwt + 顶层 client_id(评审 codex MEDIUM:
     // 防同 signer 签出的非 access/形状不合规 JWT 被判 active)。
-    let Ok(verified) = verify_access_token(&req.token, &jwks, now) else {
-        return inactive().into_response();
+    let Ok(verified) = verify_access_token(token, &jwks, now) else {
+        return Ok(None);
     };
 
     // 3. aud 跨 RS 隔离:token 单值 aud MUST ∈ caller 绑定的 resource_ids。
     //    严格单元素数组(拒裸字符串,C2.5a);无 aud(如 refresh token)或不属该 caller
     //    → active:false(不泄露存在性)。
     let Some(aud) = single_aud_strict(&verified.claims) else {
-        return inactive().into_response();
+        return Ok(None);
     };
-    if !caller.resource_ids.iter().any(|r| r == &aud) {
-        return inactive().into_response();
+    if !allowed_audiences.iter().any(|r| r == &aud) {
+        return Ok(None);
     }
-    let expected_issuer = crate::hostutil::issuer_host(&headers)
+    let expected_issuer = crate::hostutil::issuer_host(headers)
         .and_then(|host| agent_auth_discovery::derive_issuer(&host, &state.form).ok());
     if verified
         .claims
@@ -194,25 +217,19 @@ pub async fn introspect_handler(
         .and_then(serde_json::Value::as_str)
         != expected_issuer.as_ref().map(|issuer| issuer.as_str())
     {
-        return inactive().into_response();
+        return Ok(None);
     }
     let lineage = if verified.claims.get("act").is_some() {
-        let tenant_id = if tenant.is_empty() {
-            "default"
-        } else {
-            &tenant
-        };
-        match crate::delegation::validate(&state, &tenant, tenant_id, &req.token, &verified.claims)
-            .await
-        {
+        let tenant_id = if tenant.is_empty() { "default" } else { tenant };
+        match crate::delegation::validate(state, tenant, tenant_id, token, &verified.claims).await {
             Ok(Some(lineage)) => Some(lineage),
-            Ok(None) => return inactive().into_response(),
+            Ok(None) => return Ok(None),
             Err(_) => {
-                return (
+                return Err((
                     StatusCode::SERVICE_UNAVAILABLE,
                     "delegation authority unavailable",
                 )
-                    .into_response()
+                    .into_response())
             }
         }
     } else {
@@ -227,12 +244,13 @@ pub async fn introspect_handler(
         .and_then(|ns| ns.get("auth_grant"))
         .and_then(|v| v.as_str());
     if let Some(gid) = auth_grant {
-        match crate::grants::token_grant_is_active(&state, &tenant, gid, now).await {
+        match crate::grants::token_grant_is_active(state, tenant, gid, now).await {
             Ok(true) => {}
-            Ok(false) => return inactive().into_response(),
+            Ok(false) => return Ok(None),
             Err(_) => {
-                return (StatusCode::SERVICE_UNAVAILABLE, "授权状态存储不可用,请重试")
-                    .into_response()
+                return Err(
+                    (StatusCode::SERVICE_UNAVAILABLE, "授权状态存储不可用,请重试").into_response(),
+                )
             }
         }
     }
@@ -241,32 +259,34 @@ pub async fn introspect_handler(
         Some(details) => match crate::rar_delivery::parse_summary(details) {
             Ok(Some(summary)) => {
                 let Some(grant_id) = auth_grant else {
-                    return inactive().into_response();
+                    return Ok(None);
                 };
-                let grant = match state.grants.get(&tenant, grant_id).await {
+                let grant = match state.grants.get(tenant, grant_id).await {
                     Ok(Some(grant)) if grant.is_usable(now).is_ok() => grant,
-                    Ok(_) => return inactive().into_response(),
+                    Ok(_) => return Ok(None),
                     Err(_) => {
-                        return (StatusCode::SERVICE_UNAVAILABLE, "授权状态存储不可用,请重试")
-                            .into_response()
+                        return Err(
+                            (StatusCode::SERVICE_UNAVAILABLE, "授权状态存储不可用,请重试")
+                                .into_response(),
+                        )
                     }
                 };
                 let Some(resource_grant) = grant.resource_grant(&aud) else {
-                    return inactive().into_response();
+                    return Ok(None);
                 };
                 if !crate::rar_delivery::matches(
                     &summary,
                     &aud,
                     &resource_grant.authorization_details,
                 ) {
-                    return inactive().into_response();
+                    return Ok(None);
                 }
                 Some(serde_json::Value::Array(
                     resource_grant.authorization_details.clone(),
                 ))
             }
             Ok(None) => Some(details.clone()),
-            Err(()) => return inactive().into_response(),
+            Err(()) => return Ok(None),
         },
         None => None,
     };
@@ -282,7 +302,7 @@ pub async fn introspect_handler(
             .iter()
             .any(|record| record.expires_at <= checked_at)
         {
-            return inactive().into_response();
+            return Ok(None);
         }
         out.insert(
             "delegation_lineage".into(),
@@ -333,7 +353,7 @@ pub async fn introspect_handler(
     if let Some(cnf) = c.get("cnf") {
         out.insert("cnf".into(), cnf.clone());
     }
-    Json(serde_json::Value::Object(out)).into_response()
+    Ok(Some(out))
 }
 
 pub fn router() -> OpenApiRouter<AppState> {

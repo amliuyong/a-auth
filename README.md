@@ -224,6 +224,7 @@ OpenAPI surface, specification, and conformance evidence together. See
 | [`DESIGN.md`](docs/DESIGN.md) | Review protocol invariants, token contracts, and architectural decisions |
 | [`DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Understand issuer, tenant, key, migration, and topology boundaries |
 | [`INSTALL_DEPLOY.md`](docs/INSTALL_DEPLOY.md) | Build and deploy the AWS infrastructure |
+| [`AGENT_PAYMENT.md`](docs/AGENT_PAYMENT.md) | Authorize one exact agent payment and verify its single execution (controlled channel only) |
 | [`CONFORMANCE.md`](docs/CONFORMANCE.md) | Check normative requirements and their automated evidence |
 | [`EXTERNAL_CONFORMANCE.md`](docs/EXTERNAL_CONFORMANCE.md) | Review the official OIDF and project regression release-gate contract |
 | [`CHANGELOG.md`](docs/CHANGELOG.md) | Check release history and user-visible changes |

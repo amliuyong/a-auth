@@ -5021,6 +5021,10 @@ pub struct AppState {
     /// per-client 应用层令牌桶限流(spec 005 C10.7)。**None = 不限流**(fail-open;dev 测试默认 Some 内存桶,
     /// 真机配 Some Dynamo 桶)。/token 入口按 client_id 取 token,超额 429 + Retry-After。
     pub rate_limit: Option<Arc<RateLimitStoreImpl>>,
+    /// Payment resource server (issue #77). `None` disables the payment RAR
+    /// profile and every `/payments` route; deployed runtimes never enable it
+    /// until a real channel has been selected and accepted.
+    pub payments: Option<Arc<crate::payment::PaymentModule>>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -6175,6 +6179,7 @@ impl AppState {
             rate_limit: Some(Arc::new(RateLimitStoreImpl::Memory(
                 crate::adapters::memory::MemoryRateLimitStore::default(),
             ))),
+            payments: None,
         }
     }
 
@@ -7344,6 +7349,7 @@ impl AppState {
                     crate::adapters::aws::DynamoRateLimitStore::new(db_ratelimit, t),
                 ))
             }),
+            payments: None,
         })
     }
 

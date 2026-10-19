@@ -44,9 +44,9 @@ class ConformanceInventoryTests(unittest.TestCase):
 
         self.assertEqual(
             counts,
-            {"total": 149, "complete": 146, "partial": 1, "missing": 2},
+            {"total": 158, "complete": 154, "partial": 1, "missing": 3},
         )
-        self.assertEqual(len(incomplete), 3)
+        self.assertEqual(len(incomplete), 4)
 
     def test_rejects_status_and_count_drift(self) -> None:
         document = DOCUMENT.read_text(encoding="utf-8").replace(
@@ -60,8 +60,8 @@ class ConformanceInventoryTests(unittest.TestCase):
 
     def test_rejects_human_summary_drift(self) -> None:
         document = DOCUMENT.read_text(encoding="utf-8").replace(
-            "total=149",
-            "total=150",
+            "total=158",
+            "total=159",
             1,
         )
 
@@ -128,10 +128,10 @@ class ConformanceInventoryTests(unittest.TestCase):
         inventory = json.loads(INVENTORY.read_text(encoding="utf-8"))
         changed = copy.deepcopy(inventory)
         changed["expected_counts"] = {
-            "total": 149,
-            "complete": 145,
+            "total": 158,
+            "complete": 153,
             "partial": 2,
-            "missing": 2,
+            "missing": 3,
         }
         changed["incomplete_requirements"].append(
             {
@@ -146,8 +146,8 @@ class ConformanceInventoryTests(unittest.TestCase):
         document = (
             DOCUMENT.read_text(encoding="utf-8")
             .replace(
-                "total=149，☑=146，◑=1，☐=2",
-                "total=149，☑=145，◑=2，☐=2",
+                "total=158，☑=154，◑=1，☐=3",
+                "total=158，☑=153，◑=2，☐=3",
                 1,
             )
             .replace(
@@ -164,10 +164,10 @@ class ConformanceInventoryTests(unittest.TestCase):
         inventory = json.loads(INVENTORY.read_text(encoding="utf-8"))
         changed = copy.deepcopy(inventory)
         changed["expected_counts"] = {
-            "total": 149,
-            "complete": 145,
+            "total": 158,
+            "complete": 153,
             "partial": 2,
-            "missing": 2,
+            "missing": 3,
         }
         changed["incomplete_requirements"].append(
             {
@@ -182,8 +182,8 @@ class ConformanceInventoryTests(unittest.TestCase):
         document = (
             DOCUMENT.read_text(encoding="utf-8")
             .replace(
-                "total=149，☑=146，◑=1，☐=2",
-                "total=149，☑=145，◑=2，☐=2",
+                "total=158，☑=154，◑=1，☐=3",
+                "total=158，☑=153，◑=2，☐=3",
                 1,
             )
             .replace(

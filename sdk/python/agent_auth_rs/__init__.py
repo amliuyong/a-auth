@@ -44,6 +44,17 @@ from .dpop import (
     compute_ath,
     normalize_htu,
 )
+from .payment import (
+    PAYMENT_EXECUTE_SCOPE,
+    PAYMENT_RAR_TYPE_V1,
+    PAYMENT_TERMS_DIGEST_DOMAIN,
+    PaymentAuthorizationError,
+    VerifiedPaymentAuthorization,
+    payment_terms_canonical_bytes,
+    payment_terms_digest,
+    validate_payment_terms,
+    verify_payment_authorization,
+)
 
 __all__ = [
     "NAMESPACE",
@@ -77,4 +88,13 @@ __all__ = [
     "compute_jkt",
     "compute_ath",
     "normalize_htu",
+    "PAYMENT_EXECUTE_SCOPE",
+    "PAYMENT_RAR_TYPE_V1",
+    "PAYMENT_TERMS_DIGEST_DOMAIN",
+    "PaymentAuthorizationError",
+    "VerifiedPaymentAuthorization",
+    "payment_terms_canonical_bytes",
+    "payment_terms_digest",
+    "validate_payment_terms",
+    "verify_payment_authorization",
 ]
