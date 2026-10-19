@@ -1728,6 +1728,108 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/payments/channel/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** `POST /payments/channel/callback`. */
+        post: operations["callback_handler"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/payments/intents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** `POST /payments/intents`. */
+        post: operations["prepare_handler"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/payments/intents/{intent_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** `GET /payments/intents/{intent_id}`. */
+        get: operations["get_handler"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/payments/intents/{intent_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** `POST /payments/intents/{intent_id}/cancel`. */
+        post: operations["cancel_handler"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/payments/intents/{intent_id}/execute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** `POST /payments/intents/{intent_id}/execute`. */
+        post: operations["execute_handler"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/payments/intents/{intent_id}/reconcile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** `POST /payments/intents/{intent_id}/reconcile`. */
+        post: operations["reconcile_handler"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/recovery/generate": {
         parameters: {
             query?: never;
@@ -2371,6 +2473,7 @@ export interface components {
             client_source: string;
             /** @description per-request anti-CSRF token(C10.9;前端从本响应读取并在 POST /consent 回带)。 */
             csrf_token: string;
+            payment?: null | components["schemas"]["PaymentConsentView"];
             redirect_uri_host?: string | null;
             /** @description 兼容旧前端的首个 resource；完整授权集合以 `resources` 为准。 */
             resource?: string | null;
@@ -2385,6 +2488,11 @@ export interface components {
             authorize_query: string;
             csrf?: string;
             decision: string;
+            /**
+             * @description Digest of the payment terms displayed by the page. Required on approval
+             *     of a payment authorization; an older frontend cannot approve one.
+             */
+            payment_terms_digest?: string | null;
             /**
              * @description Actor displayed by the page. Required on approval when the query
              *     requests workload delegation; prevents approval by an older frontend.
@@ -3064,6 +3172,116 @@ export interface components {
         };
         /** @enum {string} */
         PasswordStatus: "not_configured" | "change_required" | "active" | "unavailable";
+        /** @description The single execution attempt (no idempotency key or token material). */
+        PaymentAttemptView: {
+            /** Format: int64 */
+            accepted_at: number;
+            attempt_id: string;
+            channel_transaction_id?: string | null;
+            /** Format: int64 */
+            last_channel_check_at?: number | null;
+            /** @description Contradictory channel evidence or an expired idempotency window. */
+            needs_review: boolean;
+        };
+        /** @description Acknowledgement of an authenticated channel callback. */
+        PaymentCallbackResult: {
+            intent_id: string;
+            status: components["schemas"]["PaymentStatusView"];
+        };
+        /** @description Controlled-channel callback body (signed with `x-payment-signature`). */
+        PaymentChannelCallback: {
+            amount_minor: string;
+            channel_transaction_id: string;
+            currency: string;
+            event_id: string;
+            idempotency_key: string;
+            payee_id: string;
+            /** @description Merchant reference: the intent id. */
+            reference: string;
+            /** @description `pending`, `succeeded` or `declined`. */
+            state: string;
+        };
+        /** @description The exact single payment the user is asked to approve. */
+        PaymentConsentView: {
+            /** @description The only workload that may execute this payment. */
+            actor: string;
+            /** @description Total in minor units (decimal string, never a float). */
+            amount_minor: string;
+            currency: string;
+            /** Format: int32 */
+            currency_exponent: number;
+            /**
+             * Format: int64
+             * @description Latest first-acceptance instant (Unix seconds).
+             */
+            execute_before: number;
+            funding_source: components["schemas"]["PaymentFundingSourceView"];
+            intent_id: string;
+            order_id: string;
+            payee: components["schemas"]["PaymentPayeeView"];
+            resource: string;
+            /** @description Digest the approval must acknowledge (`payment_terms_digest`). */
+            terms_digest: string;
+        };
+        /** @description Registry-backed funding source displayed on the consent page. */
+        PaymentFundingSourceView: {
+            id: string;
+            /** @description Masked registry label. */
+            label: string;
+            /** Format: int64 */
+            version: number;
+        };
+        /** @description A frozen payment intent and its execution status. */
+        PaymentIntentView: {
+            actor: string;
+            amount_minor: string;
+            attempt?: null | components["schemas"]["PaymentAttemptView"];
+            /** @description The `authorization_details` value to send to `/authorize` for this intent. */
+            authorization_details: Record<string, never>[];
+            client_id: string;
+            /** Format: int64 */
+            created_at: number;
+            currency: string;
+            /** Format: int32 */
+            currency_exponent: number;
+            /** Format: int64 */
+            execute_before: number;
+            funding_source: components["schemas"]["PaymentFundingSourceView"];
+            intent_id: string;
+            order_id: string;
+            payee: components["schemas"]["PaymentPayeeView"];
+            resource: string;
+            status: components["schemas"]["PaymentStatusView"];
+            terms_digest: string;
+            /** Format: int64 */
+            updated_at: number;
+        };
+        /** @description Registry-backed payee displayed on the consent page. */
+        PaymentPayeeView: {
+            id: string;
+            name: string;
+            /** Format: int64 */
+            version: number;
+        };
+        /** @enum {string} */
+        PaymentStatusView: "PREPARED" | "ACCEPTED" | "PENDING" | "UNKNOWN" | "SUCCEEDED" | "FAILED" | "EXPIRED" | "CANCELLED";
+        /** @description Intent preparation request. Payer, tenant and client come from the token. */
+        PrepareRequest: {
+            /** @description Registered workload client that alone may execute. */
+            actor: string;
+            /** @description Total in minor units: a decimal string, never a JSON number. */
+            amount_minor: string;
+            currency: string;
+            /**
+             * Format: int64
+             * @description Latest first-acceptance instant (Unix seconds).
+             */
+            execute_before: number;
+            funding_source_id: string;
+            /** @description Business order identifier (unique per tenant and payee). */
+            order_id: string;
+            payee_id: string;
+        };
         PrmForm: {
             client_assertion?: string | null;
             client_assertion_type?: string | null;
@@ -9085,6 +9303,354 @@ export interface operations {
                 };
                 content?: never;
             };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    callback_handler: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Channel callback signature */
+                "x-payment-signature": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PaymentChannelCallback"];
+            };
+        };
+        responses: {
+            /** @description Callback verified and reconciled against the persisted attempt */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaymentCallbackResult"];
+                };
+            };
+            /** @description Malformed callback or unknown attempt key */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid callback signature */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unknown intent or payment resource not enabled */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Payment store unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    prepare_handler: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PrepareRequest"];
+            };
+        };
+        responses: {
+            /** @description Identical intent already exists for this order */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaymentIntentView"];
+                };
+            };
+            /** @description Intent frozen */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaymentIntentView"];
+                };
+            };
+            /** @description Malformed request, identity field, unsupported amount/currency/deadline, unknown payee or inactive actor */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing or inactive token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing payments:prepare, delegated token, or funding source not owned by the payer */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Payment resource not enabled */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The order already has a different intent */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authorization, registry or payment store unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_handler: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Payment intent identifier */
+                intent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current intent status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaymentIntentView"];
+                };
+            };
+            /** @description Missing or inactive token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing payment scope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unknown intent, not a party of the intent, or payment resource not enabled */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authorization or payment store unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    cancel_handler: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Payment intent identifier */
+                intent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Intent cancelled */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaymentIntentView"];
+                };
+            };
+            /** @description Missing or inactive token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing payments:prepare */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unknown intent or not the payer's client */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Intent was already accepted, expired or cancelled */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authorization or payment store unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    execute_handler: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Payment intent identifier */
+                intent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The single attempt's current status (a repeated call returns the same attempt) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaymentIntentView"];
+                };
+            };
+            /** @description Missing, inactive or sender-constrained token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not the designated actor, payer, client or exact payment authorization; missing payments:execute or strong assurance */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unknown intent or payment resource not enabled */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Intent expired, cancelled, or its registry terms changed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Online authorization check, registry or acceptance write unavailable; no new attempt was started */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    reconcile_handler: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Payment intent identifier */
+                intent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Status after reconciling the persisted attempt */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaymentIntentView"];
+                };
+            };
+            /** @description Missing or inactive token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing payment scope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unknown intent, not a party of the intent, or payment resource not enabled */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authorization, channel or payment store unavailable */
             503: {
                 headers: {
                     [name: string]: unknown;

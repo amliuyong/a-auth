@@ -132,6 +132,7 @@ dependencies = [
  "agent-auth-ema",
  "agent-auth-grant",
  "agent-auth-infra-core",
+ "agent-auth-payment",
  "agent-auth-protocol",
  "agent-auth-token",
  "agent-auth-workload",

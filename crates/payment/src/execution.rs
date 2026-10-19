@@ -159,8 +159,6 @@ pub struct ExecutionAttempt {
     pub authorization: AuthorizationEvidence,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub channel_transaction_id: Option<String>,
-    #[serde(default)]
-    pub submissions: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_channel_check_at: Option<i64>,
     #[serde(default)]
@@ -284,7 +282,6 @@ impl PaymentIntent {
             idempotency_expires_at: now.saturating_add(idempotency_retention_secs),
             authorization,
             channel_transaction_id: None,
-            submissions: 0,
             last_channel_check_at: None,
             evidence: Vec::new(),
             needs_review: false,
@@ -300,18 +297,6 @@ impl PaymentIntent {
             _ => false,
         };
         (self.status == PaymentStatus::Prepared && allowed).then(|| self.next(to, source, now))
-    }
-
-    /// Record that the adapter is about to submit with the persisted key.
-    pub fn record_submission(&self, now: i64) -> Option<Self> {
-        let attempt = self.attempt.as_ref()?;
-        if !self.status.is_unsettled() {
-            return None;
-        }
-        let mut next = self.next(self.status, "submit", now);
-        let next_attempt = next.attempt.as_mut().expect("attempt");
-        next_attempt.submissions = attempt.submissions.saturating_add(1);
-        Some(next)
     }
 
     /// Mark the attempt for manual reconciliation without changing its status.

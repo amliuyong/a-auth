@@ -37,13 +37,27 @@ fn rand_code() -> String {
     URL_SAFE_NO_PAD.encode(b)
 }
 
-fn consent_csrf_binding(session_id: &str, authorize_query: &str) -> String {
-    format!("{session_id}\0{authorize_query}")
+/// A payment authorization also binds the displayed terms digest, so the
+/// decision must present the same digest the context endpoint served.
+fn consent_csrf_binding(
+    session_id: &str,
+    authorize_query: &str,
+    payment_terms_digest: Option<&str>,
+) -> String {
+    match payment_terms_digest {
+        Some(digest) => format!("{session_id}\0{authorize_query}\0payment:{digest}"),
+        None => format!("{session_id}\0{authorize_query}"),
+    }
 }
 
-fn issue_consent_csrf(secret: &[u8], session_id: &str, authorize_query: &str) -> String {
+fn issue_consent_csrf(
+    secret: &[u8],
+    session_id: &str,
+    authorize_query: &str,
+    payment_terms_digest: Option<&str>,
+) -> String {
     let nonce = rand_code();
-    let binding = consent_csrf_binding(session_id, authorize_query);
+    let binding = consent_csrf_binding(session_id, authorize_query, payment_terms_digest);
     let mac = csrf_token(secret, &binding, &nonce);
     format!("{nonce}.{mac}")
 }
@@ -52,12 +66,13 @@ fn verify_consent_csrf(
     secret: &[u8],
     session_id: &str,
     authorize_query: &str,
+    payment_terms_digest: Option<&str>,
     presented: &str,
 ) -> bool {
     let Some((nonce, mac)) = presented.split_once('.') else {
         return false;
     };
-    let binding = consent_csrf_binding(session_id, authorize_query);
+    let binding = consent_csrf_binding(session_id, authorize_query, payment_terms_digest);
     !nonce.is_empty()
         && !mac.is_empty()
         && !mac.contains('.')
@@ -137,6 +152,11 @@ pub struct ConsentContext {
     /// (DESIGN §721)。空/无 RAR 时省略。已过发行准入校验(与 authorize/consent 提交侧同口径 fail-closed)。
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub authorization_details: Vec<serde_json::Value>,
+    /// The single payment being authorized, read from the frozen intent and
+    /// trusted registry (never from the request). Approval must acknowledge
+    /// its `terms_digest`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payment: Option<crate::payment::consent::PaymentConsentView>,
     /// per-request anti-CSRF token(C10.9;前端从本响应读取并在 POST /consent 回带)。
     pub csrf_token: String,
 }
@@ -156,7 +176,7 @@ pub async fn consent_context(
     headers: HeaderMap,
     RawQuery(raw_query): RawQuery,
 ) -> impl IntoResponse {
-    let Some((session_id, _user)) = current_session(&state, &headers).await else {
+    let Some((session_id, user_id)) = current_session(&state, &headers).await else {
         return (StatusCode::UNAUTHORIZED, "login required").into_response();
     };
     let tenant = match crate::tenant::tenant_or_400(&state, &headers) {
@@ -185,7 +205,6 @@ pub async fn consent_context(
         Ok(resolved) => resolved,
         Err(response) => return response,
     };
-    let token = issue_consent_csrf(&state.server_secret, &session_id, authorize_query);
     // RAR 展示(DESIGN §721):解析并**准入校验** authorization_details,合规才回给前端渲染;
     // 不合规(未知 type/越界 locations 等)→ 空数组(不展示畸形 RAR)。resource 集合供越界校验。
     let resources = parsed.resources;
@@ -206,16 +225,45 @@ pub async fn consent_context(
     {
         return response;
     }
-    let authorization_details: Vec<serde_json::Value> = q
+    let requested_details = q
         .get("authorization_details")
         .map(String::as_str)
         .filter(|s| !s.is_empty())
-        .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
-        .filter(|parsed| {
-            agent_auth_grant::rar::validate_admission_for_resources(parsed, &resources).is_ok()
-        })
-        .and_then(|parsed| parsed.as_array().cloned())
-        .unwrap_or_default();
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok());
+    let payment = match requested_details.as_ref() {
+        Some(details) => match crate::payment::consent::admit(
+            &state,
+            &tenant,
+            client_id,
+            q.get("workload_actor").map(String::as_str),
+            &resources,
+            details,
+            Some(&user_id),
+        )
+        .await
+        {
+            Ok(payment) => payment,
+            Err(response) => return response,
+        },
+        None => None,
+    };
+    let authorization_details: Vec<serde_json::Value> = match payment.as_ref() {
+        Some(payment) => vec![payment.detail.clone()],
+        None => requested_details
+            .filter(|parsed| {
+                agent_auth_grant::rar::validate_admission_for_resources(parsed, &resources).is_ok()
+            })
+            .and_then(|parsed| parsed.as_array().cloned())
+            .unwrap_or_default(),
+    };
+    let token = issue_consent_csrf(
+        &state.server_secret,
+        &session_id,
+        authorize_query,
+        payment
+            .as_ref()
+            .map(|payment| payment.view.terms_digest.as_str()),
+    );
     Json(ConsentContext {
         client_id: client_id.clone(),
         workload_actor: q.get("workload_actor").cloned(),
@@ -245,6 +293,7 @@ pub async fn consent_context(
         resource: resources.first().cloned(),
         resources,
         authorization_details,
+        payment: payment.map(|payment| payment.view),
         csrf_token: token,
     })
     .into_response()
@@ -256,6 +305,10 @@ pub struct ConsentDecision {
     /// Actor displayed by the page. Required on approval when the query
     /// requests workload delegation; prevents approval by an older frontend.
     pub workload_actor: Option<String>,
+    /// Digest of the payment terms displayed by the page. Required on approval
+    /// of a payment authorization; an older frontend cannot approve one.
+    #[serde(default)]
+    pub payment_terms_digest: Option<String>,
     #[serde(default)]
     pub csrf: String,
     /// authorize 上下文(query 串:client_id/redirect_uri/scope/resource/state/code_challenge…)。
@@ -493,6 +546,7 @@ pub async fn consent_submit(
         &state.server_secret,
         &session_id,
         &body.authorize_query,
+        body.payment_terms_digest.as_deref(),
         &body.csrf,
     ) {
         return (StatusCode::FORBIDDEN, "csrf check failed").into_response();
@@ -700,6 +754,7 @@ pub async fn consent_submit(
     // authorize_query 来自 client 重建的 POST body(与 authorize 原始收到的无完整性绑定,评审 Q7.4),
     // 不能信任其已校验;consent 侧再过 grant::rar::validate_admission,不合规拒(fail-closed,防绕过)。
     // 用户在 consent 页 approve = 同意这份 RAR(展示义务见前端待办,spec 010 §4)。
+    let mut payment_authorization = false;
     let authorization_details: Vec<serde_json::Value> = match q.get("authorization_details") {
         Some(raw) if !raw.is_empty() => {
             let parsed: serde_json::Value = match serde_json::from_str(raw) {
@@ -713,18 +768,55 @@ pub async fn consent_submit(
                 }
             };
             // 准入 + locations 越界校验(评审 codex HIGH;与 authorize 侧同口径,resources 取自 authorize_query)。
-            if agent_auth_grant::rar::validate_admission_for_resources(&parsed, &resources).is_err()
+            // A payment reference is re-admitted against its frozen intent and
+            // replaced by the canonical detail the user acknowledged.
+            if agent_auth_payment::contains_payment_detail(&parsed) {
+                let admitted = match crate::payment::consent::admit(
+                    &state,
+                    &tenant,
+                    client_id,
+                    q.get("workload_actor").map(String::as_str),
+                    &resources,
+                    &parsed,
+                    Some(&user_id),
+                )
+                .await
+                {
+                    Ok(Some(admitted)) => admitted,
+                    Ok(None) => unreachable!("payment-typed details are admitted"),
+                    Err(response) => return response,
+                };
+                if body.payment_terms_digest.as_deref() != Some(admitted.view.terms_digest.as_str())
+                {
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        "invalid_request: explicit payment terms acknowledgement required",
+                    )
+                        .into_response();
+                }
+                payment_authorization = true;
+                vec![admitted.detail]
+            } else if agent_auth_grant::rar::validate_admission_for_resources(&parsed, &resources)
+                .is_err()
             {
                 return (
                     StatusCode::BAD_REQUEST,
                     "invalid_authorization_details: 未通过内建词汇表准入校验(含 locations 越界)",
                 )
                     .into_response();
+            } else {
+                parsed.as_array().cloned().unwrap_or_default()
             }
-            parsed.as_array().cloned().unwrap_or_default()
         }
         _ => Vec::new(),
     };
+    if body.payment_terms_digest.is_some() && !payment_authorization {
+        return (
+            StatusCode::BAD_REQUEST,
+            "invalid_request: payment acknowledgement without a payment authorization",
+        )
+            .into_response();
+    }
     if let Err(response) = crate::workload_consent::validate(
         &state,
         &tenant,
@@ -777,10 +869,16 @@ pub async fn consent_submit(
     // A reauthentication performed for this authorization can occur after the
     // request began. Freeze max_age at the request boundary for an existing
     // session, but never evaluate a newly established session before auth_time.
-    let assurance_time = session_rec
-        .as_ref()
-        .map(|session| authorization_time.max(session.auth_time))
-        .unwrap_or(authorization_time);
+    // A payment approval needs strong authentication that is fresh at the
+    // approval itself, not merely at the start of the authorization request.
+    let assurance_time = if payment_authorization {
+        now
+    } else {
+        session_rec
+            .as_ref()
+            .map(|session| authorization_time.max(session.auth_time))
+            .unwrap_or(authorization_time)
+    };
     if !crate::assurance::session_satisfies(requirement, session_rec.as_ref(), assurance_time) {
         state
             .record_security_event(crate::security_event::SecurityEventDraft::step_up(

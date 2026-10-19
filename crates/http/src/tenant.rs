@@ -38,6 +38,7 @@ const AUTHORITY_MUTATING_READ_ROUTES: &[&str] = &[
     "/login/callback",
     "/passkey/authenticate/begin",
     "/passkey/status",
+    "/payments/intents/{intent_id}",
     "/recovery/status",
     "/register/{client_id}",
     "/sessions",

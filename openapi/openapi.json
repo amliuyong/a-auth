@@ -5298,6 +5298,301 @@
         }
       }
     },
+    "/payments/channel/callback": {
+      "post": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "`POST /payments/channel/callback`.",
+        "operationId": "callback_handler",
+        "parameters": [
+          {
+            "name": "x-payment-signature",
+            "in": "header",
+            "description": "Channel callback signature",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PaymentChannelCallback"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Callback verified and reconciled against the persisted attempt",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentCallbackResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed callback or unknown attempt key"
+          },
+          "401": {
+            "description": "Invalid callback signature"
+          },
+          "404": {
+            "description": "Unknown intent or payment resource not enabled"
+          },
+          "503": {
+            "description": "Payment store unavailable"
+          }
+        }
+      }
+    },
+    "/payments/intents": {
+      "post": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "`POST /payments/intents`.",
+        "operationId": "prepare_handler",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrepareRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Identical intent already exists for this order",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentIntentView"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Intent frozen",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentIntentView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request, identity field, unsupported amount/currency/deadline, unknown payee or inactive actor"
+          },
+          "401": {
+            "description": "Missing or inactive token"
+          },
+          "403": {
+            "description": "Missing payments:prepare, delegated token, or funding source not owned by the payer"
+          },
+          "404": {
+            "description": "Payment resource not enabled"
+          },
+          "409": {
+            "description": "The order already has a different intent"
+          },
+          "503": {
+            "description": "Authorization, registry or payment store unavailable"
+          }
+        }
+      }
+    },
+    "/payments/intents/{intent_id}": {
+      "get": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "`GET /payments/intents/{intent_id}`.",
+        "operationId": "get_handler",
+        "parameters": [
+          {
+            "name": "intent_id",
+            "in": "path",
+            "description": "Payment intent identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current intent status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentIntentView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or inactive token"
+          },
+          "403": {
+            "description": "Missing payment scope"
+          },
+          "404": {
+            "description": "Unknown intent, not a party of the intent, or payment resource not enabled"
+          },
+          "503": {
+            "description": "Authorization or payment store unavailable"
+          }
+        }
+      }
+    },
+    "/payments/intents/{intent_id}/cancel": {
+      "post": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "`POST /payments/intents/{intent_id}/cancel`.",
+        "operationId": "cancel_handler",
+        "parameters": [
+          {
+            "name": "intent_id",
+            "in": "path",
+            "description": "Payment intent identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Intent cancelled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentIntentView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or inactive token"
+          },
+          "403": {
+            "description": "Missing payments:prepare"
+          },
+          "404": {
+            "description": "Unknown intent or not the payer's client"
+          },
+          "409": {
+            "description": "Intent was already accepted, expired or cancelled"
+          },
+          "503": {
+            "description": "Authorization or payment store unavailable"
+          }
+        }
+      }
+    },
+    "/payments/intents/{intent_id}/execute": {
+      "post": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "`POST /payments/intents/{intent_id}/execute`.",
+        "operationId": "execute_handler",
+        "parameters": [
+          {
+            "name": "intent_id",
+            "in": "path",
+            "description": "Payment intent identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The single attempt's current status (a repeated call returns the same attempt)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentIntentView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, inactive or sender-constrained token"
+          },
+          "403": {
+            "description": "Not the designated actor, payer, client or exact payment authorization; missing payments:execute or strong assurance"
+          },
+          "404": {
+            "description": "Unknown intent or payment resource not enabled"
+          },
+          "409": {
+            "description": "Intent expired, cancelled, or its registry terms changed"
+          },
+          "503": {
+            "description": "Online authorization check, registry or acceptance write unavailable; no new attempt was started"
+          }
+        }
+      }
+    },
+    "/payments/intents/{intent_id}/reconcile": {
+      "post": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "`POST /payments/intents/{intent_id}/reconcile`.",
+        "operationId": "reconcile_handler",
+        "parameters": [
+          {
+            "name": "intent_id",
+            "in": "path",
+            "description": "Payment intent identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Status after reconciling the persisted attempt",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentIntentView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or inactive token"
+          },
+          "403": {
+            "description": "Missing payment scope"
+          },
+          "404": {
+            "description": "Unknown intent, not a party of the intent, or payment resource not enabled"
+          },
+          "503": {
+            "description": "Authorization, channel or payment store unavailable"
+          }
+        }
+      }
+    },
     "/recovery/generate": {
       "post": {
         "tags": [
@@ -7822,6 +8117,17 @@
             "type": "string",
             "description": "per-request anti-CSRF token(C10.9;前端从本响应读取并在 POST /consent 回带)。"
           },
+          "payment": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaymentConsentView",
+                "description": "The single payment being authorized, read from the frozen intent and\ntrusted registry (never from the request). Approval must acknowledge\nits `terms_digest`."
+              }
+            ]
+          },
           "redirect_uri_host": {
             "type": [
               "string",
@@ -7873,6 +8179,13 @@
           },
           "decision": {
             "type": "string"
+          },
+          "payment_terms_digest": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Digest of the payment terms displayed by the page. Required on approval\nof a payment authorization; an older frontend cannot approve one."
           },
           "workload_actor": {
             "type": [
@@ -10374,6 +10687,350 @@
           "unavailable"
         ]
       },
+      "PaymentAttemptView": {
+        "type": "object",
+        "description": "The single execution attempt (no idempotency key or token material).",
+        "required": [
+          "attempt_id",
+          "accepted_at",
+          "needs_review"
+        ],
+        "properties": {
+          "accepted_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "attempt_id": {
+            "type": "string"
+          },
+          "channel_transaction_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_channel_check_at": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "needs_review": {
+            "type": "boolean",
+            "description": "Contradictory channel evidence or an expired idempotency window."
+          }
+        }
+      },
+      "PaymentCallbackResult": {
+        "type": "object",
+        "description": "Acknowledgement of an authenticated channel callback.",
+        "required": [
+          "intent_id",
+          "status"
+        ],
+        "properties": {
+          "intent_id": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/PaymentStatusView"
+          }
+        }
+      },
+      "PaymentChannelCallback": {
+        "type": "object",
+        "description": "Controlled-channel callback body (signed with `x-payment-signature`).",
+        "required": [
+          "event_id",
+          "reference",
+          "idempotency_key",
+          "channel_transaction_id",
+          "state",
+          "amount_minor",
+          "currency",
+          "payee_id"
+        ],
+        "properties": {
+          "amount_minor": {
+            "type": "string"
+          },
+          "channel_transaction_id": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "event_id": {
+            "type": "string"
+          },
+          "idempotency_key": {
+            "type": "string"
+          },
+          "payee_id": {
+            "type": "string"
+          },
+          "reference": {
+            "type": "string",
+            "description": "Merchant reference: the intent id."
+          },
+          "state": {
+            "type": "string",
+            "description": "`pending`, `succeeded` or `declined`."
+          }
+        },
+        "additionalProperties": false
+      },
+      "PaymentConsentView": {
+        "type": "object",
+        "description": "The exact single payment the user is asked to approve.",
+        "required": [
+          "intent_id",
+          "terms_digest",
+          "order_id",
+          "amount_minor",
+          "currency",
+          "currency_exponent",
+          "funding_source",
+          "payee",
+          "actor",
+          "execute_before",
+          "resource"
+        ],
+        "properties": {
+          "actor": {
+            "type": "string",
+            "description": "The only workload that may execute this payment."
+          },
+          "amount_minor": {
+            "type": "string",
+            "description": "Total in minor units (decimal string, never a float)."
+          },
+          "currency": {
+            "type": "string"
+          },
+          "currency_exponent": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "execute_before": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Latest first-acceptance instant (Unix seconds)."
+          },
+          "funding_source": {
+            "$ref": "#/components/schemas/PaymentFundingSourceView"
+          },
+          "intent_id": {
+            "type": "string"
+          },
+          "order_id": {
+            "type": "string"
+          },
+          "payee": {
+            "$ref": "#/components/schemas/PaymentPayeeView"
+          },
+          "resource": {
+            "type": "string"
+          },
+          "terms_digest": {
+            "type": "string",
+            "description": "Digest the approval must acknowledge (`payment_terms_digest`)."
+          }
+        }
+      },
+      "PaymentFundingSourceView": {
+        "type": "object",
+        "description": "Registry-backed funding source displayed on the consent page.",
+        "required": [
+          "id",
+          "version",
+          "label"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string",
+            "description": "Masked registry label."
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "PaymentIntentView": {
+        "type": "object",
+        "description": "A frozen payment intent and its execution status.",
+        "required": [
+          "intent_id",
+          "status",
+          "order_id",
+          "amount_minor",
+          "currency",
+          "currency_exponent",
+          "funding_source",
+          "payee",
+          "client_id",
+          "actor",
+          "resource",
+          "execute_before",
+          "terms_digest",
+          "created_at",
+          "updated_at",
+          "authorization_details"
+        ],
+        "properties": {
+          "actor": {
+            "type": "string"
+          },
+          "amount_minor": {
+            "type": "string"
+          },
+          "attempt": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaymentAttemptView"
+              }
+            ]
+          },
+          "authorization_details": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "The `authorization_details` value to send to `/authorize` for this intent."
+          },
+          "client_id": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "currency_exponent": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "execute_before": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "funding_source": {
+            "$ref": "#/components/schemas/PaymentFundingSourceView"
+          },
+          "intent_id": {
+            "type": "string"
+          },
+          "order_id": {
+            "type": "string"
+          },
+          "payee": {
+            "$ref": "#/components/schemas/PaymentPayeeView"
+          },
+          "resource": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/PaymentStatusView"
+          },
+          "terms_digest": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "PaymentPayeeView": {
+        "type": "object",
+        "description": "Registry-backed payee displayed on the consent page.",
+        "required": [
+          "id",
+          "version",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "PaymentStatusView": {
+        "type": "string",
+        "enum": [
+          "PREPARED",
+          "ACCEPTED",
+          "PENDING",
+          "UNKNOWN",
+          "SUCCEEDED",
+          "FAILED",
+          "EXPIRED",
+          "CANCELLED"
+        ]
+      },
+      "PrepareRequest": {
+        "type": "object",
+        "description": "Intent preparation request. Payer, tenant and client come from the token.",
+        "required": [
+          "order_id",
+          "actor",
+          "funding_source_id",
+          "payee_id",
+          "amount_minor",
+          "currency",
+          "execute_before"
+        ],
+        "properties": {
+          "actor": {
+            "type": "string",
+            "description": "Registered workload client that alone may execute."
+          },
+          "amount_minor": {
+            "type": "string",
+            "description": "Total in minor units: a decimal string, never a JSON number."
+          },
+          "currency": {
+            "type": "string"
+          },
+          "execute_before": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Latest first-acceptance instant (Unix seconds)."
+          },
+          "funding_source_id": {
+            "type": "string"
+          },
+          "order_id": {
+            "type": "string",
+            "description": "Business order identifier (unique per tenant and payee)."
+          },
+          "payee_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
       "PrmForm": {
         "type": "object",
         "required": [
@@ -12675,6 +13332,10 @@
     {
       "name": "scim",
       "description": "Tenant-scoped SCIM 2.0 Users lifecycle and Groups provisioning(C12.2/C12.3)"
+    },
+    {
+      "name": "payments",
+      "description": "Single-transaction agent payment resource server: prepare, execute, query and reconcile one frozen intent (issue #77; disabled unless configured)"
     }
   ]
 }

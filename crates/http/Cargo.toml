@@ -18,6 +18,7 @@ agent-auth-workload = { path = "../workload" }
 agent-auth-ciba = { path = "../ciba" }
 agent-auth-ema = { path = "../ema" }
 agent-auth-grant = { path = "../grant" }
+agent-auth-payment = { path = "../payment" }
 agent-auth-authz = { path = "../authz" }
 
 # HTTP / OpenAPI(代码即契约:utoipa 编译期从类型派生 openapi.json)
