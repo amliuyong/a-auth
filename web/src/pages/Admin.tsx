@@ -58,6 +58,7 @@ import {
   inspectFederationMetadata,
   type FederationForm,
 } from '../federationTemplates';
+import { OnboardingTab } from './OnboardingTab';
 
 const { Header, Content, Footer } = AntLayout;
 
@@ -458,7 +459,7 @@ function AdminConsole({
 }) {
   const { t } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
-  const tabKeys = ['overview', 'users', 'namespaces', 'clients', 'initial-access', 'federation', 'admin-sso', 'messages', 'security-events'] as const;
+  const tabKeys = ['overview', 'onboarding', 'users', 'namespaces', 'clients', 'initial-access', 'federation', 'admin-sso', 'messages', 'security-events'] as const;
   const requestedTab = searchParams.get('tab');
   const activeTab = tabKeys.includes(requestedTab as (typeof tabKeys)[number])
     ? requestedTab!
@@ -498,6 +499,7 @@ function AdminConsole({
       onChange={changeTab}
       items={[
         { key: 'overview', label: t('admin.tab.overview'), children: <OverviewTab onUnauthorized={onUnauthorized} /> },
+        { key: 'onboarding', label: t('admin.onboarding.title'), children: <OnboardingTab onUnauthorized={onUnauthorized} /> },
         {
           key: 'users',
           label: t('admin.tab.users'),
