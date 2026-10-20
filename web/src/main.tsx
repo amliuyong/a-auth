@@ -6,6 +6,7 @@ import zhCN from 'antd/locale/zh_CN';
 import { createBrowserRouter, Navigate, RouterProvider, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import './i18n';
+import './styles.css';
 import { Login } from './pages/Login';
 import { Consent } from './pages/Consent';
 import { Recover } from './pages/Recover';
