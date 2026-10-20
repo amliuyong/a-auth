@@ -594,6 +594,129 @@
         }
       }
     },
+    "/admin/branding": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "operationId": "admin_settings",
+        "responses": {
+          "200": {
+            "description": "Deployment branding and current management permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminBrandingView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Admin authentication required"
+          },
+          "403": {
+            "description": "Admin read permission required"
+          },
+          "503": {
+            "description": "Branding store unavailable"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "admin"
+        ],
+        "operationId": "put_settings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BrandingUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Version-1 deployment branding saved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrandingView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid bounded settings or revision"
+          },
+          "401": {
+            "description": "Admin authentication required"
+          },
+          "403": {
+            "description": "Owner or break-glass required"
+          },
+          "409": {
+            "description": "Revision conflict or unsupported stored version"
+          },
+          "501": {
+            "description": "SaaS deployment branding unsupported"
+          },
+          "503": {
+            "description": "Branding store unavailable"
+          }
+        }
+      }
+    },
+    "/admin/branding/reset": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "operationId": "reset_settings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BrandingReset"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Defaults persisted with an advanced revision",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrandingView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid revision"
+          },
+          "401": {
+            "description": "Admin authentication required"
+          },
+          "403": {
+            "description": "Owner or break-glass required"
+          },
+          "409": {
+            "description": "Revision conflict or unsupported stored version"
+          },
+          "501": {
+            "description": "SaaS deployment branding unsupported"
+          },
+          "503": {
+            "description": "Branding store unavailable"
+          }
+        }
+      }
+    },
     "/admin/clients": {
       "get": {
         "tags": [
@@ -6977,6 +7100,29 @@
         }
       }
     },
+    "/ui/branding": {
+      "get": {
+        "tags": [
+          "login"
+        ],
+        "operationId": "public_settings",
+        "responses": {
+          "200": {
+            "description": "Public deployment presentation settings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrandingView"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Branding store unavailable"
+          }
+        }
+      }
+    },
     "/userinfo": {
       "get": {
         "tags": [
@@ -7171,6 +7317,24 @@
             "format": "int64"
           }
         }
+      },
+      "AdminBrandingView": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/BrandingView"
+          },
+          {
+            "type": "object",
+            "required": [
+              "can_manage"
+            ],
+            "properties": {
+              "can_manage": {
+                "type": "boolean"
+              }
+            }
+          }
+        ]
       },
       "AdminClientCreate": {
         "type": "object",
@@ -7833,6 +7997,104 @@
           "interval": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "BrandingLogo": {
+        "type": "string",
+        "enum": [
+          "none",
+          "shield",
+          "key"
+        ]
+      },
+      "BrandingPrimary": {
+        "type": "string",
+        "enum": [
+          "blue",
+          "teal",
+          "violet"
+        ]
+      },
+      "BrandingReset": {
+        "type": "object",
+        "required": [
+          "expected_revision"
+        ],
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "BrandingSettings": {
+        "type": "object",
+        "required": [
+          "logo",
+          "primary"
+        ],
+        "properties": {
+          "logo": {
+            "$ref": "#/components/schemas/BrandingLogo"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "None keeps the existing localized product name."
+          },
+          "primary": {
+            "$ref": "#/components/schemas/BrandingPrimary"
+          }
+        },
+        "additionalProperties": false
+      },
+      "BrandingUpdate": {
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "settings"
+        ],
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "settings": {
+            "$ref": "#/components/schemas/BrandingSettings"
+          }
+        },
+        "additionalProperties": false
+      },
+      "BrandingView": {
+        "type": "object",
+        "required": [
+          "status",
+          "version",
+          "revision",
+          "settings"
+        ],
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "settings": {
+            "$ref": "#/components/schemas/BrandingSettings"
+          },
+          "status": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           }
         }
       },

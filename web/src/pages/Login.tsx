@@ -7,6 +7,7 @@ import { Layout } from '../Layout';
 import { api } from '../api/client';
 import { bufToB64url, b64urlToBuf, webauthnSupported } from '../api/webauthn';
 import { passwordRule } from '../passwordPolicy';
+import type { BrandingSettings } from '../branding';
 
 /**
  * 登录成功后续跑目标(passkey 认证建会话后前端自行跳转,后端不返回 next)。
@@ -50,7 +51,7 @@ type LoginForm = {
 
 type LoginCredentials = Pick<LoginForm, 'email' | 'password'>;
 
-export function Login() {
+export function Login({ preview }: { preview?: { branding: BrandingSettings } } = {}) {
   const { t } = useTranslation();
   const [params] = useSearchParams();
   const [form] = Form.useForm<LoginForm>();
@@ -76,8 +77,8 @@ export function Login() {
   const passkeyAvailable = webauthnSupported() && !passkeyOff;
 
   useEffect(() => {
-    setReady(true);
-  }, []);
+    if (!preview) setReady(true);
+  }, [preview]);
 
   // authorize 上下文 = 除 next 外的全部 query(next 单列发送,不混入 authorize_query)。
   const authorizeParams = new URLSearchParams(params);
@@ -86,6 +87,7 @@ export function Login() {
 
   // 登录成功后续跑:authorize_query 非空 → /authorize 续 OAuth 流;否则 next(前端 sanitize);否则 /account。
   const continueAfterLogin = () => {
+    if (preview) return;
     if (authorizeQuery) {
       window.location.href = `/authorize?${authorizeQuery}`;
     } else {
@@ -95,6 +97,7 @@ export function Login() {
 
   // passkey 认证仪式(pre-login):begin(login_hint)→ navigator.credentials.get() → finish → 建会话 → 续跑。
   const onPasskey = async (values: { email: string }) => {
+    if (preview) return;
     setPkBusy(true);
     setError(null);
     try {
@@ -222,6 +225,7 @@ export function Login() {
   };
 
   const submitPassword = async () => {
+    if (preview) return;
     const values = readLoginCredentials(true);
     if (values) {
       await signInWithPassword(values);
@@ -229,6 +233,7 @@ export function Login() {
   };
 
   const changePassword = async (values: LoginForm) => {
+    if (preview) return;
     if (!temporaryCredentials) {
       setChangeRequired(false);
       setError(t('error.generic'));
@@ -267,6 +272,7 @@ export function Login() {
   };
 
   const requestMagicLink = async (values: { email: string }) => {
+    if (preview) return;
     setMagicBusy(true);
     setError(null);
     try {
@@ -293,6 +299,7 @@ export function Login() {
   };
 
   const submitPasskey = async () => {
+    if (preview) return;
     const values = readLoginCredentials(false);
     if (values) {
       await onPasskey({ email: values.email });
@@ -300,6 +307,7 @@ export function Login() {
   };
 
   const submitMagicLink = async () => {
+    if (preview) return;
     const values = readLoginCredentials(false);
     if (values) {
       await requestMagicLink({ email: values.email });
@@ -307,8 +315,8 @@ export function Login() {
   };
 
   return (
-    <Layout>
-      {ready && <span id="agent-auth-login-ready" hidden aria-hidden="true" />}
+    <Layout branded branding={preview?.branding} preview={!!preview}>
+      {ready && !preview && <span id="agent-auth-login-ready" hidden aria-hidden="true" />}
       <Typography.Title level={3}>{t('login.title')}</Typography.Title>
       <Typography.Paragraph type="secondary">{t('login.subtitle')}</Typography.Paragraph>
       {sent && !changeRequired ? (
@@ -321,6 +329,7 @@ export function Login() {
       ) : (
         <Form
           form={form}
+          disabled={!!preview}
           layout="vertical"
           noValidate
           onFinish={(values) => {
@@ -475,7 +484,11 @@ export function Login() {
         </Form>
       )}
       <Typography.Paragraph style={{ marginTop: 16, marginBottom: 0 }}>
-        <Typography.Link href="/recover">{t('login.useRecoveryCode')}</Typography.Link>
+        <Typography.Link
+          href={preview ? undefined : '/recover'}
+          disabled={!!preview}
+          onClick={(event) => { if (preview) event.preventDefault(); }}
+        >{t('login.useRecoveryCode')}</Typography.Link>
       </Typography.Paragraph>
     </Layout>
   );

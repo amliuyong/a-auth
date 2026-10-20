@@ -212,6 +212,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/branding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["admin_settings"];
+        put: operations["put_settings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/branding/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["reset_settings"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/clients": {
         parameters: {
             query?: never;
@@ -2134,6 +2166,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ui/branding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["public_settings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/userinfo": {
         parameters: {
             query?: never;
@@ -2197,6 +2245,9 @@ export interface components {
             id: string;
             /** Format: int64 */
             last_used_at: number;
+        };
+        AdminBrandingView: components["schemas"]["BrandingView"] & {
+            can_manage: boolean;
         };
         /**
          * @description admin 注册 client 的请求(超级权限;比 DCR 多能设 introspect_enabled/resource_ids —— MCP RS 信任
@@ -2401,6 +2452,33 @@ export interface components {
             expires_in: number;
             /** Format: int64 */
             interval: number;
+        };
+        /** @enum {string} */
+        BrandingLogo: "none" | "shield" | "key";
+        /** @enum {string} */
+        BrandingPrimary: "blue" | "teal" | "violet";
+        BrandingReset: {
+            /** Format: int64 */
+            expected_revision: number;
+        };
+        BrandingSettings: {
+            logo: components["schemas"]["BrandingLogo"];
+            /** @description None keeps the existing localized product name. */
+            name?: string | null;
+            primary: components["schemas"]["BrandingPrimary"];
+        };
+        BrandingUpdate: {
+            /** Format: int64 */
+            expected_revision: number;
+            settings: components["schemas"]["BrandingSettings"];
+        };
+        BrandingView: {
+            /** Format: int64 */
+            revision: number;
+            settings: components["schemas"]["BrandingSettings"];
+            status: string;
+            /** Format: int32 */
+            version: number;
         };
         /** @enum {string} */
         CheckStatus: "PASS" | "FAIL" | "UNKNOWN" | "NOT_RUN";
@@ -4691,6 +4769,179 @@ export interface operations {
                 };
                 content?: never;
             };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    admin_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deployment branding and current management permission */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminBrandingView"];
+                };
+            };
+            /** @description Admin authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin read permission required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Branding store unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    put_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BrandingUpdate"];
+            };
+        };
+        responses: {
+            /** @description Version-1 deployment branding saved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrandingView"];
+                };
+            };
+            /** @description Invalid bounded settings or revision */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Owner or break-glass required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Revision conflict or unsupported stored version */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description SaaS deployment branding unsupported */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Branding store unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    reset_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BrandingReset"];
+            };
+        };
+        responses: {
+            /** @description Defaults persisted with an advanced revision */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrandingView"];
+                };
+            };
+            /** @description Invalid revision */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Owner or break-glass required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Revision conflict or unsupported stored version */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description SaaS deployment branding unsupported */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Branding store unavailable */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -11150,6 +11401,33 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["TokenError"];
                 };
+            };
+        };
+    };
+    public_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Public deployment presentation settings */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrandingView"];
+                };
+            };
+            /** @description Branding store unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

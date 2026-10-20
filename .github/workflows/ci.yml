@@ -100,6 +100,22 @@ jobs:
           source ./scripts/rust_test_stack.sh
           cargo test -p agent-auth-http --features aws --test admin_users_e2e --locked
 
+      - name: Run bounded deployment branding HTTP acceptance
+        run: |
+          source ./scripts/rust_test_stack.sh
+          cargo test -p agent-auth-http --features aws --test branding_e2e --locked
+          cargo test -p agent-auth-http --features aws --test admin_sso_e2e --locked \
+            fixed_role_matrix_is_enforced_per_action -- --exact
+
+      - name: Verify durable branding across HTTP runtime restart
+        env:
+          A_AUTH_TEST_DYNAMODB_ENDPOINT: http://127.0.0.1:8000
+        run: |
+          source ./scripts/rust_test_stack.sh
+          cargo test -p agent-auth-http --features aws --test branding_e2e --locked \
+            branding_dynamodb_survives_http_restart_and_fences_concurrent_editors \
+            -- --exact --ignored --nocapture
+
       - name: Run bounded delegation HTTP acceptance
         run: |
           source ./scripts/rust_test_stack.sh
@@ -317,6 +333,9 @@ jobs:
 
       - name: Run onboarding browser acceptance
         run: npx playwright test e2e/admin-onboarding.spec.ts --project chromium
+
+      - name: Run bounded deployment branding browser acceptance
+        run: npx playwright test e2e/branding.spec.ts --project chromium
 
       - name: Run exact Web conformance selectors
         working-directory: .

@@ -225,6 +225,7 @@ OpenAPI surface, specification, and conformance evidence together. See
 | [`PROTOCOLS_101.md`](docs/PROTOCOLS_101.md) | Understand the OAuth, OIDC, MCP, DPoP, CIBA, and SPIFFE concepts |
 | [`USER_GUIDE.md`](docs/USER_GUIDE.md) | Integrate a client, agent, resource server, user, or administrator |
 | [`FEDERATION_TEMPLATES.md`](docs/FEDERATION_TEMPLATES.md) | Configure enterprise OIDC and distinguish draft, network and real-login checks |
+| [`BRANDING.md`](docs/BRANDING.md) | Preview and manage bounded self-hosted login and consent presentation |
 | [`DESIGN.md`](docs/DESIGN.md) | Review protocol invariants, token contracts, and architectural decisions |
 | [`DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Understand issuer, tenant, key, migration, and topology boundaries |
 | [`INSTALL_DEPLOY.md`](docs/INSTALL_DEPLOY.md) | Build and deploy the AWS infrastructure |

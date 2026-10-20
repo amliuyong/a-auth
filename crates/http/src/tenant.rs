@@ -51,6 +51,7 @@ const READ_ONLY_GET_ROUTES: &[&str] = &[
     "/.well-known/openid-configuration",
     "/.well-known/ssf-configuration",
     "/admin/attribute-namespaces",
+    "/admin/branding",
     "/admin/clients",
     "/admin/clients/{client_id}",
     "/admin/control/data-governance/tenants/{tenant_id}/jobs/{job_id}",
@@ -91,6 +92,7 @@ const READ_ONLY_GET_ROUTES: &[&str] = &[
     "/scim/v2/Users",
     "/scim/v2/Users/{id}",
     "/userinfo",
+    "/ui/branding",
 ];
 
 /// US 分隔符(tenant 与 key 之间)。tenant/key 内容均不含此字节。
