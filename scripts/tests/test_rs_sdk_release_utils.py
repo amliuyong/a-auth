@@ -9,7 +9,12 @@ from scripts.rs_sdk_release_utils import canonical_pypi_name, read_npm_token
 
 class ReleaseIdentityTests(unittest.TestCase):
     def test_pypi_aliases_identify_the_same_project(self):
-        for name in ["agent_auth_rs", "agent-auth-rs", "Agent.Auth.Rs", "agent__auth--rs"]:
+        for name in [
+            "agent_auth_rs",
+            "agent-auth-rs",
+            "Agent.Auth.Rs",
+            "agent__auth--rs",
+        ]:
             self.assertEqual(canonical_pypi_name(name), "agent-auth-rs")
         self.assertNotEqual(canonical_pypi_name("agent_auth"), "agent-auth-rs")
         for name in ["", "-agent-auth", "agent-auth-", "agent/auth", None]:
@@ -58,7 +63,9 @@ class ReleaseIdentityTests(unittest.TestCase):
             link.symlink_to(path)
             with self.assertRaises((ValueError, OSError)):
                 read_npm_token(link)
-            with patch("scripts.rs_sdk_release_utils.os.getuid", return_value=os.getuid() + 1):
+            with patch(
+                "scripts.rs_sdk_release_utils.os.getuid", return_value=os.getuid() + 1
+            ):
                 with self.assertRaises(ValueError):
                     read_npm_token(path)
 
@@ -82,7 +89,9 @@ class ReleaseIdentityTests(unittest.TestCase):
                 replacement.replace(path)
                 return original_open(name, flags)
 
-            with patch("scripts.rs_sdk_release_utils.os.open", side_effect=replace_before_open):
+            with patch(
+                "scripts.rs_sdk_release_utils.os.open", side_effect=replace_before_open
+            ):
                 with self.assertRaises(ValueError):
                     read_npm_token(path)
 
