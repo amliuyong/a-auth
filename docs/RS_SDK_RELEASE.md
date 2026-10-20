@@ -7,15 +7,16 @@ the wheel and sdist match the qualified digests, and independent installs of
 both production-registry distributions pass the HTTP, RAR and DPoP checks.
 npm publishing still requires publisher authentication. Development dependency
 metadata has since changed for the [MCP security patch](DEPENDENCY_PATCHES.md).
-The next publication will use newly qualified 1.0.2 artifacts and a new immutable
-tag; existing 1.0.1 tags, artifacts and PyPI uploads remain historical.
+The current source selects 1.0.2 for newly qualified artifacts and a new
+immutable tag. Publication of 1.0.2 is **NOT_RUN** in both registries;
+existing 1.0.1 tags, artifacts and PyPI uploads remain historical.
 Issue #79 stays open until both registries have verified receipts and
 installation acceptance for the new release.
 
 | Artifact | Version | Runtime | Public entry |
 | --- | --- | --- | --- |
-| npm `agent_auth_rs` | 1.0.1 | Node.js >=22.14, ESM | `agent_auth_rs` |
-| Python wheel / sdist `agent_auth_rs` | 1.0.1 | Python >=3.10 | `agent_auth_rs` |
+| npm `agent_auth_rs` | 1.0.2 (pending) | Node.js >=22.14, ESM | `agent_auth_rs` |
+| Python wheel / sdist `agent_auth_rs` | 1.0.2 (pending) | Python >=3.10 | `agent_auth_rs` |
 
 Both registries use the same unscoped SDK name without a personal prefix.
 Python's distribution-name normalization treats `agent_auth_rs`,
@@ -79,12 +80,13 @@ minimal verification examples in [TypeScript README](../sdk/ts/README.md) or
 After registry receipts exist, independent fixed-version installation is:
 
 ```bash
-npm install --save-exact agent_auth_rs@1.0.1
-python -m pip install agent_auth_rs==1.0.1
+npm install --save-exact agent_auth_rs@1.0.2
+python -m pip install agent_auth_rs==1.0.2
 ```
 
-The Python command is verified against production PyPI; the npm command remains
-pending successful publication acceptance. Node 22 and Python 3.12 are the
+Both 1.0.2 commands remain pending successful publication acceptance.
+The historical Python 1.0.1 command was verified against production PyPI.
+Node 22 and Python 3.12 are the
 release qualification
 workflow's selected runtimes; other supported versions require their own
 runtime validation when relevant to a deployment.
@@ -118,8 +120,8 @@ Configure the release protections before a first publish:
    and environment `rs-sdk-pypi-release`. A pending publisher supports a new
    project. Do not treat TestPyPI as a production PyPI release.
 5. Merge reviewed release tooling, qualify a clean main commit, and create
-   `rs-sdk-v1.0.1` at that exact commit. Dispatch the workflow at that tag:
-   `gh workflow run rs-sdk-release.yml --ref rs-sdk-v1.0.1`.
+   `rs-sdk-v1.0.2` at that exact commit. Dispatch the workflow at that tag:
+   `gh workflow run rs-sdk-release.yml --ref rs-sdk-v1.0.2`.
 
 The workflow checks that the tag matches both package versions, its source is
 on main, and both actual GitHub environments have the required protections.
@@ -195,7 +197,7 @@ pairwise subjects without deriving identities. RAR narrows access. Grant-backed
 RAR requires authenticated introspection. Offline JWT verification can remain
 valid until expiry after revocation and cannot cancel a running business call.
 
-当前真实 registry 发布为 **NOT_RUN**；本地打包、独立安装和公开入口验证与
+当前 1.0.2 的真实 registry 发布为 **NOT_RUN**；本地打包、独立安装和公开入口验证与
 发布验收分开记录。只有 npm/PyPI 的固定版本制品回读、摘要、源提交与安装验证
 全部完成，才能更新“已发布”状态并关闭 #79。
 

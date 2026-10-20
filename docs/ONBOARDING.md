@@ -26,6 +26,8 @@ cookie、token 或私钥。语言切换保留配置，重新加载失败会清�
 库与实际 RS SDK 产物，再将控制台配置写入本地 `config.json`。SDK registry
 发布仍依赖 #79；公开安装为 NOT_RUN 时使用经过资格验证的本地 tarball，
 不能把源码导入冒充独立安装。
+当前示例选择 `agent_auth_rs@1.0.2`；安装前核对该版本的资格验证及 registry
+回读记录。下方 1.0.1 记录是历史验收，不能替代 1.0.2 的发布结果。
 
 MCP Server 的公网 resource 必须是实际 HTTPS 调用地址。内部 HTTP listener
 置于 HTTPS 反向代理之后；PRM 与 MCP 路径均须映射正确。仅在 loopback 上用
