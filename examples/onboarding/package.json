@@ -10,6 +10,7 @@
   "peerDependencies": { "agent_auth_rs": "1.0.1" },
   "peerDependenciesMeta": { "agent_auth_rs": { "optional": true } },
   "scripts": {
+    "test": "node --test test/*.test.mjs",
     "server": "node server.mjs",
     "pkce": "node pkce.mjs",
     "device": "node device.mjs",

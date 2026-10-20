@@ -5,9 +5,12 @@
 Registry release is **PARTIAL**. PyPI `agent_auth_rs==1.0.1` is published:
 the wheel and sdist match the qualified digests, and independent installs of
 both production-registry distributions pass the HTTP, RAR and DPoP checks.
-npm `agent_auth_rs@1.0.1` still requires publisher authentication. Keep
-Issue #79 open until both registries have verified receipts and installation
-acceptance.
+npm publishing still requires publisher authentication. Development dependency
+metadata has since changed for the [MCP security patch](DEPENDENCY_PATCHES.md).
+The next publication will use newly qualified 1.0.2 artifacts and a new immutable
+tag; existing 1.0.1 tags, artifacts and PyPI uploads remain historical.
+Issue #79 stays open until both registries have verified receipts and
+installation acceptance for the new release.
 
 | Artifact | Version | Runtime | Public entry |
 | --- | --- | --- | --- |
