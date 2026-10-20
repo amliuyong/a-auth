@@ -286,3 +286,11 @@ redirect URI 模糊测试(C4.4a/C4.4b)、token-exchange 委托校验(C7)、refre
 
 活体 conformance 客户端(§10):oauth2c、mcp-remote、Claude Code、AgentCore CustomOauth2。
 最终:OIDC **Basic OP profile(仅 code flow)** 通过(§10 P3)——不做 implicit/hybrid。
+
+## MCP 客户端与第三方库互操作记录
+
+Issue #89 的固定版本、脱敏步骤及适用边界见
+[MCP_INTEROP.md](MCP_INTEROP.md) 与对应 JSON 记录。证据采用 C12.2/C13.8 的
+源提交、UTC 时间、产品版本、配置、结果与脱敏 transcript 绑定方式；本地 MCP
+code flow 不作为 SCIM、EMA、真实外部 IdP、SaaS 或生产部署的新增验收。
+这里的实测记录不增加 automated exact target，不改变上述规范项的状态或计数。

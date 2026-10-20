@@ -1,0 +1,16 @@
+{
+  "name": "a-auth-mcp-auth-example",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.14.0" },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.0",
+    "express": "5.2.1",
+    "mcp-auth": "0.2.0"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "check-provider": "node check-provider.mjs",
+    "test": "node --test test/*.test.mjs"
+  }
+}

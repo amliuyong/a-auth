@@ -1,0 +1,730 @@
+{
+  "schema_version": 1,
+  "issue": 89,
+  "recorded_at": "2026-10-20T21:44:35.310029+00:00",
+  "result": "PASS_LOCAL_INTEROP",
+  "deployment": "LOCAL_SELFHOSTED_P1_DEV_OPEN_LOOPBACK_TLS",
+  "as_source_commit": "fc1d8ed8b4de1f416a8d7c0ecae75e2fd9cec2cf",
+  "as_executable_sha256": "58383a57c8204f1b59ce0caec069a03099f8288683a98533228c26e87baf8ef5",
+  "rs_example_file_sha256": "aaa561d64f05760f991fe232667224c6f3a8ebc55435ba7c1e48aebf1720ee76",
+  "node_version": "22.23.3",
+  "library": {
+    "name": "mcp-auth",
+    "version": "0.2.0",
+    "express": "5.2.1",
+    "mcp_sdk": "1.32.0",
+    "verification": {
+      "at": "2026-10-20T21:26:39.541Z",
+      "library": "mcp-auth@0.2.0",
+      "deployment": "LOCAL_STOCK_AS_DEV_OPEN_LOOPBACK_TLS",
+      "checks": [
+        {
+          "check": "positive",
+          "status": 200,
+          "result": "PASS",
+          "real_as_issued_client_token": true
+        },
+        {
+          "check": "negative-audience",
+          "status": 401,
+          "result": "PASS",
+          "real_as_issued_client_token": true
+        },
+        {
+          "check": "negative-scope",
+          "status": 403,
+          "result": "PASS",
+          "real_as_issued_client_token": true
+        },
+        {
+          "check": "real_signature_issuer_audience",
+          "result": "PASS"
+        },
+        {
+          "check": "wrong_issuer_same_signed_token",
+          "result": "PASS"
+        }
+      ],
+      "provider_compatibility_checker": {
+        "implementation": "published_mcp-auth_fetchServerConfig_and_validateServerConfig",
+        "result": "PASS",
+        "successes": [
+          "server_metadata_valid",
+          "code_response_type_supported",
+          "authorization_code_grant_supported",
+          "pkce_supported",
+          "s256_code_challenge_method_supported",
+          "dynamic_registration_supported"
+        ],
+        "warnings": [],
+        "errors": [],
+        "hosted_checker": "NOT_RUN_LOOPBACK_ISSUER_NOT_PUBLICLY_REACHABLE",
+        "hosted_site_fetch": "HTTP_403_NOT_PROVIDER_RESULT",
+        "catalog_submission": "NOT_RUN_SEPARATE_CONFIRMATION_REQUIRED"
+      },
+      "result": "PASS"
+    }
+  },
+  "clients": [
+    {
+      "product": "mcp-remote",
+      "version": "0.15.2",
+      "started_at": "2026-10-20T21:22:05.137Z",
+      "first_protected_call": "PASS",
+      "registration_mode": "DEV_OPEN_DCR",
+      "scope_offline_access_requested": true,
+      "resource_present": true,
+      "pkce_method": "S256",
+      "real_http_login_consent": "PASS",
+      "refresh": "PASS_NATURAL_EXPIRY",
+      "dpop": "NOT_OBSERVED",
+      "cimd": "NOT_RUN",
+      "result": "PASS_LOCAL_INTEROP",
+      "renewed_protected_call": "PASS_FINAL_SOURCE_EXAMPLE",
+      "refresh_resource_present": true,
+      "refresh_dpop": "NOT_OBSERVED",
+      "actual_cached_session_expiry_advanced": true
+    },
+    {
+      "product": "MCP Inspector mcpdo CLI",
+      "version": "2.11.0",
+      "started_at": "2026-10-20T21:24:45.646Z",
+      "first_protected_call": "PASS",
+      "registration_mode": "DEV_OPEN_DCR",
+      "scope_offline_access_requested": true,
+      "resource_present": true,
+      "pkce_method": "S256",
+      "real_http_login_consent": "PASS",
+      "refresh": "PASS_NATURAL_EXPIRY",
+      "dpop": "NOT_OBSERVED",
+      "cimd": "NOT_RUN",
+      "result": "PASS_LOCAL_INTEROP",
+      "renewed_protected_call": "PASS_FINAL_SOURCE_EXAMPLE",
+      "refresh_resource_present": true,
+      "refresh_dpop": "NOT_OBSERVED"
+    }
+  ],
+  "as_transcript": [
+    {
+      "at": "2026-10-20T21:16:01.922035+00:00",
+      "method": "GET",
+      "path": "/.well-known/openid-configuration",
+      "status": 200
+    },
+    {
+      "at": "2026-10-20T21:16:02.007407+00:00",
+      "method": "POST",
+      "path": "/admin/users",
+      "status": 201
+    },
+    {
+      "at": "2026-10-20T21:18:27.027924+00:00",
+      "method": "GET",
+      "path": "/.well-known/oauth-authorization-server",
+      "status": 200
+    },
+    {
+      "at": "2026-10-20T21:18:27.122682+00:00",
+      "method": "GET",
+      "path": "/.well-known/oauth-authorization-server",
+      "status": 200
+    },
+    {
+      "at": "2026-10-20T21:18:27.134595+00:00",
+      "method": "POST",
+      "path": "/register",
+      "registration_mode": "DCR_DEV_OPEN",
+      "status": 201
+    },
+    {
+      "at": "2026-10-20T21:18:27.258550+00:00",
+      "method": "POST",
+      "path": "/login/password",
+      "status": 200
+    },
+    {
+      "at": "2026-10-20T21:18:27.821958+00:00",
+      "method": "POST",
+      "path": "/login/password/change",
+      "status": 200
+    },
+    {
+      "at": "2026-10-20T21:18:28.897919+00:00",
+      "method": "GET",
+      "path": "/authorize",
+      "pkce_method": "S256",
+      "pkce_present": true,
+      "resource_present": true,
+      "offline_access_requested": true,
+      "login_placeholder_present": false,
+      "status": 303
+    },
+    {
+      "at": "2026-10-20T21:18:28.906493+00:00",
+      "method": "GET",
+      "path": "/consent/context",
+      "status": 200
+    },
+    {
+      "at": "2026-10-20T21:18:28.957324+00:00",
+      "method": "POST",
+      "path": "/consent/decision",
+      "status": 200
+    },
+    {
+      "at": "2026-10-20T21:22:05.516394+00:00",
+      "method": "GET",
+      "path": "/.well-known/oauth-authorization-server",
+      "status": 200
+    },
+    {
+      "at": "2026-10-20T21:22:05.611620+00:00",
+      "method": "GET",
+      "path": "/.well-known/oauth-authorization-server",
+      "status": 200
+    },
+    {
+      "at": "2026-10-20T21:22:05.622857+00:00",
+      "method": "POST",
+      "path": "/register",
+      "registration_mode": "DCR_DEV_OPEN",
+      "status": 201
+    },
+    {
+      "at": "2026-10-20T21:22:05.736279+00:00",
+      "method": "POST",
+      "path": "/login/password",
+      "status": 200
+    },
+    {
+      "at": "2026-10-20T21:22:06.285346+00:00",
+      "method": "GET",
+      "path": "/authorize",
+      "pkce_method": "S256",
+      "pkce_present": true,
+      "resource_present": true,
+      "offline_access_requested": true,
+      "login_placeholder_present": false,
+      "status": 303
+    },
+    {
+      "at": "2026-10-20T21:22:06.328516+00:00",
+      "method": "GET",
+      "path": "/consent/context",
+      "status": 200
+    },
+    {
+      "at": "2026-10-20T21:22:06.338190+00:00",
+      "method": "POST",
+      "path": "/consent/decision",
+      "status": 200
+    },
+    {
+      "at": "2026-10-20T21:22:06.405340+00:00",
+      "method": "POST",
+      "path": "/token",
+      "grant_type": "authorization_code",
+      "resource_present": true,
+      "dpop_present": false,
+      "status": 200
+    },
+    {
+      "at": "2026-10-20T21:22:06.448300+00:00",
+      "method": "GET",
+      "path": "/.well-known/openid-configuration",
+      "status": 200
+    },
+    {
+      "at": "2026-10-20T21:22:06.506064+00:00",
+      "method": "GET",
+      "path": "/jwks.json",
+      "status": 200
+    },
+    {
+      "at": "2026-10-20T21:23:47.964699+00:00",
+      "method": "GET",
+      "path": "/.well-known/oauth-authorization-server",
+      "status": 200
+    },
+    {
+      "at": "2026-10-20T21:23:48.044069+00:00",
+      "method": "POST",
+      "path": "/register",
+      "registration_mode": "DCR_DEV_OPEN",
+      "status": 201
+    },
+    {
+      "at": "2026-10-20T21:24:46.089017+00:00",
+      "method": "POST",
+      "path": "/login/password",
+      "status": 200
+    },
+    {
+      "at": "2026-10-20T21:24:46.636157+00:00",
+      "method": "GET",
+      "path": "/authorize",
+      "pkce_method": "S256",
+      "pkce_present": true,
+      "resource_present": true,
+      "offline_access_requested": true,
+      "login_placeholder_present": false,
+      "status": 303
+    },
+    {
+      "at": "2026-10-20T21:24:46.679052+00:00",
+      "method": "GET",
+      "path": "/consent/context",
+      "status": 200
+    },
+    {
+      "at": "2026-10-20T21:24:46.687207+00:00",
+      "method": "POST",
+      "path": "/consent/decision",
+      "status": 200
+    },
+    {
+      "at": "2026-10-20T21:24:46.745314+00:00",
+      "method": "POST",
+      "path": "/token",
+      "grant_type": "authorization_code",
+      "resource_present": true,
+      "dpop_present": false,
+      "status": 200
+    },
+    {
+      "at": "2026-10-20T21:26:39.444490+00:00",
+      "method": "GET",
+      "path": "/jwks.json",
+      "status": 200
+    },
+    {
+      "at": "2026-10-20T21:26:39.491754+00:00",
+      "method": "GET",
+      "path": "/.well-known/openid-configuration",
+      "status": 200
+    },
+    {
+      "at": "2026-10-20T21:30:31.258830+00:00",
+      "method": "GET",
+      "path": "/.well-known/openid-configuration",
+      "status": 200
+    },
+    {
+      "at": "2026-10-20T21:30:31.314419+00:00",
+      "method": "GET",
+      "path": "/jwks.json",
+      "status": 200
+    },
+    {
+      "at": "2026-10-20T21:37:15.149786+00:00",
+      "method": "POST",
+      "path": "/token",
+      "grant_type": "refresh_token",
+      "resource_present": true,
+      "dpop_present": false,
+      "status": 200
+    },
+    {
+      "at": "2026-10-20T21:37:15.219955+00:00",
+      "method": "GET",
+      "path": "/.well-known/openid-configuration",
+      "status": 200
+    },
+    {
+      "at": "2026-10-20T21:37:15.276534+00:00",
+      "method": "GET",
+      "path": "/jwks.json",
+      "status": 200
+    },
+    {
+      "at": "2026-10-20T21:40:39.790392+00:00",
+      "method": "POST",
+      "path": "/token",
+      "grant_type": "refresh_token",
+      "resource_present": true,
+      "dpop_present": false,
+      "status": 200
+    }
+  ],
+  "rs_transcript": [
+    {
+      "at": "2026-10-20T21:16:01.996Z",
+      "method": "POST",
+      "path": "/mcp",
+      "status": 401,
+      "bearer_present": false,
+      "dpop_present": false
+    },
+    {
+      "at": "2026-10-20T21:16:02.003Z",
+      "method": "GET",
+      "path": "/.well-known/oauth-protected-resource/mcp",
+      "status": 200,
+      "bearer_present": false,
+      "dpop_present": false
+    },
+    {
+      "at": "2026-10-20T21:18:27.000Z",
+      "method": "GET",
+      "path": "/mcp",
+      "status": 401,
+      "bearer_present": false,
+      "dpop_present": false
+    },
+    {
+      "at": "2026-10-20T21:18:27.018Z",
+      "method": "GET",
+      "path": "/.well-known/oauth-protected-resource/mcp",
+      "status": 200,
+      "bearer_present": false,
+      "dpop_present": false
+    },
+    {
+      "at": "2026-10-20T21:18:27.075Z",
+      "method": "GET",
+      "path": "/mcp",
+      "status": 401,
+      "bearer_present": false,
+      "dpop_present": false
+    },
+    {
+      "at": "2026-10-20T21:18:27.109Z",
+      "method": "POST",
+      "path": "/mcp",
+      "status": 401,
+      "bearer_present": false,
+      "dpop_present": false
+    },
+    {
+      "at": "2026-10-20T21:18:27.117Z",
+      "method": "GET",
+      "path": "/.well-known/oauth-protected-resource/mcp",
+      "status": 200,
+      "bearer_present": false,
+      "dpop_present": false
+    },
+    {
+      "at": "2026-10-20T21:22:05.490Z",
+      "method": "GET",
+      "path": "/mcp",
+      "status": 401,
+      "bearer_present": false,
+      "dpop_present": false
+    },
+    {
+      "at": "2026-10-20T21:22:05.506Z",
+      "method": "GET",
+      "path": "/.well-known/oauth-protected-resource/mcp",
+      "status": 200,
+      "bearer_present": false,
+      "dpop_present": false
+    },
+    {
+      "at": "2026-10-20T21:22:05.563Z",
+      "method": "GET",
+      "path": "/mcp",
+      "status": 401,
+      "bearer_present": false,
+      "dpop_present": false
+    },
+    {
+      "at": "2026-10-20T21:22:05.598Z",
+      "method": "POST",
+      "path": "/mcp",
+      "status": 401,
+      "bearer_present": false,
+      "dpop_present": false
+    },
+    {
+      "at": "2026-10-20T21:22:05.608Z",
+      "method": "GET",
+      "path": "/.well-known/oauth-protected-resource/mcp",
+      "status": 200,
+      "bearer_present": false,
+      "dpop_present": false
+    },
+    {
+      "at": "2026-10-20T21:22:06.583Z",
+      "method": "POST",
+      "path": "/mcp",
+      "status": 200,
+      "bearer_present": true,
+      "dpop_present": false
+    },
+    {
+      "at": "2026-10-20T21:22:06.601Z",
+      "method": "POST",
+      "path": "/mcp",
+      "status": 202,
+      "bearer_present": true,
+      "dpop_present": false
+    },
+    {
+      "at": "2026-10-20T21:22:06.617Z",
+      "method": "GET",
+      "path": "/mcp",
+      "status": 405,
+      "bearer_present": true,
+      "dpop_present": false
+    },
+    {
+      "at": "2026-10-20T21:22:06.621Z",
+      "method": "POST",
+      "path": "/mcp",
+      "status": 200,
+      "bearer_present": true,
+      "dpop_present": false
+    },
+    {
+      "at": "2026-10-20T21:22:06.649Z",
+      "method": "POST",
+      "path": "/mcp",
+      "status": 202,
+      "bearer_present": true,
+      "dpop_present": false
+    },
+    {
+      "at": "2026-10-20T21:22:06.655Z",
+      "method": "GET",
+      "path": "/mcp",
+      "status": 405,
+      "bearer_present": true,
+      "dpop_present": false
+    },
+    {
+      "at": "2026-10-20T21:22:06.660Z",
+      "method": "POST",
+      "path": "/mcp",
+      "status": 200,
+      "bearer_present": true,
+      "dpop_present": false
+    },
+    {
+      "at": "2026-10-20T21:22:06.902Z",
+      "method": "POST",
+      "path": "/mcp",
+      "status": 200,
+      "bearer_present": true,
+      "dpop_present": false
+    },
+    {
+      "at": "2026-10-20T21:23:47.854Z",
+      "method": "POST",
+      "path": "/mcp",
+      "status": 401,
+      "bearer_present": false,
+      "dpop_present": false
+    },
+    {
+      "at": "2026-10-20T21:23:47.928Z",
+      "method": "POST",
+      "path": "/mcp",
+      "status": 401,
+      "bearer_present": false,
+      "dpop_present": false
+    },
+    {
+      "at": "2026-10-20T21:23:47.952Z",
+      "method": "GET",
+      "path": "/.well-known/oauth-protected-resource/mcp",
+      "status": 200,
+      "bearer_present": false,
+      "dpop_present": false
+    },
+    {
+      "at": "2026-10-20T21:24:45.946Z",
+      "method": "POST",
+      "path": "/mcp",
+      "status": 401,
+      "bearer_present": false,
+      "dpop_present": false
+    },
+    {
+      "at": "2026-10-20T21:24:45.996Z",
+      "method": "POST",
+      "path": "/mcp",
+      "status": 401,
+      "bearer_present": false,
+      "dpop_present": false
+    },
+    {
+      "at": "2026-10-20T21:24:46.825Z",
+      "method": "POST",
+      "path": "/mcp",
+      "status": 200,
+      "bearer_present": true,
+      "dpop_present": false
+    },
+    {
+      "at": "2026-10-20T21:24:46.841Z",
+      "method": "POST",
+      "path": "/mcp",
+      "status": 202,
+      "bearer_present": true,
+      "dpop_present": false
+    },
+    {
+      "at": "2026-10-20T21:24:46.846Z",
+      "method": "GET",
+      "path": "/mcp",
+      "status": 405,
+      "bearer_present": true,
+      "dpop_present": false
+    },
+    {
+      "at": "2026-10-20T21:24:46.870Z",
+      "method": "POST",
+      "path": "/mcp",
+      "status": 200,
+      "bearer_present": true,
+      "dpop_present": false
+    },
+    {
+      "at": "2026-10-20T21:24:46.887Z",
+      "method": "POST",
+      "path": "/mcp",
+      "status": 202,
+      "bearer_present": true,
+      "dpop_present": false
+    },
+    {
+      "at": "2026-10-20T21:24:46.893Z",
+      "method": "GET",
+      "path": "/mcp",
+      "status": 405,
+      "bearer_present": true,
+      "dpop_present": false
+    },
+    {
+      "at": "2026-10-20T21:24:47.201Z",
+      "method": "POST",
+      "path": "/mcp",
+      "status": 200,
+      "bearer_present": true,
+      "dpop_present": false
+    },
+    {
+      "at": "2026-10-20T21:24:47.502Z",
+      "method": "POST",
+      "path": "/mcp",
+      "status": 200,
+      "bearer_present": true,
+      "dpop_present": false
+    },
+    {
+      "at": "2026-10-20T21:24:47.510Z",
+      "method": "POST",
+      "path": "/mcp",
+      "status": 200,
+      "bearer_present": true,
+      "dpop_present": false
+    },
+    {
+      "at": "2026-10-20T21:26:39.419Z",
+      "method": "GET",
+      "path": "/positive",
+      "status": 200,
+      "bearer_present": true,
+      "dpop_present": false
+    },
+    {
+      "at": "2026-10-20T21:26:39.433Z",
+      "method": "GET",
+      "path": "/negative-audience",
+      "status": 401,
+      "bearer_present": true,
+      "dpop_present": false
+    },
+    {
+      "at": "2026-10-20T21:26:39.437Z",
+      "method": "GET",
+      "path": "/negative-scope",
+      "status": 403,
+      "bearer_present": true,
+      "dpop_present": false
+    },
+    {
+      "at": "2026-10-20T21:30:31.388Z",
+      "method": "POST",
+      "path": "/mcp",
+      "status": 200,
+      "bearer_present": true,
+      "dpop_present": false,
+      "final_source_example": true
+    },
+    {
+      "at": "2026-10-20T21:30:31.405Z",
+      "method": "POST",
+      "path": "/mcp",
+      "status": 200,
+      "bearer_present": true,
+      "dpop_present": false,
+      "final_source_example": true
+    },
+    {
+      "at": "2026-10-20T21:37:15.351Z",
+      "method": "POST",
+      "path": "/mcp",
+      "status": 200,
+      "bearer_present": true,
+      "dpop_present": false,
+      "final_source_example": true
+    },
+    {
+      "at": "2026-10-20T21:40:39.782Z",
+      "method": "POST",
+      "path": "/mcp",
+      "status": 401,
+      "bearer_present": true,
+      "dpop_present": false,
+      "final_source_example": true
+    },
+    {
+      "at": "2026-10-20T21:40:39.857Z",
+      "method": "POST",
+      "path": "/mcp",
+      "status": 200,
+      "bearer_present": true,
+      "dpop_present": false,
+      "final_source_example": true
+    },
+    {
+      "at": "2026-10-20T21:40:39.866Z",
+      "method": "POST",
+      "path": "/mcp",
+      "status": 200,
+      "bearer_present": true,
+      "dpop_present": false,
+      "final_source_example": true
+    }
+  ],
+  "fixture_first_failures": [
+    "consent_driver_expected_redirect_instead_of_json",
+    "inspector_driver_parent_test_ca_not_configured"
+  ],
+  "not_run": [
+    "PRODUCTION_IAT_DCR",
+    "CIMD",
+    "SAAS",
+    "INSPECTOR_BROWSER_GUI_CORS",
+    "DPOP",
+    "REAL_EXTERNAL_IDP",
+    "REAL_AWS_DEPLOYMENT",
+    "HOSTED_PROVIDER_CHECKER",
+    "EXTERNAL_PROVIDER_CATALOG_SUBMISSION"
+  ],
+  "cleanup": {
+    "result": "PASS",
+    "owned_processes_stopped": true,
+    "all_five_owned_ports_closed": true,
+    "private_credentials_tokens_cookies_tls_keys_and_logs_removed": true,
+    "private_daemon_directory_removed": true,
+    "synthetic_user_dcr_grants_state": "REMOVED_WITH_EPHEMERAL_IN_MEMORY_AS",
+    "initial_observation_failures_retained": true,
+    "system_trust_changed": false,
+    "aws_resources_created": false
+  },
+  "system_trust_changed": false,
+  "tokens_or_cookies_or_email_or_raw_claims_in_public_record": false,
+  "sender_bound_policy": "PASS_SYNTHETIC_POST_VERIFICATION_HTTP_BOUNDARY_0_BUSINESS_CALLS"
+}
