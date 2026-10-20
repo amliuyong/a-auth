@@ -215,7 +215,7 @@ jobs:
           python3 -m build --wheel --no-isolation \
             --outdir /tmp/a-auth-sdk-dist sdk/python
           python3 -m pip install --no-deps \
-            /tmp/a-auth-sdk-dist/a_auth-*.whl
+            /tmp/a-auth-sdk-dist/agent_auth_rs-*.whl
 
       - name: Test Python SDK
         working-directory: /tmp

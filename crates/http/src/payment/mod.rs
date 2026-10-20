@@ -42,6 +42,10 @@ pub struct PaymentConfig {
 }
 
 impl PaymentConfig {
+    fn accepts_execute_before(&self, now: i64, execute_before: i64) -> bool {
+        execute_before > now && execute_before <= now.saturating_add(self.max_execute_window_secs)
+    }
+
     pub fn validate(&self) -> Result<(), &'static str> {
         if agent_auth_payment::terms::validate_resource(&self.resource).is_err() {
             return Err("payment resource must be an absolute https URI");
@@ -165,5 +169,19 @@ mod tests {
             mutate(&mut c);
             assert!(c.validate().is_err(), "{c:?}");
         }
+    }
+
+    #[test]
+    fn execution_deadline_uses_fixed_clock_bounds() {
+        let config = config();
+        let now = 10_000;
+        for execute_before in [now - 1, now, now + config.max_execute_window_secs + 1] {
+            assert!(!config.accepts_execute_before(now, execute_before));
+        }
+        for execute_before in [now + 1, now + config.max_execute_window_secs] {
+            assert!(config.accepts_execute_before(now, execute_before));
+        }
+        assert!(config.accepts_execute_before(i64::MAX - 1, i64::MAX));
+        assert!(!config.accepts_execute_before(i64::MAX, i64::MAX));
     }
 }
