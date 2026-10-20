@@ -1,0 +1,9 @@
+{
+  "issuer": "https://YOUR_AUTH_ISSUER",
+  "resource": "https://YOUR_MCP_HOST/mcp",
+  "scope": "read",
+  "client_id": "YOUR_REGISTERED_PUBLIC_CLIENT",
+  "redirect_uri": "http://127.0.0.1:8765/callback",
+  "introspection_client_id": "YOUR_RESOURCE_SERVER_CLIENT",
+  "online": false
+}

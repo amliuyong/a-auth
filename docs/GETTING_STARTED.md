@@ -104,6 +104,11 @@ curl -s -X POST $B/token -H 'content-type: application/x-www-form-urlencoded' \
 
 ## 3 · 按角色找路径
 
+若已有部署，先打开当前租户的 `/admin?tab=onboarding`，按场景选择已有客户端，
+复制公开配置并执行[完整接入路径](./ONBOARDING.md)。独立示例与首次调用记录
+将安装、consent、exchange 和实际业务调用分开验证；SDK 公开安装仍以 #79 的
+真实 registry 发布回执为准。
+
 ### 👨‍💻 我是 **OAuth/OIDC 客户端开发者**(接一个 App / agent)
 
 1. [`PROTOCOLS_101.md`](./PROTOCOLS_101.md) — 补齐 code flow / PKCE / token / OIDC 概念
