@@ -51,6 +51,7 @@ import {
 } from '../adminProbe';
 import type { components } from '../api/schema';
 import { passwordRule } from '../passwordPolicy';
+import { SecurityEventsTab } from './SecurityEventsTab';
 
 const { Header, Content, Footer } = AntLayout;
 
@@ -451,7 +452,7 @@ function AdminConsole({
 }) {
   const { t } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
-  const tabKeys = ['overview', 'users', 'namespaces', 'clients', 'initial-access', 'federation', 'admin-sso', 'messages'] as const;
+  const tabKeys = ['overview', 'users', 'namespaces', 'clients', 'initial-access', 'federation', 'admin-sso', 'messages', 'security-events'] as const;
   const requestedTab = searchParams.get('tab');
   const activeTab = tabKeys.includes(requestedTab as (typeof tabKeys)[number])
     ? requestedTab!
@@ -538,6 +539,7 @@ function AdminConsole({
           ),
         },
         { key: 'messages', label: t('admin.tab.messages'), children: <MessagesTab onUnauthorized={onUnauthorized} /> },
+        { key: 'security-events', label: t('admin.tab.securityEvents'), children: <SecurityEventsTab onUnauthorized={onUnauthorized} /> },
       ]}
     />
   );

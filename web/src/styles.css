@@ -1,0 +1,4 @@
+/* Match the viewport when modal scroll locking sets the body's width. */
+body {
+  margin: 0;
+}

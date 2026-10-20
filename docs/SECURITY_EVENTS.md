@@ -178,6 +178,24 @@ If one hot-ledger row is malformed, the adapter emits `SECURITY_EVENT_INVALID`
 for the infrastructure alarm and returns the other validated rows rather than
 hiding the entire page.
 
+### Admin console
+
+Open `/admin?tab=security-events` with tenant Admin read access. Set the inclusive
+local-time window and page size (`1..=500`), then apply it. The selected window
+is stored in `event_from`, `event_through` and `event_limit` query parameters.
+The page displays the actual queried window and the hot-ledger retention.
+
+Next/previous use the API's opaque cursor; changing the window or page size
+starts at the first page. Refresh also starts at the first page, and advances
+the default window to the current time if no explicit window was selected.
+Failed requests clear the prior results.
+
+Each row separates immutable event outcome from mutable archive delivery
+status. Delivery failure does not turn a successful operation into a failed
+operation. Details expose the existing redacted correlation fields and delivery
+history; unknown response fields are not rendered as arbitrary JSON. The view
+does not offer whole-history user/Agent/Grant search or query the archive.
+
 ## Alarms
 
 The stack creates five alarms:
