@@ -8,6 +8,8 @@ from pathlib import Path
 import urllib.parse
 import urllib.request
 
+from rs_sdk_release_utils import canonical_pypi_name
+
 if not __debug__:
     raise SystemExit("Release checks require Python without optimization")
 
@@ -55,7 +57,9 @@ else:
             f"https://pypi.org/pypi/{urllib.parse.quote(package_name, safe='')}/{version}/json"
         )
     )
-    assert metadata["info"]["name"] == package_name
+    assert canonical_pypi_name(metadata["info"]["name"]) == canonical_pypi_name(
+        package_name
+    )
     assert metadata["info"]["version"] == version
     urls = {item["filename"]: item["url"] for item in metadata["urls"]}
     expected = {

@@ -15,6 +15,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from rs_sdk_release_utils import read_npm_token
+
 if not __debug__:
     raise SystemExit("Release checks require Python without optimization")
 
@@ -109,8 +111,7 @@ try:
         assert hashlib.sha256((qualified / filename).read_bytes()).hexdigest() == digest
     if args.registry == "npm":
         receipt["stage"] = "npm-publisher-identity"
-        token = args.credentials.read_text().strip()
-        assert token
+        token = read_npm_token(args.credentials)
         secrets.append(token)
         identity = read("https://registry.npmjs.org/-/whoami", token)
         receipt["publisher"] = identity["username"]
@@ -146,7 +147,9 @@ try:
                 )
                 config.chmod(0o600)
                 environment.update(
-                    NODE_AUTH_TOKEN=token, NPM_CONFIG_USERCONFIG=str(config)
+                    NODE_AUTH_TOKEN=token,
+                    NPM_CONFIG_USERCONFIG=str(config),
+                    NPM_CONFIG_LOGS_MAX="0",
                 )
                 publish(
                     [

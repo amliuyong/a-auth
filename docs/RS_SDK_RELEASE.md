@@ -2,11 +2,12 @@
 
 ## Distribution status
 
-Registry release is **NOT_RUN**. Both the selected npm package and PyPI
-project are `agent_auth_rs`. Local package
-qualification and a successful GitHub source release do not establish a
-registry release. Keep Issue #79 open until both registries have verified
-receipts.
+Registry release is **PARTIAL**. PyPI `agent_auth_rs==1.0.1` is published:
+the wheel and sdist match the qualified digests, and independent installs of
+both production-registry distributions pass the HTTP, RAR and DPoP checks.
+npm `agent_auth_rs@1.0.1` still requires publisher authentication. Keep
+Issue #79 open until both registries have verified receipts and installation
+acceptance.
 
 | Artifact | Version | Runtime | Public entry |
 | --- | --- | --- | --- |
@@ -16,7 +17,18 @@ receipts.
 Both registries use the same unscoped SDK name without a personal prefix.
 Python's distribution-name normalization treats `agent_auth_rs`,
 `agent-auth-rs` and `agent.auth.rs` as the same project; Python imports remain
-`agent_auth_rs`. The existing `rs-sdk-v1.0.0` source tag is immutable. Its
+`agent_auth_rs`. PyPI displays
+[`agent-auth-rs`](https://pypi.org/project/agent-auth-rs/1.0.1/);
+registry verification uses PEP503 canonical identity while preserving exact
+version, filenames and distribution digests. The initial literal-name
+comparison failed after upload; it is retained separately from the successful
+canonical readback. No repeat upload was required.
+
+The immutable
+[`rs-sdk-v1.0.1`](https://github.com/amliuyong/a-auth/tree/rs-sdk-v1.0.1)
+tag points to source `0c461abca125893b3133bf82d2af1d138589b966`,
+reviewed and merged in [PR #94](https://github.com/amliuyong/a-auth/pull/94).
+The existing `rs-sdk-v1.0.0` source tag is immutable. Its
 earlier selected names were not published: npm required additional 2FA, and
 PyPI rejected `a-auth` as too similar to an existing project. Version 1.0.1
 uses a new tag and newly qualified artifacts.
@@ -68,8 +80,9 @@ npm install --save-exact agent_auth_rs@1.0.1
 python -m pip install agent_auth_rs==1.0.1
 ```
 
-These registry commands currently describe the intended distribution, not a
-successful release. Node 22 and Python 3.12 are the release qualification
+The Python command is verified against production PyPI; the npm command remains
+pending successful publication acceptance. Node 22 and Python 3.12 are the
+release qualification
 workflow's selected runtimes; other supported versions require their own
 runtime validation when relevant to a deployment.
 
@@ -139,6 +152,15 @@ the real registry before retrying. Successful upload is followed by the same
 registry digest verifier used by the OIDC jobs. Bootstrap publication has no
 OIDC provenance attestation; its receipt binds bytes to the immutable tag and
 source commit instead.
+
+The npm credential file must be an owned regular file with no group/other
+permissions (for example, mode 0600). It may contain a raw `npm_...` token or
+one labelled `token=`, `npm_token=`, `node_auth_token=` or `_authtoken=` entry.
+Blank lines and comments are allowed. An optional `recovery_code=` entry is
+ignored and never returned or forwarded to publishing. Account recovery codes
+are not publish OTPs. Unknown entries, multiple tokens, invalid token format,
+symlinks, oversized files and file replacement are rejected before registry
+authentication. Keep credential and account material out of release evidence.
 
 Each publishing job downloads and checks the exact qualified digests, publishes,
 then reads registry metadata and all distribution bytes back over HTTPS.
