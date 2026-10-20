@@ -2,16 +2,16 @@
 
 ## Distribution status
 
-Registry release is **NOT_RUN**. The npm scope `@agent-auth` and PyPI project
-`agent-auth-rs-sdk` require an authorized publishing identity. Local package
+Registry release is **NOT_RUN**. The selected npm package is
+`@amliuyong/a-auth`, and the selected PyPI project is `a-auth`. Local package
 qualification and a successful GitHub source release do not establish a
 registry release. Keep Issue #79 open until both registries have verified
 receipts.
 
 | Artifact | Version | Runtime | Public entry |
 | --- | --- | --- | --- |
-| npm `@agent-auth/rs-sdk` | 1.0.0 | Node.js >=22.14, ESM | `@agent-auth/rs-sdk` |
-| Python wheel / sdist `agent-auth-rs-sdk` | 1.0.0 | Python >=3.10 | `agent_auth_rs` |
+| npm `@amliuyong/a-auth` | 1.0.0 | Node.js >=22.14, ESM | `@amliuyong/a-auth` |
+| Python wheel / sdist `a-auth` | 1.0.0 | Python >=3.10 | `agent_auth_rs` |
 
 The package metadata now agrees with the repository's existing Apache-2.0
 LICENSE. Both distributions carry the exact license text and direct runtime
@@ -56,8 +56,8 @@ minimal verification examples in [TypeScript README](../sdk/ts/README.md) or
 After registry receipts exist, independent fixed-version installation is:
 
 ```bash
-npm install --save-exact @agent-auth/rs-sdk@1.0.0
-python -m pip install agent-auth-rs-sdk==1.0.0
+npm install --save-exact @amliuyong/a-auth@1.0.0
+python -m pip install a-auth==1.0.0
 ```
 
 These registry commands currently describe the intended distribution, not a
@@ -67,14 +67,21 @@ runtime validation when relevant to a deployment.
 
 ## Publisher setup and protected release
 
-The repository does not currently have SDK publishing identities or the two
-required release environments. Setup requires the registry owner:
+The selected distributions are npm `@amliuyong/a-auth` and PyPI `a-auth`.
+The unscoped npm name `a-auth` belongs to another maintainer. The npm publishing
+identity is `amliuyong`; a credential-bearing PyPI upload establishes its actual
+permission, not the mere presence of a configuration file.
+
+Configure the release protections before a first publish:
 
 1. Confirm ownership of the npm scope and PyPI project before reserving names
    or publishing. Do not put credentials in source, artifacts or issue comments.
 2. Configure GitHub environments `rs-sdk-npm-release` and
-   `rs-sdk-pypi-release`: require an independent reviewer, prevent self review,
-   and restrict deployments to tags matching `rs-sdk-v*`. Protect these release
+   `rs-sdk-pypi-release`: restrict deployments to tags matching `rs-sdk-v*`.
+   A repository with multiple release owners can additionally require an
+   independent environment reviewer. The current repository has one owner;
+   release protection uses the reviewed merge, restricted environments and
+   immutable tags. Protect these release
    tags against updates and deletion through the repository's tag rules.
 3. Configure npm trusted publishing for `amliuyong/a-auth`, workflow
    `rs-sdk-release.yml`, environment `rs-sdk-npm-release`. npm setup requires an
@@ -91,10 +98,37 @@ required release environments. Setup requires the registry owner:
 The workflow checks that the tag matches both package versions, its source is
 on main, and both actual GitHub environments have the required protections.
 It fails closed if these prerequisites are missing. Build/install tests require
-clean committed source and run without OIDC write permission. Separate approved publishing jobs receive only
+clean committed source and run without OIDC write permission. Separate publishing jobs receive only
 their needed `id-token: write` permission and publish the already qualified
 artifacts, with npm provenance and PyPI attestations. Actions use immutable
 commit references. No standing registry token is stored by this workflow.
+
+For an owner-authorized first release before trusted publishing is configured,
+use `scripts/publish_rs_sdk_bootstrap.py`. It requires a clean qualified source
+commit already merged into main, the exact tag present locally and remotely,
+actual environment/tag protections, and unchanged artifact digests. It reads
+the owner-provided credential file at runtime and never saves that credential
+in the repository or workflow. The script must run with a Python environment
+containing Twine for a PyPI upload:
+
+```bash
+/tmp/a-auth-sdk-build/bin/python scripts/publish_rs_sdk_bootstrap.py npm \
+  --qualified /tmp/a-auth-sdk-artifacts --credentials ~/.npm_token \
+  --receipt /tmp/npm-release.json
+/tmp/a-auth-sdk-build/bin/python scripts/publish_rs_sdk_bootstrap.py pypi \
+  --qualified /tmp/a-auth-sdk-artifacts --credentials /secure/path/.pypirc \
+  --receipt /tmp/pypi-release.json
+```
+
+It verifies the npm publisher's identity and permission before upload. A new
+personal scope must match that identity. Existing versions are never overwritten:
+their registry bytes must match the retained qualification before recovery can
+continue. A partial PyPI upload resumes only its missing, already-qualified
+distribution. An ambiguous upload leaves `UNKNOWN_PENDING_READBACK`; inspect
+the real registry before retrying. Successful upload is followed by the same
+registry digest verifier used by the OIDC jobs. Bootstrap publication has no
+OIDC provenance attestation; its receipt binds bytes to the immutable tag and
+source commit instead.
 
 Each publishing job downloads and checks the exact qualified digests, publishes,
 then reads registry metadata and all distribution bytes back over HTTPS.

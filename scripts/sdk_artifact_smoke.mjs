@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import { once } from 'node:events';
 import {
   RsSdk, NAMESPACE, RAR_TYPE_V1, enforceRar, computeAth, computeJkt, verifyDpopProof,
-} from '@agent-auth/rs-sdk';
+} from '@amliuyong/a-auth';
 import { calculateJwkThumbprint, exportJWK, generateKeyPair, SignJWT } from 'jose';
 
 const issuer = 'https://issuer.example';

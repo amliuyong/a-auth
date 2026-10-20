@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -14,12 +15,16 @@ import tempfile
 import tomllib
 import zipfile
 
+if not __debug__:
+    raise SystemExit("Release checks require Python without optimization")
+
 REPO = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser()
 parser.add_argument("--output", required=True, type=Path)
 parser.add_argument("--build-python", default=sys.executable)
 parser.add_argument("--require-clean", action="store_true")
 args = parser.parse_args()
+args.build_python = os.path.abspath(shutil.which(args.build_python) or args.build_python)
 output = args.output.resolve()
 output.mkdir(parents=True, exist_ok=True)
 if any(output.iterdir()):
@@ -31,7 +36,12 @@ receipt = {
     "source_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=REPO)),
     "registry_publication": "NOT_RUN",
     "artifacts": [], "installed_checks": [],
+    "package_names": {
+        "npm": json.loads((REPO / "sdk/ts/package.json").read_text())["name"],
+        "pypi": tomllib.loads((REPO / "sdk/python/pyproject.toml").read_text())["project"]["name"],
+    },
 }
+python_package = re.sub(r"[-_.]+", "_", receipt["package_names"]["pypi"])
 
 
 def run(command, cwd, log):
@@ -59,7 +69,7 @@ def inspect_artifact(path, files):
             name.split("/", 1)[-1] in {"pyproject.toml", "MANIFEST.in", "README.md", "LICENSE",
                                      "THIRD_PARTY_NOTICES.md", "PKG-INFO", "setup.cfg"}
             or "/agent_auth_rs/" in name and (name.endswith(".py") or name.endswith("/py.typed"))
-            or "/agent_auth_rs_sdk.egg-info/" in name and name.rsplit("/", 1)[-1] in {
+            or f"/{python_package}.egg-info/" in name and name.rsplit("/", 1)[-1] in {
                 "PKG-INFO", "SOURCES.txt", "dependency_links.txt", "requires.txt", "top_level.txt"}
         )
     assert all(allowed(name) for name in files), f"Unexpected file in {path.name}"
@@ -107,6 +117,7 @@ try:
         inspect_artifact(artifact, files)
         if artifact == npm_artifact:
             package = json.loads(files["package/package.json"])
+            assert package["name"] == receipt["package_names"]["npm"]
             assert package["gitHead"] == receipt["source_commit"]
             assert package["license"] == "Apache-2.0"
             assert package["version"] == version
@@ -116,7 +127,7 @@ try:
             metadata_file = next(name for name in files if name.endswith("/METADATA")
                                  or name.count("/") == 1 and name.endswith("/PKG-INFO"))
             metadata = BytesParser().parsebytes(files[metadata_file])
-            assert metadata["Name"] == "agent-auth-rs-sdk"
+            assert metadata["Name"] == receipt["package_names"]["pypi"]
             assert metadata["Version"] == version
             assert metadata["License-Expression"] == "Apache-2.0"
             assert metadata["Requires-Python"] == ">=3.10"
@@ -128,7 +139,7 @@ try:
         shutil.copyfile(REPO / "scripts/sdk_artifact_smoke.mjs", node / "smoke.mjs")
         run(["npm", "install", "--ignore-scripts", "--no-audit", "--no-fund", str(npm_artifact)],
             node, "npm-independent-install.log")
-        assert not (node / "node_modules/@agent-auth/rs-sdk").is_symlink()
+        assert not (node / "node_modules" / receipt["package_names"]["npm"]).is_symlink()
         receipt["installed_checks"].append({
             "artifact": npm_artifact.name,
             **json.loads(run(["node", "smoke.mjs"], node, "npm-installed-smoke.json")),

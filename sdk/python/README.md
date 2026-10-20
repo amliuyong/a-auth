@@ -2,16 +2,18 @@
 
 Python 3.10+ access-token verification for resource servers. Apache-2.0.
 
-Registry publication is pending. Install the qualified wheel or source
-distribution into an independent virtual environment:
+Install a qualified wheel or source distribution into an independent virtual
+environment:
 
 ```bash
 python -m venv .venv
-.venv/bin/python -m pip install /absolute/path/to/agent_auth_rs_sdk-1.0.0-py3-none-any.whl
+.venv/bin/python -m pip install /absolute/path/to/a_auth-1.0.0-py3-none-any.whl
 ```
 
-After publication has been verified, the fixed registry command is
-`python -m pip install agent-auth-rs-sdk==1.0.0`.
+The fixed registry command is `python -m pip install a-auth==1.0.0`.
+See the release guide below for verified registry availability and receipts.
+The distribution name is `a-auth`; the existing Python import remains
+`agent_auth_rs`.
 
 ```python
 from agent_auth_rs import RsSdk, RsSdkConfig, RoutePolicy

@@ -3,18 +3,17 @@
 ES modules and TypeScript declarations for validating access tokens at a
 resource server. Requires Node.js 22.14 or later. Apache-2.0.
 
-Registry publication is pending. Until a release receipt exists, install the
-qualified local tarball in an independent project:
+Install a qualified local tarball in an independent project:
 
 ```bash
-npm install /absolute/path/to/agent-auth-rs-sdk-1.0.0.tgz
+npm install /absolute/path/to/amliuyong-a-auth-1.0.0.tgz
 ```
 
-After publication has been verified, the fixed registry command is
-`npm install --save-exact @agent-auth/rs-sdk@1.0.0`.
+The fixed registry command is `npm install --save-exact @amliuyong/a-auth@1.0.0`.
+See the release guide below for verified registry availability and receipts.
 
 ```js
-import { RsSdk } from '@agent-auth/rs-sdk';
+import { RsSdk } from '@amliuyong/a-auth';
 
 const sdk = new RsSdk({
   issuer: 'https://auth.example.com',
