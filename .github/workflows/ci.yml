@@ -213,9 +213,9 @@ jobs:
       - name: Build and install Python SDK
         run: |
           python3 -m build --wheel --no-isolation \
-            --outdir /tmp/agent-auth-rs-sdk-dist sdk/python
+            --outdir /tmp/a-auth-sdk-dist sdk/python
           python3 -m pip install --no-deps \
-            /tmp/agent-auth-rs-sdk-dist/agent_auth_rs_sdk-*.whl
+            /tmp/a-auth-sdk-dist/a_auth-*.whl
 
       - name: Test Python SDK
         working-directory: /tmp
