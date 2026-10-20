@@ -135,6 +135,12 @@ jobs:
       - name: Run data-governance integration tests
         run: cargo test -p agent-auth-http --test data_governance_e2e --locked
 
+      - name: Run federation templates and staged diagnostics
+        run: |
+          source ./scripts/rust_test_stack.sh
+          cargo test -p agent-auth-http --features aws --locked \
+            --test federation_e2e --test federation_checks_e2e
+
       - name: Run AWS refresh stack regressions
         run: |
           source ./scripts/rust_test_stack.sh

@@ -1917,6 +1917,34 @@
       }
     },
     "/admin/federation": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "List the authenticated tenant without a caller-selected tenant parameter.",
+        "operationId": "list_current_federation_idps",
+        "responses": {
+          "200": {
+            "description": "Current tenant's federation providers",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FederationIdpList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "403": {
+            "description": ""
+          },
+          "503": {
+            "description": ""
+          }
+        }
+      },
       "put": {
         "tags": [
           "admin"
@@ -1938,7 +1966,14 @@
             "description": "已登记"
           },
           "400": {
-            "description": "config 校验失败"
+            "description": "config 校验失败",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FederationConfigValidationError"
+                }
+              }
+            }
           },
           "401": {
             "description": ""
@@ -2302,6 +2337,59 @@
           },
           "503": {
             "description": ""
+          }
+        }
+      }
+    },
+    "/admin/federation/{tenant_id}/{upstream_idp_id}/checks": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "operationId": "check_federation_idp",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "upstream_idp_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Separated diagnostics; login remains NOT_RUN",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FederationChecks"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "403": {
+            "description": ""
+          },
+          "404": {
+            "description": ""
+          },
+          "409": {
+            "description": "Configuration changed during checks"
+          },
+          "503": {
+            "description": "Configuration store unavailable"
           }
         }
       }
@@ -7748,6 +7836,15 @@
           }
         }
       },
+      "CheckStatus": {
+        "type": "string",
+        "enum": [
+          "PASS",
+          "FAIL",
+          "UNKNOWN",
+          "NOT_RUN"
+        ]
+      },
       "ClientDeleteResponse": {
         "type": "object",
         "required": [
@@ -9090,6 +9187,71 @@
           }
         }
       },
+      "FederationCheckStep": {
+        "type": "object",
+        "required": [
+          "status",
+          "reason"
+        ],
+        "properties": {
+          "field": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "description": "Stable reason code; provider responses and URLs are never echoed."
+          },
+          "status": {
+            "$ref": "#/components/schemas/CheckStatus"
+          }
+        }
+      },
+      "FederationChecks": {
+        "type": "object",
+        "required": [
+          "checked_at",
+          "format",
+          "discovery",
+          "jwks",
+          "login"
+        ],
+        "properties": {
+          "checked_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "discovery": {
+            "$ref": "#/components/schemas/FederationCheckStep"
+          },
+          "format": {
+            "$ref": "#/components/schemas/FederationCheckStep"
+          },
+          "jwks": {
+            "$ref": "#/components/schemas/FederationCheckStep"
+          },
+          "login": {
+            "$ref": "#/components/schemas/FederationCheckStep"
+          }
+        }
+      },
+      "FederationConfigValidationError": {
+        "type": "object",
+        "required": [
+          "error",
+          "field"
+        ],
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "field": {
+            "type": "string"
+          }
+        }
+      },
       "FederationIdpCreate": {
         "type": "object",
         "description": "登记/更新一条联邦上游 OIDC IdP 配置(admin 面 PUT)。secret 只收**引用名**(不收明文)。",
@@ -9151,6 +9313,7 @@
       "FederationIdpList": {
         "type": "object",
         "required": [
+          "tenant_id",
           "idps",
           "total"
         ],
@@ -9160,6 +9323,10 @@
             "items": {
               "$ref": "#/components/schemas/FederationIdpView"
             }
+          },
+          "tenant_id": {
+            "type": "string",
+            "description": "Logical tenant selected by authenticated administrator context."
           },
           "total": {
             "type": "integer",

@@ -52,6 +52,12 @@ import {
 import type { components } from '../api/schema';
 import { passwordRule } from '../passwordPolicy';
 import { SecurityEventsTab } from './SecurityEventsTab';
+import {
+  buildFederationDraft,
+  federationTemplates,
+  inspectFederationMetadata,
+  type FederationForm,
+} from '../federationTemplates';
 
 const { Header, Content, Footer } = AntLayout;
 
@@ -1436,27 +1442,43 @@ function FederationMappingsPanel({
   );
 }
 
-// 联邦上游 IdP 管理(spec 003 §4)。列/登记/删 `/admin/federation`。SelfHosted 单租户固定 tenant="default"。
+// 联邦上游 IdP 管理(spec 003 §4)。当前 tenant 由已认证的后端列表返回。
 // secret 只收**引用名**(client_secret_ref;Secrets Manager 前缀 agent-auth/federation/*),后端不回显。
 function FederationTab({ onUnauthorized }: { onUnauthorized: () => void }) {
   const { t } = useTranslation();
-  const TENANT = 'default'; // 自部署单租户;SaaS 多租户由 Host 派生(此 admin 面按当前部署)
+  const [tenantId, setTenantId] = useState<string | null>(null);
   const [idps, setIdps] = useState<FederationIdpView[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [templateId, setTemplateId] = useState<string>('oidc');
+  const [metadataText, setMetadataText] = useState('');
+  const [checkResult, setCheckResult] = useState<string | null>(null);
+  const [diagnosingId, setDiagnosingId] = useState<string | null>(null);
+  const [diagnostics, setDiagnostics] = useState<components['schemas']['FederationChecks'] | null>(null);
+  const [diagnosticLoading, setDiagnosticLoading] = useState(false);
+  const [diagnosticError, setDiagnosticError] = useState<string | null>(null);
   const [form] = Form.useForm();
+  const template = federationTemplates.find((value) => value.id === templateId)!;
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(false);
-    const { data, response } = await adminApi.GET('/admin/federation/{tenant_id}', {
-      params: { path: { tenant_id: TENANT } },
-    });
-    setLoading(false);
-    if (response.status === 401) return onUnauthorized();
-    if (data) setIdps(data.idps);
-    else setError(true);
+    setTenantId(null);
+    setIdps([]);
+    try {
+      const { data, response } = await adminApi.GET('/admin/federation');
+      if (response.status === 401) return onUnauthorized();
+      if (data?.tenant_id && data.idps.every((idp) => idp.tenant_id === data.tenant_id)) {
+        setTenantId(data.tenant_id);
+        setIdps(data.idps);
+      }
+      else setError(true);
+    } catch {
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
   }, [onUnauthorized]);
 
   useEffect(() => {
@@ -1464,8 +1486,9 @@ function FederationTab({ onUnauthorized }: { onUnauthorized: () => void }) {
   }, [load]);
 
   const remove = async (idpId: string) => {
+    if (!tenantId || loading || error) return;
     const { response } = await adminApi.DELETE('/admin/federation/{tenant_id}/{upstream_idp_id}', {
-      params: { path: { tenant_id: TENANT, upstream_idp_id: idpId } },
+      params: { path: { tenant_id: tenantId, upstream_idp_id: idpId } },
     });
     if (response.status === 401) return onUnauthorized();
     if (response.ok) {
@@ -1474,30 +1497,72 @@ function FederationTab({ onUnauthorized }: { onUnauthorized: () => void }) {
     }
   };
 
-  const submit = async (v: {
-    upstream_idp_id: string;
-    upstream_issuer: string;
-    client_id: string;
-    client_secret_ref: string;
-    authorization_endpoint: string;
-    token_endpoint: string;
-    jwks_uri: string;
-    scopes: string;
-    strong_acr_values: string;
-  }) => {
-    const { response } = await adminApi.PUT('/admin/federation', {
-      body: {
-        tenant_id: TENANT,
-        upstream_idp_id: v.upstream_idp_id,
-        upstream_issuer: v.upstream_issuer,
-        client_id: v.client_id,
-        client_secret_ref: v.client_secret_ref,
-        authorization_endpoint: v.authorization_endpoint,
-        token_endpoint: v.token_endpoint,
-        jwks_uri: v.jwks_uri,
-        scopes: v.scopes.split(/[\s,]+/).filter(Boolean),
-        strong_acr_values: v.strong_acr_values.split(/[\s,]+/).filter(Boolean),
-      },
+  const draft = (v: FederationForm) => {
+    if (!tenantId || loading || error) throw new Error(t('admin.federation.template.listRequired'));
+    const config = buildFederationDraft(tenantId, v);
+    if (idps.some((idp) => idp.upstream_idp_id === config.upstream_idp_id)) {
+      throw new Error(t('admin.federation.template.existing'));
+    }
+    return config;
+  };
+
+  const openDraft = () => {
+    form.resetFields();
+    setTemplateId('oidc');
+    setMetadataText('');
+    setCheckResult(null);
+    setAdding(true);
+  };
+
+  const diagnose = async (idpId: string) => {
+    if (!tenantId || loading || error) return;
+    setDiagnosingId(idpId);
+    setDiagnostics(null);
+    setDiagnosticError(null);
+    setDiagnosticLoading(true);
+    try {
+      const { data, response } = await adminApi.GET(
+        '/admin/federation/{tenant_id}/{upstream_idp_id}/checks',
+        { params: { path: { tenant_id: tenantId, upstream_idp_id: idpId } } },
+      );
+      if (response.status === 401) return onUnauthorized();
+      if (data) setDiagnostics(data);
+      else setDiagnosticError(t(response.status === 409
+        ? 'admin.federation.diagnostics.changed'
+        : 'admin.federation.diagnostics.unavailable'));
+    } catch {
+      setDiagnosticError(t('admin.federation.diagnostics.unavailable'));
+    } finally {
+      setDiagnosticLoading(false);
+    }
+  };
+
+  const inspect = () => {
+    try {
+      const config = draft(form.getFieldsValue());
+      if (!metadataText.trim()) {
+        setCheckResult(t('admin.federation.template.formatPass'));
+        return;
+      }
+      const check = inspectFederationMetadata(config, JSON.parse(metadataText));
+      setCheckResult(check.status === 'PASS'
+        ? t('admin.federation.template.metadataPass')
+        : t('admin.federation.template.metadataFail', { field: check.field }));
+    } catch (error) {
+      setCheckResult(error instanceof Error ? error.message : t('error.generic'));
+    }
+  };
+
+  const submit = async (v: FederationForm) => {
+    let config: ReturnType<typeof buildFederationDraft>;
+    try {
+      config = draft(v);
+    } catch (error) {
+      setCheckResult(error instanceof Error ? error.message : t('error.generic'));
+      return;
+    }
+    const { response, error: validation } = await adminApi.PUT('/admin/federation', {
+      body: config,
     });
     if (response.status === 401) return onUnauthorized();
     if (response.ok) {
@@ -1506,6 +1571,9 @@ function FederationTab({ onUnauthorized }: { onUnauthorized: () => void }) {
       form.resetFields();
       void load();
     } else {
+      if (response.status === 400 && validation && typeof validation === 'object' && 'field' in validation) {
+        setCheckResult(`${t('admin.federation.diagnostics.reason.invalid_config')} (${validation.field})`);
+      }
       message.error(t('admin.federation.register.fail'));
     }
   };
@@ -1522,9 +1590,14 @@ function FederationTab({ onUnauthorized }: { onUnauthorized: () => void }) {
     {
       title: t('admin.clients.col.actions'), key: 'actions',
       render: (_: unknown, r: FederationIdpView) => (
-        <Popconfirm title={t('admin.federation.delete.confirm')} onConfirm={() => remove(r.upstream_idp_id)}>
-          <Button size="small" danger>{t('admin.clients.delete')}</Button>
-        </Popconfirm>
+        <Space>
+          <Button size="small" disabled={diagnosticLoading} onClick={() => void diagnose(r.upstream_idp_id)}>
+            {t('admin.federation.diagnostics.run')}
+          </Button>
+          <Popconfirm title={t('admin.federation.delete.confirm')} onConfirm={() => remove(r.upstream_idp_id)}>
+            <Button size="small" danger>{t('admin.clients.delete')}</Button>
+          </Popconfirm>
+        </Space>
       ),
     },
   ];
@@ -1533,7 +1606,7 @@ function FederationTab({ onUnauthorized }: { onUnauthorized: () => void }) {
     <Space direction="vertical" size="middle" style={{ width: '100%' }}>
       <Space style={{ justifyContent: 'space-between', width: '100%' }}>
         <Typography.Title level={4} style={{ margin: 0 }}>{t('admin.federation.title')}</Typography.Title>
-        <Button type="primary" onClick={() => setAdding(true)}>{t('admin.federation.register')}</Button>
+        <Button type="primary" disabled={!tenantId || loading || error} onClick={openDraft}>{t('admin.federation.register')}</Button>
       </Space>
       <Alert type="info" showIcon message={t('admin.federation.hint')} />
       {error && <Alert type="error" showIcon message={t('error.generic')} />}
@@ -1547,7 +1620,7 @@ function FederationTab({ onUnauthorized }: { onUnauthorized: () => void }) {
         expandable={{
           expandedRowRender: (idp) => (
             <FederationMappingsPanel
-              tenantId={TENANT}
+              tenantId={idp.tenant_id}
               idp={idp}
               onUnauthorized={onUnauthorized}
             />
@@ -1555,6 +1628,30 @@ function FederationTab({ onUnauthorized }: { onUnauthorized: () => void }) {
           rowExpandable: () => true,
         }}
       />
+      <Modal
+        title={`${t('admin.federation.diagnostics.title')}: ${diagnosingId ?? ''}`}
+        open={diagnosingId !== null}
+        onCancel={() => setDiagnosingId(null)}
+        footer={null}
+      >
+        <Spin spinning={diagnosticLoading}>
+          <Alert type="info" message={t('admin.federation.diagnostics.boundary')} />
+          {diagnosticError && <Alert type="error" message={diagnosticError} />}
+          {diagnostics && (
+            <Descriptions column={1} bordered size="small">
+              {(['format', 'discovery', 'jwks', 'login'] as const).map((step) => (
+                <Descriptions.Item key={step} label={t(`admin.federation.diagnostics.${step}`)}>
+                  <Tag>{diagnostics[step].status}</Tag>
+                  <Typography.Text>
+                    {t(`admin.federation.diagnostics.reason.${diagnostics[step].reason}`)}
+                    {diagnostics[step].field ? ` (${diagnostics[step].field})` : ''}
+                  </Typography.Text>
+                </Descriptions.Item>
+              ))}
+            </Descriptions>
+          )}
+        </Spin>
+      </Modal>
       <Modal
         title={t('admin.federation.register')}
         open={adding}
@@ -1564,19 +1661,43 @@ function FederationTab({ onUnauthorized }: { onUnauthorized: () => void }) {
         cancelText={t('admin.form.cancel')}
       >
         <Form form={form} layout="vertical" onFinish={submit}
+          onValuesChange={() => setCheckResult(null)}
           initialValues={{ scopes: 'openid', strong_acr_values: '' }}>
+          <Form.Item label={t('admin.federation.template.label')}>
+            <Select
+              aria-label={t('admin.federation.template.label')}
+              value={templateId}
+              onChange={setTemplateId}
+              options={federationTemplates.map((value) => ({
+                value: value.id, label: `${value.name} · v${value.version}`,
+              }))}
+            />
+          </Form.Item>
+          <Alert type="info" showIcon
+            message={t(`admin.federation.template.${templateId}`)}
+            description={
+              <Space direction="vertical">
+                <Typography.Text>{t('admin.federation.template.capabilities')}</Typography.Text>
+                <Typography.Text>{t('admin.federation.template.preserve')}</Typography.Text>
+                <Typography.Link href={template.guide} target="_blank" rel="noopener noreferrer">
+                  {t('admin.federation.template.guide')}
+                </Typography.Link>
+                <Typography.Text>{t('admin.federation.template.loginNotRun')}</Typography.Text>
+              </Space>
+            }
+          />
           <Form.Item name="upstream_idp_id" label={t('admin.federation.col.idp')} rules={[{ required: true }]}>
             <Input placeholder="okta" />
           </Form.Item>
           <Form.Item name="upstream_issuer" label={t('admin.federation.col.issuer')} rules={[{ required: true }]}>
-            <Input placeholder="https://xxx.okta.com" />
+            <Input placeholder={template.issuerExample} />
           </Form.Item>
           <Form.Item name="client_id" label={t('admin.federation.col.clientId')} rules={[{ required: true }]}>
             <Input />
           </Form.Item>
           <Form.Item name="client_secret_ref" label={t('admin.federation.form.secretRef')} rules={[{ required: true }]}
             extra={t('admin.federation.form.secretRefHint')}>
-            <Input placeholder="agent-auth/federation/okta" />
+            <Input placeholder={`agent-auth/federation/${tenantId ?? 'default'}/okta`} />
           </Form.Item>
           <Form.Item name="authorization_endpoint" label={t('admin.federation.form.authzEp')} rules={[{ required: true }]}>
             <Input placeholder="https://…/authorize" />
@@ -1593,6 +1714,15 @@ function FederationTab({ onUnauthorized }: { onUnauthorized: () => void }) {
           <Form.Item name="strong_acr_values" label={t('admin.federation.form.strongAcr')}>
             <Input placeholder="urn:okta:loa:2fa" />
           </Form.Item>
+          <Form.Item label={t('admin.federation.template.metadata')}
+            extra={t('admin.federation.template.metadataHint')}>
+            <Input.TextArea rows={3} value={metadataText} onChange={(event) => {
+              setMetadataText(event.target.value);
+              setCheckResult(null);
+            }} />
+          </Form.Item>
+          <Button onClick={inspect}>{t('admin.federation.template.inspect')}</Button>
+          {checkResult && <Alert type="info" message={checkResult} />}
         </Form>
       </Modal>
     </Space>

@@ -1,0 +1,50 @@
+[
+  {
+    "template": "okta",
+    "version": 1,
+    "config": {
+      "tenant_id": "default",
+      "upstream_idp_id": "controlled-okta",
+      "upstream_issuer": "https://controlled.okta.com/oauth2/default",
+      "client_id": "controlled-rp",
+      "client_secret_ref": "agent-auth/federation/controlled-okta",
+      "authorization_endpoint": "https://controlled.okta.com/oauth2/default/v1/authorize",
+      "token_endpoint": "https://controlled.okta.com/oauth2/default/v1/token",
+      "jwks_uri": "https://controlled.okta.com/oauth2/default/v1/keys",
+      "scopes": ["openid"],
+      "strong_acr_values": []
+    }
+  },
+  {
+    "template": "entra",
+    "version": 1,
+    "config": {
+      "tenant_id": "default",
+      "upstream_idp_id": "controlled-entra",
+      "upstream_issuer": "https://login.microsoftonline.com/controlled-tenant/v2.0",
+      "client_id": "controlled-rp",
+      "client_secret_ref": "agent-auth/federation/controlled-entra",
+      "authorization_endpoint": "https://login.microsoftonline.com/controlled-tenant/oauth2/v2.0/authorize",
+      "token_endpoint": "https://login.microsoftonline.com/controlled-tenant/oauth2/v2.0/token",
+      "jwks_uri": "https://login.microsoftonline.com/controlled-tenant/discovery/v2.0/keys",
+      "scopes": ["openid"],
+      "strong_acr_values": []
+    }
+  },
+  {
+    "template": "oidc",
+    "version": 1,
+    "config": {
+      "tenant_id": "default",
+      "upstream_idp_id": "controlled-oidc",
+      "upstream_issuer": "https://idp.example.com/tenant",
+      "client_id": "controlled-rp",
+      "client_secret_ref": "agent-auth/federation/controlled-oidc",
+      "authorization_endpoint": "https://idp.example.com/tenant/authorize",
+      "token_endpoint": "https://idp.example.com/tenant/token",
+      "jwks_uri": "https://idp.example.com/tenant/keys",
+      "scopes": ["openid"],
+      "strong_acr_values": []
+    }
+  }
+]

@@ -2684,6 +2684,8 @@ pub struct FederationIdpView {
 
 #[derive(Serialize, ToSchema)]
 pub struct FederationIdpList {
+    /// Logical tenant selected by authenticated administrator context.
+    pub tenant_id: String,
     pub idps: Vec<FederationIdpView>,
     pub total: usize,
 }
@@ -2713,7 +2715,8 @@ async fn audit_federation_idp_secret_config(
 /// `PUT /admin/federation`:登记上游 OIDC IdP 配置(admin 认证,C9.5b)。
 #[utoipa::path(put, path = "/admin/federation", tag = "admin",
     request_body = FederationIdpCreate,
-    responses((status = 201, description = "已登记"), (status = 400, description = "config 校验失败"),
+    responses((status = 201, description = "已登记"), (status = 400, description = "config 校验失败",
+        body = crate::federation_checks::FederationConfigValidationError),
         (status = 401), (status = 403, description = "请求 tenant 不属于已认证租户"),
         (status = 409, description = "仍有 attribute mappings 时不得变更 issuer"),
         (status = 503)))]
@@ -2745,10 +2748,13 @@ pub async fn put_federation_idp(
         }),
     };
     // fail-closed 校验(endpoint MUST https 绝对 URL[SSRF 防线] / secret 引用名非空 / scopes 含 openid)。
-    if let Err(e) = config.validate() {
+    if let Some(field) = crate::federation_checks::invalid_config_field(&config, &state.form) {
         return (
             StatusCode::BAD_REQUEST,
-            format!("联邦 config 校验失败:{e:?}"),
+            Json(crate::federation_checks::FederationConfigValidationError {
+                error: "invalid_config".into(),
+                field: field.into(),
+            }),
         )
             .into_response();
     }
@@ -2803,6 +2809,21 @@ pub async fn put_federation_idp(
     json_status(StatusCode::CREATED, "registered")
 }
 
+/// List the authenticated tenant without a caller-selected tenant parameter.
+#[utoipa::path(get, path = "/admin/federation", tag = "admin",
+    responses((status = 200, description = "Current tenant's federation providers", body = FederationIdpList),
+        (status = 401), (status = 403), (status = 503)))]
+pub async fn list_current_federation_idps(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let admin = match TenantAdminContext::authenticate(&state, &headers, AdminAction::Read).await {
+        Ok(admin) => admin,
+        Err(resp) => return resp,
+    };
+    federation_idp_list(&state, admin.tenant_id()).await
+}
+
 /// `GET /admin/federation/{tenant_id}`:列该租户的联邦 IdP 配置(admin 认证;不回显 secret 引用名)。
 #[utoipa::path(get, path = "/admin/federation/{tenant_id}", tag = "admin",
     params(("tenant_id" = String, Path)),
@@ -2820,7 +2841,11 @@ pub async fn list_federation_idps(
     if let Err(resp) = admin.require_tenant(&state, &tenant_id).await {
         return resp;
     }
-    match state.federation_config.list_by_tenant(&tenant_id).await {
+    federation_idp_list(&state, &tenant_id).await
+}
+
+async fn federation_idp_list(state: &AppState, tenant_id: &str) -> axum::response::Response {
+    match state.federation_config.list_by_tenant(tenant_id).await {
         Ok(cs) => {
             let idps: Vec<FederationIdpView> = cs
                 .into_iter()
@@ -2841,7 +2866,15 @@ pub async fn list_federation_idps(
                 })
                 .collect();
             let total = idps.len();
-            Json(FederationIdpList { idps, total }).into_response()
+            (
+                [(axum::http::header::CACHE_CONTROL, "no-store")],
+                Json(FederationIdpList {
+                    tenant_id: tenant_id.into(),
+                    idps,
+                    total,
+                }),
+            )
+                .into_response()
         }
         Err(_) => json_status(StatusCode::SERVICE_UNAVAILABLE, "store unavailable"),
     }
@@ -5153,7 +5186,7 @@ pub fn router() -> OpenApiRouter<AppState> {
         .routes(routes!(revoke_initial_access_token))
         .routes(routes!(create_workload_trust))
         .routes(routes!(list_workload_trust))
-        .routes(routes!(put_federation_idp))
+        .routes(routes!(list_current_federation_idps, put_federation_idp))
         .routes(routes!(list_federation_idps))
         .routes(routes!(delete_federation_idp))
         .routes(routes!(list_users))

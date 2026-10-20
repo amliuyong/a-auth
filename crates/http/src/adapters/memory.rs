@@ -3989,6 +3989,55 @@ impl GraceStore for MemoryGraceStore {
     }
 }
 
+/// Controlled discovery fixtures never make outbound requests.
+#[derive(Clone, Default)]
+pub struct MemoryOidcMetadataFetcher {
+    documents: Arc<Mutex<HashMap<String, Result<crate::ports::OidcMetadata, StoreError>>>>,
+    calls: Arc<Mutex<HashMap<String, usize>>>,
+    /// Test-only coordination through the in-memory adapter.
+    pause: Arc<Mutex<Option<MetadataFetchPause>>>,
+}
+
+struct MetadataFetchPause {
+    started: Arc<tokio::sync::Notify>,
+    resume: Arc<tokio::sync::Notify>,
+}
+
+impl MemoryOidcMetadataFetcher {
+    pub async fn set(&self, url: String, document: Result<crate::ports::OidcMetadata, StoreError>) {
+        self.documents.lock().await.insert(url, document);
+    }
+
+    pub async fn calls(&self, url: &str) -> usize {
+        self.calls.lock().await.get(url).copied().unwrap_or(0)
+    }
+
+    pub async fn pause_once(
+        &self,
+        started: Arc<tokio::sync::Notify>,
+        resume: Arc<tokio::sync::Notify>,
+    ) {
+        *self.pause.lock().await = Some(MetadataFetchPause { started, resume });
+    }
+}
+
+impl crate::ports::OidcMetadataFetcher for MemoryOidcMetadataFetcher {
+    async fn fetch(&self, url: &str) -> Result<crate::ports::OidcMetadata, StoreError> {
+        *self.calls.lock().await.entry(url.into()).or_default() += 1;
+        let pause = self.pause.lock().await.take();
+        if let Some(pause) = pause {
+            pause.started.notify_one();
+            pause.resume.notified().await;
+        }
+        self.documents
+            .lock()
+            .await
+            .get(url)
+            .cloned()
+            .unwrap_or_else(|| Err(StoreError::Transient("discovery not configured".into())))
+    }
+}
+
 /// 内存平台 JWKS(本地/测试;按 jwks_uri 预置 key 集)。真机换 HTTP 适配器(缓存 TTL + 负缓存)。
 #[derive(Clone, Default)]
 pub struct MemoryJwksFetcher {

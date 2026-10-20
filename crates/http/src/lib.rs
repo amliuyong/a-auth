@@ -36,6 +36,7 @@ pub mod dpop;
 pub mod ema_flow;
 pub mod end_session;
 pub mod federation_attributes;
+pub mod federation_checks;
 pub mod federation_flow;
 pub mod governance;
 mod governance_data;
@@ -204,6 +205,7 @@ fn cors_none_router() -> OpenApiRouter<AppState> {
         .merge(data_governance::router())
         .merge(admin_attribute_namespaces::router())
         .merge(admin_federation_attributes::router())
+        .merge(federation_checks::router())
         .merge(admin::router())
         .merge(register::manage_router()) // RFC 7592 管理端点(Bearer,非浏览器 fetch)
         // Payment resource server (issue #77): bearer/channel-signed server-to-server
@@ -404,6 +406,7 @@ mod tests {
             "data_governance::router()",
             "admin_attribute_namespaces::router()",
             "admin_federation_attributes::router()",
+            "federation_checks::router()",
             "admin::router()",
             "register::manage_router()",
             "payment::routes::router()",

@@ -415,8 +415,8 @@ test('c8_12_federation_mapping_revisioned_crud_uses_active_canonical_targets', a
   await page.route('**/admin/federation**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
-    if (request.method() === 'GET' && url.pathname === '/admin/federation/default') {
-      return json(route, { idps: [idp], total: 1 });
+    if (request.method() === 'GET' && url.pathname === '/admin/federation') {
+      return json(route, { tenant_id: 'default', idps: [idp], total: 1 });
     }
     if (url.pathname.endsWith('/attribute-mappings')) {
       if (request.method() === 'GET') {
