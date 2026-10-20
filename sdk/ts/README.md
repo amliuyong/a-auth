@@ -6,10 +6,10 @@ resource server. Requires Node.js 22.14 or later. Apache-2.0.
 Install a qualified local tarball in an independent project:
 
 ```bash
-npm install /absolute/path/to/agent_auth_rs-1.0.1.tgz
+npm install /absolute/path/to/agent_auth_rs-1.0.2.tgz
 ```
 
-The fixed registry command is `npm install --save-exact agent_auth_rs@1.0.1`.
+The fixed registry command is `npm install --save-exact agent_auth_rs@1.0.2`.
 See the release guide below for verified registry availability and receipts.
 
 ```js

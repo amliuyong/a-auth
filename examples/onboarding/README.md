@@ -1,7 +1,7 @@
 # Independent onboarding examples
 
-These private examples use the official MCP SDK 1.31.0, oauth4webapi 3.8.8
-and the installed `agent_auth_rs` SDK 1.0.1 public entry. They are recipes, not a new
+These private examples use the official MCP SDK 1.32.0, oauth4webapi 3.8.8
+and the installed `agent_auth_rs` SDK 1.0.2 public entry. They are recipes, not a new
 OAuth client SDK. Requires Node.js >=22.14.
 
 ## Prepare an independent project
@@ -10,7 +10,7 @@ Copy this directory outside the repository. In that copy:
 
 ```bash
 npm ci
-npm install --no-save /absolute/path/to/qualified/agent_auth_rs-1.0.1.tgz
+npm install --no-save /absolute/path/to/qualified/agent_auth_rs-1.0.2.tgz
 ```
 
 The RS SDK peer is optional only so dependencies can be installed before
@@ -22,7 +22,7 @@ Public registry installation remains **NOT_RUN** until #79 publishes and
 verifies its registry receipt. After that, replace the second command with:
 
 ```bash
-npm install --no-save agent_auth_rs@1.0.1
+npm install --no-save agent_auth_rs@1.0.2
 ```
 
 Open `/admin?tab=onboarding` at your current tenant. Select the appropriate
