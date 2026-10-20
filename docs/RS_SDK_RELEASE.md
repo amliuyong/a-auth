@@ -2,16 +2,24 @@
 
 ## Distribution status
 
-Registry release is **NOT_RUN**. The selected npm package is
-`@amliuyong/a-auth`, and the selected PyPI project is `a-auth`. Local package
+Registry release is **NOT_RUN**. Both the selected npm package and PyPI
+project are `agent_auth_rs`. Local package
 qualification and a successful GitHub source release do not establish a
 registry release. Keep Issue #79 open until both registries have verified
 receipts.
 
 | Artifact | Version | Runtime | Public entry |
 | --- | --- | --- | --- |
-| npm `@amliuyong/a-auth` | 1.0.0 | Node.js >=22.14, ESM | `@amliuyong/a-auth` |
-| Python wheel / sdist `a-auth` | 1.0.0 | Python >=3.10 | `agent_auth_rs` |
+| npm `agent_auth_rs` | 1.0.1 | Node.js >=22.14, ESM | `agent_auth_rs` |
+| Python wheel / sdist `agent_auth_rs` | 1.0.1 | Python >=3.10 | `agent_auth_rs` |
+
+Both registries use the same unscoped SDK name without a personal prefix.
+Python's distribution-name normalization treats `agent_auth_rs`,
+`agent-auth-rs` and `agent.auth.rs` as the same project; Python imports remain
+`agent_auth_rs`. The existing `rs-sdk-v1.0.0` source tag is immutable. Its
+earlier selected names were not published: npm required additional 2FA, and
+PyPI rejected `a-auth` as too similar to an existing project. Version 1.0.1
+uses a new tag and newly qualified artifacts.
 
 The package metadata now agrees with the repository's existing Apache-2.0
 LICENSE. Both distributions carry the exact license text and direct runtime
@@ -56,8 +64,8 @@ minimal verification examples in [TypeScript README](../sdk/ts/README.md) or
 After registry receipts exist, independent fixed-version installation is:
 
 ```bash
-npm install --save-exact @amliuyong/a-auth@1.0.0
-python -m pip install a-auth==1.0.0
+npm install --save-exact agent_auth_rs@1.0.1
+python -m pip install agent_auth_rs==1.0.1
 ```
 
 These registry commands currently describe the intended distribution, not a
@@ -67,15 +75,17 @@ runtime validation when relevant to a deployment.
 
 ## Publisher setup and protected release
 
-The selected distributions are npm `@amliuyong/a-auth` and PyPI `a-auth`.
-The unscoped npm name `a-auth` belongs to another maintainer. The npm publishing
+The selected distributions are npm and PyPI `agent_auth_rs`. The npm publishing
 identity is `amliuyong`; a credential-bearing PyPI upload establishes its actual
 permission, not the mere presence of a configuration file.
 
 Configure the release protections before a first publish:
 
-1. Confirm ownership of the npm scope and PyPI project before reserving names
-   or publishing. Do not put credentials in source, artifacts or issue comments.
+1. Confirm the npm publishing identity and permission for the selected name,
+   and the PyPI project permission before publishing. A registry 404 only
+   establishes that there is no current public project; it does not guarantee
+   that a registry will accept or grant the name. Do not put credentials in
+   source, artifacts or issue comments.
 2. Configure GitHub environments `rs-sdk-npm-release` and
    `rs-sdk-pypi-release`: restrict deployments to tags matching `rs-sdk-v*`.
    A repository with multiple release owners can additionally require an
@@ -92,8 +102,8 @@ Configure the release protections before a first publish:
    and environment `rs-sdk-pypi-release`. A pending publisher supports a new
    project. Do not treat TestPyPI as a production PyPI release.
 5. Merge reviewed release tooling, qualify a clean main commit, and create
-   `rs-sdk-v1.0.0` at that exact commit. Dispatch the workflow at that tag:
-   `gh workflow run rs-sdk-release.yml --ref rs-sdk-v1.0.0`.
+   `rs-sdk-v1.0.1` at that exact commit. Dispatch the workflow at that tag:
+   `gh workflow run rs-sdk-release.yml --ref rs-sdk-v1.0.1`.
 
 The workflow checks that the tag matches both package versions, its source is
 on main, and both actual GitHub environments have the required protections.
