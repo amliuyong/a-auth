@@ -255,6 +255,12 @@ jobs:
           npm ci
           npm test
 
+      - name: Verify third-party MCP auth example boundaries
+        working-directory: examples/mcp-auth
+        run: |
+          npm ci --ignore-scripts
+          npm test
+
   infra-tests:
     name: Infrastructure tests
     runs-on: ubuntu-latest
