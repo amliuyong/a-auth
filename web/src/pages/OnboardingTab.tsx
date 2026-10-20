@@ -46,7 +46,8 @@ function validResource(value: string): boolean {
     /\/(?:\.|%2e){1,2}(?:\/|$)/i.test(value)) return false;
   try {
     const url = new URL(value);
-    return url.protocol === 'https:' && !url.username && !url.password && !url.hash && !url.search;
+    return url.protocol === 'https:' && !url.username && !url.password && !url.hash && !url.search &&
+      !/\.lambda-url\.[a-z0-9-]+\.on\.aws\.?$/i.test(url.hostname);
   } catch { return false; }
 }
 
@@ -60,6 +61,7 @@ export function OnboardingTab({ onUnauthorized }: { onUnauthorized: () => void }
   const [error, setError] = useState<string | null>(null);
   const [source, setSource] = useState<{ overview: Overview; clients: Client[]; discovery: Metadata } | null>(null);
   const [scene, setScene] = useState<Scene>('mcp');
+  const [flow, setFlow] = useState<'pkce' | 'device'>('pkce');
   const [rsId, setRsId] = useState('');
   const [clientId, setClientId] = useState('');
   const [actorId, setActorId] = useState('');
@@ -104,19 +106,20 @@ export function OnboardingTab({ onUnauthorized }: { onUnauthorized: () => void }
         if (active) setLoading(false);
       }
     })();
-    return () => { active = false; };
+    return () => { active = false; trustRevision.current += 1; };
   }, [revision]);
 
   useEffect(() => {
     trustRevision.current += 1;
     setTrusts(null); setTrustError(false); setTrustLoading(false);
   }, [tenant, actorId]);
-  useEffect(() => { setCopied(false); setCopyError(false); }, [resource, scope, clientId, rsId, actorId, scene]);
+  useEffect(() => { setCopied(false); setCopyError(false); }, [resource, scope, clientId, rsId, actorId, scene, flow, tenant, trusts]);
 
-  const rsClients = source?.clients.filter((client) => client.introspect_enabled && client.resource_ids.length) ?? [];
+  const rsClients = source?.clients.filter((client) => client.introspect_enabled &&
+    client.token_endpoint_auth_method === 'client_secret_basic' && client.resource_ids.length) ?? [];
   const cliClients = source?.clients.filter((client) => client.client_type !== 'workload' &&
-    client.token_endpoint_auth_method === 'none' && client.redirect_uris.some(loopback) && !client.require_dpop) ?? [];
-  const actors = source?.clients.filter((client) => client.client_type === 'workload') ?? [];
+    client.token_endpoint_auth_method === 'none' && !client.require_dpop) ?? [];
+  const actors = source?.clients.filter((client) => client.client_type === 'workload' && !client.require_dpop) ?? [];
   const client = cliClients.find((item) => item.client_id === clientId);
   const redirect = client?.redirect_uris.find(loopback);
   const rs = rsClients.find((item) => item.client_id === rsId);
@@ -125,7 +128,7 @@ export function OnboardingTab({ onUnauthorized }: { onUnauthorized: () => void }
     discovery.code_challenge_methods_supported.includes('S256') &&
     discovery.token_endpoint_auth_methods_supported.includes('none');
   const device = discovery?.grant_types_supported.includes('urn:ietf:params:oauth:grant-type:device_code') &&
-    !!discovery.device_authorization_endpoint;
+    !!discovery.device_authorization_endpoint && discovery.token_endpoint_auth_methods_supported.includes('none');
   const workload = source && ['P2', 'P3'].includes(source.overview.phase) &&
     discovery?.grant_types_supported.includes('urn:ietf:params:oauth:grant-type:token-exchange') &&
     discovery.token_endpoint_auth_methods_supported.includes('workload_oidc_jwt') &&
@@ -133,15 +136,17 @@ export function OnboardingTab({ onUnauthorized }: { onUnauthorized: () => void }
   const boundTrust = trusts?.find((binding) => binding.mapped_client_id === actorId && binding.mechanism === 'oidc');
   const scopeValid = /^[\x21\x23-\x5b\x5d-\x7e]+(?: [\x21\x23-\x5b\x5d-\x7e]+)*$/.test(scope);
   const resourceValid = validResource(resource);
+  const cliReady = client && (flow === 'device' ? device : pkce && redirect);
   const ready = source && resourceValid && scopeValid && (scene === 'mcp' ||
-    pkce && client && redirect && (scene === 'cli' ||
-      workload && actors.some((actor) => actor.client_id === actorId) && boundTrust &&
-      rs?.resource_ids.includes(resource)));
+    scene === 'cli' && cliReady ||
+    scene === 'workload' && pkce && client && redirect && workload &&
+      actors.some((actor) => actor.client_id === actorId) && boundTrust && rs?.resource_ids.includes(resource));
   // Serialize only explicitly selected public facts. Never spread ClientView,
   // discovery or an Admin response into generated examples.
   const config = source ? JSON.stringify({
     issuer: source.overview.issuer, resource, scope,
     ...(client ? { client_id: client.client_id, redirect_uri: redirect } : {}),
+    ...(scene === 'cli' ? { authorization_flow: flow } : {}),
     ...(rs ? { introspection_client_id: rs.client_id } : {}),
     ...(scene === 'workload' && actorId ? { workload_actor: actorId } : {}),
     online: scene === 'workload',
@@ -204,6 +209,12 @@ export function OnboardingTab({ onUnauthorized }: { onUnauthorized: () => void }
             <Select id="onboarding-client" value={clientId || undefined} onChange={(id) => setClientId(id || '')}
               options={options(cliClients)} allowClear />
           </Form.Item>
+          {scene === 'cli' && <Form.Item label={t('admin.onboarding.flow')} htmlFor="onboarding-flow">
+            <Select id="onboarding-flow" value={flow} onChange={setFlow} options={[
+              { value: 'pkce', label: 'Authorization Code + PKCE', disabled: !pkce },
+              { value: 'device', label: 'Device flow', disabled: !device },
+            ]} />
+          </Form.Item>}
           {scene === 'workload' && <>
             <Form.Item label={t('admin.onboarding.actor')} htmlFor="onboarding-actor">
               <Select id="onboarding-actor" value={actorId || undefined} onChange={(id) => setActorId(id || '')}
@@ -213,6 +224,7 @@ export function OnboardingTab({ onUnauthorized }: { onUnauthorized: () => void }
               <Input id="onboarding-tenant" value={tenant} onChange={(event) => setTenant(event.target.value)} />
             </Form.Item>
             <Button disabled={!tenant.trim() || !actorId} loading={trustLoading}
+              aria-label={t('admin.onboarding.trust')} aria-busy={trustLoading}
               onClick={() => void loadTrust()}>{t('admin.onboarding.trust')}</Button>
             {trustError && <Alert type="error" message={t('admin.onboarding.trustFailed')} />}
             {trusts && <Alert type={boundTrust ? 'success' : 'warning'}
@@ -222,7 +234,8 @@ export function OnboardingTab({ onUnauthorized }: { onUnauthorized: () => void }
           </>}
         </Form>
         {!ready && <Alert type="warning" showIcon message={t('admin.onboarding.incomplete')} />}
-        {!pkce && scene !== 'mcp' && <Alert type="warning" message={t('admin.onboarding.pkceUnavailable')} />}
+        {!pkce && (scene === 'workload' || scene === 'cli' && flow === 'pkce') &&
+          <Alert type="warning" message={t('admin.onboarding.pkceUnavailable')} />}
         {scene === 'cli' && <Alert type={device ? 'info' : 'warning'}
           message={t(device ? 'admin.onboarding.deviceAvailable' : 'admin.onboarding.deviceUnavailable')} />}
         {scene === 'workload' && !workload && <Alert type="warning" message={t('admin.onboarding.workloadUnavailable')} />}

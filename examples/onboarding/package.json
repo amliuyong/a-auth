@@ -1,0 +1,20 @@
+{
+  "name": "a-auth-onboarding-example",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.14.0" },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.31.0",
+    "oauth4webapi": "3.8.8"
+  },
+  "peerDependencies": { "agent_auth_rs": "1.0.1" },
+  "peerDependenciesMeta": { "agent_auth_rs": { "optional": true } },
+  "scripts": {
+    "server": "node server.mjs",
+    "pkce": "node pkce.mjs",
+    "device": "node device.mjs",
+    "exchange": "node exchange.mjs",
+    "refresh": "node refresh.mjs",
+    "call": "node call.mjs"
+  }
+}

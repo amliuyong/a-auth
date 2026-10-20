@@ -309,6 +309,9 @@ jobs:
       - name: Run federation template browser acceptance
         run: npx playwright test e2e/admin-federation-templates.spec.ts --project chromium
 
+      - name: Run onboarding browser acceptance
+        run: npx playwright test e2e/admin-onboarding.spec.ts --project chromium
+
       - name: Run exact Web conformance selectors
         working-directory: .
         run: ./scripts/run_web_conformance_exact_tests.sh

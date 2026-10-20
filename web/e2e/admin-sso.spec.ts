@@ -26,7 +26,7 @@ async function mockOverview(page: Page) {
   );
 }
 
-test('c12_3_enterprise_sso_navigation', async ({ page }) => {
+test('c12_3_enterprise_sso_navigation', async ({ page, baseURL }) => {
   let sessionActive = false;
   await page.route('**/admin/session', (route) =>
     route.fulfill({
@@ -50,7 +50,7 @@ test('c12_3_enterprise_sso_navigation', async ({ page }) => {
     route.fulfill({
       status: 200,
       contentType: 'text/html',
-      body: '<a href="http://localhost:5173/admin/sso/callback?code=test-code&state=test-state">Continue</a>',
+      body: `<a href="${new URL('/admin/sso/callback?code=test-code&state=test-state', baseURL).href}">Continue</a>`,
     }),
   );
   await page.route('**/admin/sso/callback?code=test-code&state=test-state', (route) => {

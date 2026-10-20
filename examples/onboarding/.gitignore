@@ -1,0 +1,7 @@
+node_modules/
+config.json
+.session.json
+.session.json.*
+.delegated.json
+.delegated.json.*
+*.jwt
