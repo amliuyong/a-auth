@@ -252,9 +252,7 @@ async fn prepare(
         _ => return Err(PaymentError::InvalidRequest("invalid amount_minor")),
     }
     let now = crate::token::current_unix_secs_pub();
-    if request.execute_before <= now
-        || request.execute_before > now.saturating_add(config.max_execute_window_secs)
-    {
+    if !config.accepts_execute_before(now, request.execute_before) {
         return Err(PaymentError::InvalidRequest(
             "execute_before is outside the allowed window",
         ));

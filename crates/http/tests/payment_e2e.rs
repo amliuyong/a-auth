@@ -1244,7 +1244,10 @@ async fn payment_prepare_derives_identity_and_enforces_terms() {
     let mut body = base.clone();
     body["currency"] = json!("EUR");
     cases.push(("other currency", body, StatusCode::BAD_REQUEST));
-    for execute_before in [now() - 1, now() + 3601] {
+    // This sequence makes real HTTP requests against a moving wall clock.
+    // Keep the upper rejection well outside one window; exact inclusive and
+    // exclusive boundaries use a fixed clock in PaymentConfig's unit test.
+    for execute_before in [now() - 1, now() + 2 * config().max_execute_window_secs] {
         let mut body = base.clone();
         body["execute_before"] = json!(execute_before);
         cases.push(("deadline window", body, StatusCode::BAD_REQUEST));
