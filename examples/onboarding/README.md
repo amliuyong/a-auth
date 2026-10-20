@@ -25,6 +25,11 @@ verifies its registry receipt. After that, replace the second command with:
 npm install --no-save agent_auth_rs@1.0.2
 ```
 
+The [1.0.2 publication record](../../docs/releases/rs-sdk-1.0.2.json) verifies
+PyPI wheel/sdist publication and independent installation. npm remains
+unpublished; Python acceptance does not satisfy this Node.js example's
+public-registry installation gate.
+
 Open `/admin?tab=onboarding` at your current tenant. Select the appropriate
 registered clients and copy its public configuration into `config.json`, or
 fill in `config.example.json`. Client IDs and issuer/resource are public.
