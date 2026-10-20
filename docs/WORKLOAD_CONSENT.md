@@ -73,6 +73,22 @@ a-auth consent grants identity delegation. CoveAI must still enforce approval
 of the particular business action, and CoveDB must enforce its current Data
 Grants, row policies and transaction conditions at execution time.
 
+### Reviewing and revoking an authorization
+
+Open `/account` while signed in to review your own Grants. Each authorization
+shows its client, resources, scopes, expiry, actor identifiers or patterns and
+maximum delegation depth. An empty actor allowlist authorizes no Agent. The
+display does not infer that an identifier is a registered workload, and the
+configured depth is a limit, not a record of completed delegation hops.
+Unavailable or malformed actor constraints are shown as unknown.
+
+The revoke action reloads the server's actual Grant status. Revocation blocks
+future refresh and exchange and makes delegated tokens inactive under online
+introspection. A resource server using only offline JWT verification may
+continue accepting a token until expiry. Revocation does not cancel a business
+operation that is already running; the consuming service owns that operation.
+Session or permission failures clear the previous Grant display.
+
 ## Credentials for an action approved hours or days later
 
 The original 3LO client securely retains its rotating refresh token and, when
