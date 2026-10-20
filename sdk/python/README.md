@@ -7,12 +7,12 @@ environment:
 
 ```bash
 python -m venv .venv
-.venv/bin/python -m pip install /absolute/path/to/a_auth-1.0.0-py3-none-any.whl
+.venv/bin/python -m pip install /absolute/path/to/agent_auth_rs-1.0.1-py3-none-any.whl
 ```
 
-The fixed registry command is `python -m pip install a-auth==1.0.0`.
+The fixed registry command is `python -m pip install agent_auth_rs==1.0.1`.
 See the release guide below for verified registry availability and receipts.
-The distribution name is `a-auth`; the existing Python import remains
+The distribution name is `agent_auth_rs`; the existing Python import remains
 `agent_auth_rs`.
 
 ```python

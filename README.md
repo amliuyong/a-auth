@@ -39,7 +39,8 @@ agents, machine identities, delegation chains, and MCP resources.
   archives; the Rust crates and resource-server SDKs are not published to
   external package registries.
   [SDK distribution and release qualification](docs/RS_SDK_RELEASE.md) provides
-  independent local artifact installation while registry ownership is pending.
+  independent local artifact installation for npm and PyPI `agent_auth_rs`
+  while registry publication is pending.
 - **Repository evidence** — every completed row in the
   [conformance matrix](docs/CONFORMANCE.md) must map to exact automated
   selectors that CI actually runs. Broad suites, comments, and historical
