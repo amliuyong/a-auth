@@ -23,6 +23,8 @@ pub mod attribute_namespace;
 pub mod authorize;
 pub mod authz_gate;
 pub mod authz_session;
+pub mod branding;
+pub mod branding_store;
 pub mod ciba_flow;
 pub mod cimd;
 pub mod client_auth;
@@ -201,6 +203,7 @@ fn cors_none_router() -> OpenApiRouter<AppState> {
         .merge(scim::router())
         .merge(scim_groups::admin_router())
         .merge(admin_sso::router())
+        .merge(branding::router())
         .merge(ssf_admin::router())
         .merge(data_governance::router())
         .merge(admin_attribute_namespaces::router())
@@ -402,6 +405,7 @@ mod tests {
             "scim::router()",
             "scim_groups::admin_router()",
             "admin_sso::router()",
+            "branding::router()",
             "ssf_admin::router()",
             "data_governance::router()",
             "admin_attribute_namespaces::router()",

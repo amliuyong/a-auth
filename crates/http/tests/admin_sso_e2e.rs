@@ -2559,6 +2559,52 @@ async fn fixed_role_matrix_is_enforced_per_action() {
         .await;
         assert_eq!(session.status, StatusCode::OK, "{role:?} session policy");
 
+        let branding = request(
+            &router,
+            Method::GET,
+            HOST,
+            "/admin/branding",
+            None,
+            Some(&cookie),
+            None,
+        )
+        .await;
+        assert_eq!(branding.status, read_status, "{role:?} branding read");
+        if branding.status == StatusCode::OK {
+            assert_eq!(branding.body["can_manage"], role == TenantRole::Owner);
+        }
+        let branding_saved = request(
+            &router,
+            Method::PUT,
+            HOST,
+            "/admin/branding",
+            None,
+            Some(&cookie),
+            Some(json!({
+                "expected_revision": 0,
+                "settings": {"name": "Demo", "logo": "shield", "primary": "teal"}
+            })),
+        )
+        .await;
+        assert_eq!(
+            branding_saved.status, access_status,
+            "{role:?} branding save"
+        );
+        let branding_reset = request(
+            &router,
+            Method::POST,
+            HOST,
+            "/admin/branding/reset",
+            None,
+            Some(&cookie),
+            Some(json!({"expected_revision": 1})),
+        )
+        .await;
+        assert_eq!(
+            branding_reset.status, access_status,
+            "{role:?} branding reset"
+        );
+
         let read = request(
             &router,
             Method::GET,

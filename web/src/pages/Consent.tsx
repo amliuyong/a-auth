@@ -7,6 +7,7 @@ import type { components } from '../api/schema';
 import { api } from '../api/client';
 import { consentContextQuery } from '../consentQuery';
 import { formatMinorUnits } from '../paymentAmount';
+import type { BrandingSettings } from '../branding';
 
 type ConsentContext = components['schemas']['ConsentContext'];
 type PaymentConsentView = components['schemas']['PaymentConsentView'];
@@ -132,7 +133,9 @@ function isRarEntry(value: unknown): value is RarEntry {
  * 动作 path 分离,避免 CloudFront 统一入口按 path 选 origin 时冲突(spec 025)。
  * 展示上下文与 anti-CSRF token 由后端 `GET /consent/context` 下发(consent 走 cookie 会话)。
  */
-export function Consent() {
+export function Consent({ preview }: {
+  preview?: { branding: BrandingSettings; context: ConsentContext };
+} = {}) {
   const { t, i18n } = useTranslation();
   const { search } = useLocation();
   const authorizeQuery = search.startsWith('?') ? search.slice(1) : search;
@@ -143,15 +146,17 @@ export function Consent() {
   const [loading, setLoading] = useState<'approve' | 'deny' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const loginRedirected = useRef(false);
-  const context =
-    loadedContext?.authorizeQuery === authorizeQuery ? loadedContext.data : null;
+  const context = preview?.context ??
+    (loadedContext?.authorizeQuery === authorizeQuery ? loadedContext.data : null);
   const redirectToLogin = useCallback(() => {
+    if (preview) return;
     if (loginRedirected.current) return;
     loginRedirected.current = true;
     window.location.assign(authorizeQuery ? `/login?${authorizeQuery}` : '/login');
-  }, [authorizeQuery]);
+  }, [authorizeQuery, preview]);
 
   useEffect(() => {
+    if (preview) return;
     let cancelled = false;
     setLoadedContext(null);
     setError(null);
@@ -189,7 +194,7 @@ export function Consent() {
     return () => {
       cancelled = true;
     };
-  }, [authorizeQuery, redirectToLogin, t]);
+  }, [authorizeQuery, redirectToLogin, t, preview]);
 
   const client = context
     ? context.client_source === 'cimd' && context.client_id_host
@@ -240,6 +245,7 @@ export function Consent() {
   const csrf = context?.csrf_token ?? '';
 
   const submit = async (decision: 'approve' | 'deny') => {
+    if (preview) return;
     if (!context) return;
     if (decision === 'approve' && paymentBlocked) return;
     setLoading(decision);
@@ -274,7 +280,7 @@ export function Consent() {
   };
 
   return (
-    <Layout>
+    <Layout branded branding={preview?.branding} preview={!!preview}>
       <Typography.Title level={3}>{t('consent.title')}</Typography.Title>
       <Typography.Paragraph type="secondary">
         {t('consent.subtitle', { client })}
@@ -456,13 +462,13 @@ export function Consent() {
         </Card>
       )}
 
-      {context && <span id="agent-auth-consent-ready" hidden aria-hidden="true" />}
+      {context && !preview && <span id="agent-auth-consent-ready" hidden aria-hidden="true" />}
       <Space style={{ width: '100%', justifyContent: 'flex-end', marginTop: 8 }}>
         <Button
           id="agent-auth-consent-deny"
           onClick={() => submit('deny')}
           loading={loading === 'deny'}
-          disabled={!context}
+          disabled={!!preview || !context}
         >
           {t('consent.deny')}
         </Button>
@@ -471,7 +477,7 @@ export function Consent() {
           type="primary"
           onClick={() => submit('approve')}
           loading={loading === 'approve'}
-          disabled={!context || paymentBlocked}
+          disabled={!!preview || !context || paymentBlocked}
         >
           {loading === 'approve' ? t('consent.approving') : t('consent.approve')}
         </Button>

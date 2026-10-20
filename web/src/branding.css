@@ -1,0 +1,10 @@
+.auth-presentation .ant-typography code,
+.auth-presentation .ant-tag {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+}
+
+.auth-presentation .ant-descriptions-item-content {
+  overflow-wrap: anywhere;
+}

@@ -4901,6 +4901,8 @@ pub struct AppState {
     /// attributable Admin sessions. This is intentionally separate from user
     /// login sessions and OAuth authorization sessions.
     pub admin_auth: Arc<AdminAuthStoreImpl>,
+    /// Deployment-owned presentation, never user consent or identity authority.
+    pub branding: Arc<crate::branding_store::BrandingStore>,
     /// SaaS 部署租户注册表。它独立于 token map,防止漏配 token 时把租户静默隐藏。
     pub saas_tenants: Arc<Vec<String>>,
     /// 🔴 安全护栏:是否允许 `/authorize` 的 `login_user` 占位(P0 未接真实登录时的 e2e 便利)。
@@ -6079,6 +6081,7 @@ impl AppState {
             admin_auth: Arc::new(AdminAuthStoreImpl::Memory(
                 crate::adapters::memory::MemoryAdminAuthStore::default(),
             )),
+            branding: Arc::new(crate::branding_store::BrandingStore::memory()),
             saas_tenants: Arc::new(vec![]),
             allow_login_placeholder: true, // 本地/测试:允许 login_user 占位
             dcr_mode: DcrMode::Open,       // 本地/测试:open 档便于 e2e
@@ -7133,9 +7136,12 @@ impl AppState {
             admin_auth: Arc::new(AdminAuthStoreImpl::Dynamo(
                 crate::adapters::aws::DynamoAdminAuthStore::new(
                     db.clone(),
-                    admin_auth_table,
+                    admin_auth_table.clone(),
                     admin_auth_runtime_table,
                 ),
+            )),
+            branding: Arc::new(crate::branding_store::BrandingStore::dynamo(
+                db.clone(), admin_auth_table,
             )),
             saas_tenants: Arc::new(saas_tenants),
             allow_login_placeholder,
