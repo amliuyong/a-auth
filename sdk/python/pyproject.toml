@@ -1,25 +1,34 @@
 [project]
-name = "agent-auth-rs-sdk"
+name = "a-auth"
 version = "1.0.0"
 description = "Agent Auth RS 校验 SDK(spec 010 P1b):MCP 资源服务器侧 access token 校验 — aud 强校验、命名空间 sub_type 策略、kid 强制 alg、未知 kid 重取限流+负缓存、WWW-Authenticate 发现头。"
+readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "pyjwt>=2.8",
     "cryptography>=41",
 ]
-license = { text = "MIT" }
+license = "Apache-2.0"
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
+
+[project.urls]
+Repository = "https://github.com/amliuyong/a-auth"
+Documentation = "https://github.com/amliuyong/a-auth/blob/main/docs/RS_SDK_RELEASE.md"
 
 [project.optional-dependencies]
 test = [
     "build>=1.2",
     "pytest>=7",
-    "setuptools>=61",
+    "setuptools>=77",
     "wheel>=0.45",
 ]
 
 [build-system]
-requires = ["setuptools>=61"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["agent_auth_rs*"]
+
+[tool.setuptools.package-data]
+agent_auth_rs = ["py.typed"]

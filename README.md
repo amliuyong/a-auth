@@ -38,6 +38,8 @@ agents, machine identities, delegation chains, and MCP resources.
   is the current stable source release. Release assets are source
   archives; the Rust crates and resource-server SDKs are not published to
   external package registries.
+  [SDK distribution and release qualification](docs/RS_SDK_RELEASE.md) provides
+  independent local artifact installation while registry ownership is pending.
 - **Repository evidence** — every completed row in the
   [conformance matrix](docs/CONFORMANCE.md) must map to exact automated
   selectors that CI actually runs. Broad suites, comments, and historical
