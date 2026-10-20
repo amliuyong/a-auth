@@ -1,0 +1,4 @@
+include LICENSE README.md THIRD_PARTY_NOTICES.md
+include agent_auth_rs/py.typed
+prune tests
+global-exclude __pycache__ *.py[cod]

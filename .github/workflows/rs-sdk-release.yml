@@ -1,0 +1,121 @@
+name: RS SDK release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rs-sdk-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      deployments: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Check release tag and matching versions
+        run: |
+          [[ "$GITHUB_REF" =~ ^refs/tags/rs-sdk-v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          python - <<'PY'
+          import json, os, tomllib
+          version = os.environ["GITHUB_REF_NAME"].removeprefix("rs-sdk-v")
+          assert json.load(open("sdk/ts/package.json"))["version"] == version
+          assert tomllib.load(open("sdk/python/pyproject.toml", "rb"))["project"]["version"] == version
+          PY
+      - name: Verify actual release environment protections
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python scripts/check_rs_sdk_publisher_setup.py
+      - name: Build and independently install the exact artifacts
+        run: |
+          python -m pip install 'build>=1.2' 'twine>=6'
+          python scripts/qualify_rs_sdk_release.py --require-clean --output "$RUNNER_TEMP/rs-sdk-release"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rs-sdk-qualified
+          path: ${{ runner.temp }}/rs-sdk-release
+          if-no-files-found: error
+
+  publish-npm:
+    needs: qualify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: rs-sdk-npm-release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: rs-sdk-qualified
+          path: qualified
+      - name: Verify artifact digests
+        working-directory: qualified
+        run: sha256sum --check SHA256SUMS
+      - name: Publish through npm trusted publishing
+        run: |
+          npm install --global npm@11.6.4
+          npm publish qualified/*.tgz --access public --provenance
+      - name: Read back registry metadata and artifact bytes
+        run: python3 scripts/verify_rs_sdk_registry.py npm --qualified qualified --receipt npm-registry-receipt.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: npm-registry-receipt
+          path: npm-registry-receipt.json
+          if-no-files-found: error
+
+  publish-pypi:
+    needs: qualify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: rs-sdk-pypi-release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: rs-sdk-qualified
+          path: qualified
+      - name: Verify and select the already tested Python distributions
+        run: |
+          cd qualified
+          sha256sum --check SHA256SUMS
+          mkdir ../dist
+          cp -- *.whl *.tar.gz ../dist/
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
+        with:
+          packages-dir: dist/
+          attestations: true
+      - name: Read back registry metadata and artifact bytes
+        run: python3 scripts/verify_rs_sdk_registry.py pypi --qualified qualified --receipt pypi-registry-receipt.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pypi-registry-receipt
+          path: pypi-registry-receipt.json
+          if-no-files-found: error
