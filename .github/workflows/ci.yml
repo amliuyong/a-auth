@@ -233,6 +233,12 @@ jobs:
       - name: Run exact SDK conformance selectors
         run: ./scripts/run_sdk_conformance_exact_tests.sh
 
+      - name: Verify onboarding MCP transport isolation
+        working-directory: examples/onboarding
+        run: |
+          npm ci
+          npm test
+
   infra-tests:
     name: Infrastructure tests
     runs-on: ubuntu-latest

@@ -79,6 +79,8 @@ actor 和 Grant 吊销后的失败。篡改未签名的 JWT 只证明签名被�
 SDK 来源为 `0c461abca125893b3133bf82d2af1d138589b966`，
 SHA-256 为 `898e0a76b2eec0aeb7344b30b2144a3a5fa8d421c158986faad3d44b86bc3212`。
 MCP SDK 为 1.31.0，oauth4webapi 为 3.8.8，Node.js 为 22.23.3。
+这份记录绑定当时的依赖版本。当前配方已升级 MCP SDK 至 1.32.0；历史 AWS
+结果不能作为新版本的 AWS 验收，补丁验证见[依赖补丁记录](DEPENDENCY_PATCHES.md)。
 
 | 层次 | 结果 | 覆盖及边界 |
 | --- | --- | --- |
