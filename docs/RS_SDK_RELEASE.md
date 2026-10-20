@@ -2,40 +2,52 @@
 
 ## Distribution status
 
-Registry release is **PARTIAL**. PyPI `agent_auth_rs==1.0.1` is published:
+Registry release is **PARTIAL**. PyPI `agent_auth_rs==1.0.2` is published:
 the wheel and sdist match the qualified digests, and independent installs of
 both production-registry distributions pass the HTTP, RAR and DPoP checks.
-npm publishing still requires publisher authentication. Development dependency
-metadata has since changed for the [MCP security patch](DEPENDENCY_PATCHES.md).
-The current source selects 1.0.2 for newly qualified artifacts and a new
-immutable tag. Publication of 1.0.2 is **NOT_RUN** in both registries;
-existing 1.0.1 tags, artifacts and PyPI uploads remain historical.
+npm `agent_auth_rs@1.0.2` is **NOT_PUBLISHED**; browser Passkey authentication
+and public-registry installation acceptance remain pending. The clean 1.0.2
+qualification includes the [MCP security patch](DEPENDENCY_PATCHES.md).
+The three qualified artifacts and immutable tag already exist. Existing 1.0.1
+tags, artifacts and PyPI uploads remain historical.
 Issue #79 stays open until both registries have verified receipts and
 installation acceptance for the new release.
+The dated [1.0.2 publication record](releases/rs-sdk-1.0.2.json) binds
+qualification, registry bytes and installation results to the exact source.
 
 | Artifact | Version | Runtime | Public entry |
 | --- | --- | --- | --- |
 | npm `agent_auth_rs` | 1.0.2 (pending) | Node.js >=22.14, ESM | `agent_auth_rs` |
-| Python wheel / sdist `agent_auth_rs` | 1.0.2 (pending) | Python >=3.10 | `agent_auth_rs` |
+| Python wheel / sdist `agent_auth_rs` | 1.0.2 (published, verified) | Python >=3.10 | `agent_auth_rs` |
 
 Both registries use the same unscoped SDK name without a personal prefix.
 Python's distribution-name normalization treats `agent_auth_rs`,
 `agent-auth-rs` and `agent.auth.rs` as the same project; Python imports remain
 `agent_auth_rs`. PyPI displays
-[`agent-auth-rs`](https://pypi.org/project/agent-auth-rs/1.0.1/);
+[`agent-auth-rs`](https://pypi.org/project/agent-auth-rs/1.0.2/);
 registry verification uses PEP503 canonical identity while preserving exact
-version, filenames and distribution digests. The initial literal-name
-comparison failed after upload; it is retained separately from the successful
-canonical readback. No repeat upload was required.
+version, filenames and distribution digests.
 
 The immutable
+[`rs-sdk-v1.0.2`](https://github.com/amliuyong/a-auth/tree/rs-sdk-v1.0.2)
+tag points to clean qualified source `3ad529fbc7e46fa6e79446b2fee51a768ce41d9d`,
+reviewed and merged in [PR #114](https://github.com/amliuyong/a-auth/pull/114).
+PyPI upload completed at 22:06 UTC on 2026-10-20. Initial JSON API readback
+returned 404 while the public installation index already listed both files;
+subsequent production JSON metadata and downloaded bytes matched qualification.
+No repeat upload was required. Separate clean projects installed the wheel and
+sdist from PyPI; each passed 6 protected HTTP, 3 RAR and 4 DPoP checks.
+This owner-authorized bootstrap has no OIDC provenance attestation.
+
+The historical immutable
 [`rs-sdk-v1.0.1`](https://github.com/amliuyong/a-auth/tree/rs-sdk-v1.0.1)
 tag points to source `0c461abca125893b3133bf82d2af1d138589b966`,
 reviewed and merged in [PR #94](https://github.com/amliuyong/a-auth/pull/94).
+Its first literal-name comparison failed after upload; canonical readback
+resolved Python distribution-name normalization without another upload.
 The existing `rs-sdk-v1.0.0` source tag is immutable. Its
 earlier selected names were not published: npm required additional 2FA, and
-PyPI rejected `a-auth` as too similar to an existing project. Version 1.0.1
-uses a new tag and newly qualified artifacts.
+PyPI rejected `a-auth` as too similar to an existing project.
 
 The package metadata now agrees with the repository's existing Apache-2.0
 LICENSE. Both distributions carry the exact license text and direct runtime
@@ -77,15 +89,16 @@ Install the local artifacts into your application using the commands and
 minimal verification examples in [TypeScript README](../sdk/ts/README.md) or
 [Python README](../sdk/python/README.md). Do not import a workspace path.
 
-After registry receipts exist, independent fixed-version installation is:
+Fixed-version registry installation commands are:
 
 ```bash
 npm install --save-exact agent_auth_rs@1.0.2
 python -m pip install agent_auth_rs==1.0.2
 ```
 
-Both 1.0.2 commands remain pending successful publication acceptance.
-The historical Python 1.0.1 command was verified against production PyPI.
+The Python 1.0.2 command is verified against production PyPI, with separate
+wheel and sdist installs. The npm command remains pending successful
+publication acceptance; use the qualified tarball until that receipt exists.
 Node 22 and Python 3.12 are the
 release qualification
 workflow's selected runtimes; other supported versions require their own
@@ -197,9 +210,11 @@ pairwise subjects without deriving identities. RAR narrows access. Grant-backed
 RAR requires authenticated introspection. Offline JWT verification can remain
 valid until expiry after revocation and cannot cancel a running business call.
 
-当前 1.0.2 的真实 registry 发布为 **NOT_RUN**；本地打包、独立安装和公开入口验证与
+当前 1.0.2 的 PyPI 发布、固定版本制品回读及两个独立安装为 **PASS**；
+npm 发布及公开 registry 安装为 **NOT_RUN**。本地打包验证与各 registry 的
 发布验收分开记录。只有 npm/PyPI 的固定版本制品回读、摘要、源提交与安装验证
-全部完成，才能更新“已发布”状态并关闭 #79。
+全部完成，才能关闭 #79。跳过的 exact selectors 不计 PASS；postmerge main CI
+为 WAIVED_BY_REQUESTER_NOT_PASS。
 
 ## Primary publisher references
 

@@ -1,0 +1,105 @@
+{
+  "version": "1.0.2",
+  "package_names": {
+    "npm": "agent_auth_rs",
+    "pypi": "agent_auth_rs"
+  },
+  "status": "PARTIAL",
+  "source_commit": "3ad529fbc7e46fa6e79446b2fee51a768ce41d9d",
+  "source_pr": "https://github.com/amliuyong/a-auth/pull/114",
+  "source_ci": {
+    "status": "PASS",
+    "url": "https://github.com/amliuyong/a-auth/actions/runs/39503271644",
+    "exact_conformance_selectors": "SKIPPED_NOT_PASS"
+  },
+  "tag": "rs-sdk-v1.0.2",
+  "tag_object": "c0b5bbfcc989d4cc870645f593b8ee42f9413f8b",
+  "qualification": {
+    "status": "PASS",
+    "source_dirty": false,
+    "artifacts": [
+      {
+        "file": "agent_auth_rs-1.0.2.tgz",
+        "sha256": "4d3afba1ac7a89115466f1798f8ec7ee84aca2faa87101a8bccc2c928cff77de",
+        "size": 35641
+      },
+      {
+        "file": "agent_auth_rs-1.0.2-py3-none-any.whl",
+        "sha256": "1be55bd7cb987161ba4accbcb1b890e0fba96bf8f066a3044896d4fe9e959f56",
+        "size": 37846
+      },
+      {
+        "file": "agent_auth_rs-1.0.2.tar.gz",
+        "sha256": "5ca38ba4496357bede7841c198c40acc8be3a434aadad2127a01bf8cdbacfcc5",
+        "size": 34184
+      }
+    ],
+    "independent_artifact_installs": 3,
+    "protected_http_cases_per_install": 6,
+    "rar_cases_per_install": 3,
+    "dpop_cases_per_install": 4
+  },
+  "pypi": {
+    "status": "PASS",
+    "registry": "https://pypi.org",
+    "metadata": "https://pypi.org/pypi/agent_auth_rs/1.0.2/json",
+    "verified_at": "2026-10-20T22:29:00.788907+00:00",
+    "artifacts": [
+      {
+        "file": "agent_auth_rs-1.0.2-py3-none-any.whl",
+        "sha256": "1be55bd7cb987161ba4accbcb1b890e0fba96bf8f066a3044896d4fe9e959f56",
+        "url": "https://files.pythonhosted.org/packages/8f/c5/2b6445c1c388d3778f0ef9f8ca5c796ee07115d79f89ab87dea4ef8cbfde/agent_auth_rs-1.0.2-py3-none-any.whl",
+        "size": 37846,
+        "upload_time": "2026-10-20T22:06:12.455219Z"
+      },
+      {
+        "file": "agent_auth_rs-1.0.2.tar.gz",
+        "sha256": "5ca38ba4496357bede7841c198c40acc8be3a434aadad2127a01bf8cdbacfcc5",
+        "url": "https://files.pythonhosted.org/packages/c3/b5/be51ce2774cea5005cc96a2e0aca20a107603dcfc848250d6bd54cd4f098/agent_auth_rs-1.0.2.tar.gz",
+        "size": 34184,
+        "upload_time": "2026-10-20T22:06:13.449509Z"
+      }
+    ],
+    "independent_registry_installs": [
+      {
+        "distribution": "wheel",
+        "status": "PASS",
+        "sha256": "1be55bd7cb987161ba4accbcb1b890e0fba96bf8f066a3044896d4fe9e959f56",
+        "protected_http_cases": 6,
+        "rar_cases": 3,
+        "dpop_cases": 4,
+        "runtime": "Python 3.12",
+        "source_imports": false
+      },
+      {
+        "distribution": "sdist",
+        "status": "PASS",
+        "sha256": "5ca38ba4496357bede7841c198c40acc8be3a434aadad2127a01bf8cdbacfcc5",
+        "protected_http_cases": 6,
+        "rar_cases": 3,
+        "dpop_cases": 4,
+        "runtime": "Python 3.12",
+        "source_imports": false
+      }
+    ],
+    "publication_method": "OWNER_AUTHORIZED_BOOTSTRAP",
+    "oidc_provenance": "NOT_CONFIGURED",
+    "initial_json_readback": "404_PENDING_PROPAGATION",
+    "upload_repeated": false,
+    "initial_registry_install_attempt": "FAIL_ASSERTION_CAUSE_UNDETERMINED_RETAINED",
+    "final_registry_install_attempt": 2
+  },
+  "npm": {
+    "status": "NOT_PUBLISHED",
+    "registry": "https://registry.npmjs.org",
+    "metadata_readback": "HTTP_404",
+    "independent_registry_install": "NOT_RUN",
+    "reason": "BROWSER_PASSKEY_AUTHENTICATION_PENDING",
+    "recovery_code": "NOT_USED",
+    "verified_at": "2026-10-20T22:30:12.232062+00:00"
+  },
+  "main_ci": "WAIVED_BY_REQUESTER_NOT_PASS",
+  "issue79": "OPEN_PENDING_NPM",
+  "issue80": "OPEN_PENDING_PUBLIC_NPM_INSTALLED_ONBOARDING_ACCEPTANCE",
+  "aws_redeployment": "NOT_RUN"
+}
