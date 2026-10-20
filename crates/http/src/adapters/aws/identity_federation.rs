@@ -1065,72 +1065,7 @@ impl HttpJwksFetcher {
         #[cfg(test)]
         self.network_requests
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        agent_auth_ciba::validate_endpoint_url(jwks_uri, None)
-            .map_err(|_| StoreError::Permanent("JWKS URI blocked by SSRF policy".to_string()))?;
-        let url = reqwest::Url::parse(jwks_uri)
-            .map_err(|_| StoreError::Permanent("invalid JWKS URI".to_string()))?;
-        let host = url
-            .host_str()
-            .ok_or_else(|| StoreError::Permanent("invalid JWKS host".to_string()))?
-            .to_string();
-        let port = url.port_or_known_default().unwrap_or(443);
-        let addrs: Vec<std::net::SocketAddr> = if let Ok(ip) = host.parse::<std::net::IpAddr>() {
-            vec![std::net::SocketAddr::new(ip, port)]
-        } else {
-            tokio::time::timeout(
-                JWKS_DNS_TIMEOUT,
-                tokio::net::lookup_host((host.as_str(), port)),
-            )
-            .await
-            .map_err(|_| StoreError::Transient("JWKS DNS timeout".to_string()))?
-            .map_err(|e| StoreError::Transient(format!("JWKS DNS: {e}")))?
-            .collect()
-        };
-        let ips: Vec<std::net::IpAddr> = addrs.iter().map(|address| address.ip()).collect();
-        if !agent_auth_ciba::resolved_ips_allowed(&ips) {
-            return Err(StoreError::Permanent(
-                "JWKS host blocked by SSRF policy".to_string(),
-            ));
-        }
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(3))
-            .redirect(reqwest::redirect::Policy::none())
-            .resolve_to_addrs(&host, &[addrs[0]])
-            .no_proxy()
-            .build()
-            .map_err(|e| StoreError::Permanent(format!("JWKS client: {e}")))?;
-        let mut resp = client
-            .get(jwks_uri)
-            .send()
-            .await
-            .map_err(|e| StoreError::Transient(format!("JWKS GET: {e}")))?;
-        if !resp.status().is_success() {
-            return Err(StoreError::Transient(format!(
-                "JWKS GET status {}",
-                resp.status()
-            )));
-        }
-        if resp
-            .content_length()
-            .is_some_and(|length| length > JWKS_MAX_RESPONSE_BYTES as u64)
-        {
-            return Err(StoreError::Permanent(
-                "JWKS response exceeds size limit".to_string(),
-            ));
-        }
-        let mut body = Vec::new();
-        while let Some(chunk) = resp
-            .chunk()
-            .await
-            .map_err(|e| StoreError::Transient(format!("JWKS body: {e}")))?
-        {
-            if body.len() + chunk.len() > JWKS_MAX_RESPONSE_BYTES {
-                return Err(StoreError::Permanent(
-                    "JWKS response exceeds size limit".to_string(),
-                ));
-            }
-            body.extend_from_slice(&chunk);
-        }
+        let body = super::oidc_metadata::fetch_public_document(jwks_uri).await?;
         parse_jwks_document(&body)
     }
 }

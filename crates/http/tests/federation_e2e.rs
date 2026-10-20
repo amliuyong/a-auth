@@ -367,13 +367,32 @@ async fn start_federation_request(
     downstream_state: &str,
     acr_values: Option<&str>,
 ) -> String {
+    start_federation_request_for_provider(
+        router,
+        challenge,
+        downstream_state,
+        acr_values,
+        IDP,
+        &format!("{UPSTREAM_ISS}/authorize"),
+    )
+    .await
+}
+
+async fn start_federation_request_for_provider(
+    router: &axum::Router,
+    challenge: &str,
+    downstream_state: &str,
+    acr_values: Option<&str>,
+    idp: &str,
+    authorization_endpoint: &str,
+) -> String {
     let acr_query = acr_values
         .map(|value| format!("&acr_values={value}"))
         .unwrap_or_default();
     let authz = format!(
         "/authorize?response_type=code&client_id={DS_CLIENT}&redirect_uri={DS_REDIRECT}\
          &code_challenge={challenge}&code_challenge_method=S256&scope=openid&state={downstream_state}\
-         &idp_hint={IDP}{acr_query}"
+         &idp_hint={idp}{acr_query}"
     );
     let response = router
         .clone()
@@ -393,10 +412,208 @@ async fn start_federation_request(
     );
     let upstream_location = location(&response);
     assert!(
-        upstream_location.starts_with(&format!("{UPSTREAM_ISS}/authorize")),
+        upstream_location.starts_with(&format!("{authorization_endpoint}?")),
         "must redirect to upstream authorize: {upstream_location}"
     );
     query_param(&upstream_location, "state").expect("upstream state")
+}
+
+#[tokio::test]
+async fn three_template_configs_complete_controlled_oidc_flow_through_existing_api() {
+    let fixtures: Vec<serde_json::Value> = serde_json::from_str(include_str!(
+        "../../../tests/fixtures/federation-templates.json"
+    ))
+    .unwrap();
+    assert_eq!(fixtures.len(), 3);
+    let (router, state) = app_with_federation().await;
+    for fixture in fixtures {
+        assert_eq!(fixture["version"], 1);
+        let config = &fixture["config"];
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri("/admin/federation")
+                    .header("host", HOST)
+                    .header("authorization", "Bearer dev-admin-token-not-for-prod")
+                    .header("content-type", "application/json")
+                    .body(Body::from(config.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::CREATED,
+            "{}",
+            fixture["template"]
+        );
+        let idp = config["upstream_idp_id"].as_str().unwrap();
+        let issuer = config["upstream_issuer"].as_str().unwrap();
+        let jwks = config["jwks_uri"].as_str().unwrap();
+        state
+            .secret_resolver_seed(
+                config["client_secret_ref"].as_str().unwrap(),
+                "TEST-ONLY-SECRET",
+            )
+            .await;
+        let flow_state = start_federation_request_for_provider(
+            &router,
+            &s256_challenge(VERIFIER),
+            "controlled-downstream-state",
+            None,
+            idp,
+            config["authorization_endpoint"].as_str().unwrap(),
+        )
+        .await;
+        let flow = peek_federation_flow(&state, &flow_state).await;
+        assert_eq!(flow.tenant_id, "default");
+        assert_eq!(flow.upstream_idp_id, idp);
+        let now = agent_auth_http::current_unix_secs();
+        let (id_token, jwk) = mint_upstream_id_token(serde_json::json!({
+            "iss": issuer, "sub": "controlled-user", "aud": config["client_id"],
+            "exp": now + 300, "iat": now, "nonce": flow.nonce,
+            "acr": "unconfigured-provider-acr", "amr": ["mfa"], "auth_time": now,
+            "roles": ["Admin"]
+        }))
+        .await;
+        state.jwks_fetcher_set(jwks, vec![jwk]).await;
+        let upstream_code = format!("controlled-code-{idp}");
+        state
+            .upstream_exchanger_seed(
+                &upstream_code,
+                UpstreamTokenSet {
+                    id_token,
+                    access_token: None,
+                },
+            )
+            .await;
+        let callback = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/federation/callback?code={upstream_code}&state={flow_state}"
+                    ))
+                    .header("host", HOST)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let code = approve_federated_callback(&router, callback).await;
+        let tokens = exchange_code_for_tokens(&router, &code).await;
+        assert!(tokens["access_token"].as_str().is_some());
+        assert_eq!(
+            jwt_claim(tokens["id_token"].as_str().unwrap(), "acr"),
+            serde_json::json!(agent_auth_authn::assurance::BASELINE_ACR),
+            "a template, untrusted ACR and upstream MFA must not elevate assurance"
+        );
+        assert!(jwt_claim(tokens["id_token"].as_str().unwrap(), "roles").is_null());
+        let requests = state.upstream_exchanger_requests().await;
+        let observed = requests.last().unwrap();
+        assert_eq!(
+            observed.token_endpoint,
+            config["token_endpoint"].as_str().unwrap()
+        );
+        assert_eq!(observed.client_id, config["client_id"].as_str().unwrap());
+        assert_eq!(observed.code_challenge, s256_challenge(&flow.code_verifier));
+        assert_eq!(
+            observed.redirect_uri,
+            "https://localhost/federation/callback"
+        );
+        assert!(state
+            .federation_flow
+            .consume(&flow_state)
+            .await
+            .unwrap()
+            .is_none());
+    }
+}
+
+#[tokio::test]
+async fn saas_federation_refuses_unowned_secrets_and_unsafe_legacy_endpoints() {
+    let mut state = federation_state().await;
+    state.form = agent_auth_discovery::Form::Saas {
+        zone: "example.com".into(),
+        control_host: "c.example.com".into(),
+    };
+    state.tenant_partitioning = true;
+    state.saas_tenants = Arc::new(vec!["t1".into(), "t3".into()]);
+    let mut config = state
+        .federation_config
+        .get("default", IDP)
+        .await
+        .unwrap()
+        .unwrap();
+    config.tenant_id = "t1".into();
+    config.oidc.as_mut().unwrap().client_secret_ref = "agent-auth/federation/t1/controlled".into();
+    let mut headers = HeaderMap::new();
+    headers.insert("host", "t1.example.com".parse().unwrap());
+
+    for reference in [
+        "agent-auth/federation/t3/controlled",
+        "agent-auth/federation/shared",
+        "arn:aws:secretsmanager:us-east-1:123456789012:secret:agent-auth/federation/t3/controlled-ABCDEF",
+    ] {
+        let mut unsafe_config = config.clone();
+        unsafe_config.oidc.as_mut().unwrap().client_secret_ref = reference.into();
+        state.federation_config.put(unsafe_config).await.unwrap();
+        assert!(
+            agent_auth_http::federation_flow::start(&state, &headers, IDP, "", None, false).await.is_none(),
+            "an unowned reference must be refused before issuing an upstream redirect"
+        );
+    }
+    for field in ["authorization_endpoint", "token_endpoint", "jwks_uri"] {
+        let mut unsafe_config = config.clone();
+        let params = unsafe_config.oidc.as_mut().unwrap();
+        match field {
+            "authorization_endpoint" => {
+                params.authorization_endpoint = "https://test.lambda-url.us-east-1.on.aws/".into()
+            }
+            "token_endpoint" => params.token_endpoint = "https://127.0.0.1/token".into(),
+            "jwks_uri" => params.jwks_uri = "https://[fec0::1]/keys".into(),
+            _ => unreachable!(),
+        }
+        state.federation_config.put(unsafe_config).await.unwrap();
+        assert!(
+            agent_auth_http::federation_flow::start(&state, &headers, IDP, "", None, false)
+                .await
+                .is_none(),
+            "{field} must be refused before issuing an upstream redirect"
+        );
+    }
+    state.federation_config.put(config.clone()).await.unwrap();
+    let start = agent_auth_http::federation_flow::start(&state, &headers, IDP, "", None, false)
+        .await
+        .expect("a valid tenant-owned config must still start");
+    let flow_state = query_param(&location(&start), "state").unwrap();
+    // A config can change after start. Recheck before resolving any secret or
+    // calling the exchanger; the sentinel is synthetic and never leaves memory.
+    config.oidc.as_mut().unwrap().client_secret_ref = "agent-auth/federation/t3/controlled".into();
+    state
+        .secret_resolver_seed(
+            "agent-auth/federation/t3/controlled",
+            "TEST-ONLY-DO-NOT-EXCHANGE",
+        )
+        .await;
+    state.federation_config.put(config).await.unwrap();
+    let (router, _) = build_router(state.clone());
+    let response = router
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/federation/callback?code=controlled&state={flow_state}"
+                ))
+                .header("host", "t1.example.com")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert!(state.upstream_exchanger_requests().await.is_empty());
 }
 
 // 驱动 /authorize?idp_hint → 拿到上游重定向里的 state(flow key)。
@@ -1588,7 +1805,7 @@ async fn callback_on_another_tenant_host_emits_boundary_denial() {
             strong_acr_values: vec![],
             oidc: Some(agent_auth_authn::federation::OidcRpParams {
                 client_id: UP_CLIENT.into(),
-                client_secret_ref: SECRET_REF.into(),
+                client_secret_ref: "agent-auth/federation/t1/controlled".into(),
                 authorization_endpoint: format!("{UPSTREAM_ISS}/authorize"),
                 token_endpoint: format!("{UPSTREAM_ISS}/token"),
                 jwks_uri: format!("{UPSTREAM_ISS}/jwks"),

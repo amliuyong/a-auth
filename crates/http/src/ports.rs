@@ -1011,6 +1011,24 @@ pub trait JwksFetcher: Send + Sync {
     ) -> impl Future<Output = Result<Vec<PlatformJwk>, StoreError>> + Send;
 }
 
+/// Only the public metadata fields needed to compare a registered OIDC trust.
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct OidcMetadata {
+    pub issuer: Option<String>,
+    pub authorization_endpoint: Option<String>,
+    pub token_endpoint: Option<String>,
+    pub jwks_uri: Option<String>,
+}
+
+/// The caller derives this URL from an authenticated tenant's saved issuer.
+/// Production must bound DNS/HTTP/response size and pin an allowed public IP.
+pub trait OidcMetadataFetcher: Send + Sync {
+    fn fetch(
+        &self,
+        discovery_url: &str,
+    ) -> impl Future<Output = Result<OidcMetadata, StoreError>> + Send;
+}
+
 /// STS `GetCallerIdentity` 转发端口(spec 012 C5.2/C5.3:SigV4/STS 兜底路径)。
 /// 真机 = reqwest POST 到**已校验的固定 STS host**(前校 `validate_sigv4_pre_sts` 通过后才调),
 /// 带超时(2s);dev/测试 = 内存预置(assertion signature → 身份)。

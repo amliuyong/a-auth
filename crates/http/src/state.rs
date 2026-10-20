@@ -971,6 +971,23 @@ impl crate::ports::JwksFetcher for JwksFetcherImpl {
     }
 }
 
+#[derive(Clone)]
+pub enum OidcMetadataFetcherImpl {
+    Memory(crate::adapters::memory::MemoryOidcMetadataFetcher),
+    #[cfg(feature = "aws")]
+    Http(crate::adapters::aws::HttpOidcMetadataFetcher),
+}
+
+impl crate::ports::OidcMetadataFetcher for OidcMetadataFetcherImpl {
+    async fn fetch(&self, url: &str) -> Result<crate::ports::OidcMetadata, StoreError> {
+        match self {
+            Self::Memory(fetcher) => fetcher.fetch(url).await,
+            #[cfg(feature = "aws")]
+            Self::Http(fetcher) => fetcher.fetch(url).await,
+        }
+    }
+}
+
 /// STS caller 端口枚举分发(spec 012 C5.2)。dev/测试 = Memory(mock);真机 = Http(reqwest→STS)。
 pub enum StsCallerImpl {
     Memory(crate::adapters::memory::MemoryStsCaller),
@@ -4970,6 +4987,8 @@ pub struct AppState {
     pub ciba_delivery: Arc<CibaCallbackDeliveryImpl>,
     /// 平台 JWKS 取用(spec 012 workload_oidc_jwt 本地验签;dev 内存,真机 HTTP+缓存)。
     pub jwks_fetcher: Arc<JwksFetcherImpl>,
+    /// Public discovery diagnostics, isolated from secret resolution and login.
+    pub oidc_metadata_fetcher: Arc<OidcMetadataFetcherImpl>,
     /// STS caller(spec 012 C5.2 SigV4/STS 兜底)。**None = SigV4 路径未启用**(fail-closed:
     /// aws_sigv4_caller_identity 认证直接拒);Some 时配套熔断器 `sts_circuit`。
     pub sts_caller: Option<Arc<StsCallerImpl>>,
@@ -6135,6 +6154,9 @@ impl AppState {
             jwks_fetcher: Arc::new(JwksFetcherImpl::Memory(
                 crate::adapters::memory::MemoryJwksFetcher::default(),
             )),
+            oidc_metadata_fetcher: Arc::new(OidcMetadataFetcherImpl::Memory(
+                crate::adapters::memory::MemoryOidcMetadataFetcher::default(),
+            )),
             // dev/测试:开 STS caller(内存 mock)便于 SigV4 路径 e2e;测试用 with_sts 覆盖预置。
             sts_caller: Some(Arc::new(StsCallerImpl::Memory(
                 crate::adapters::memory::MemoryStsCaller::default(),
@@ -7256,6 +7278,9 @@ impl AppState {
             )),
             jwks_fetcher: Arc::new(JwksFetcherImpl::Http(
                 crate::adapters::aws::HttpJwksFetcher::new(),
+            )),
+            oidc_metadata_fetcher: Arc::new(OidcMetadataFetcherImpl::Http(
+                crate::adapters::aws::HttpOidcMetadataFetcher::default(),
             )),
             // SigV4/STS 真转发(reqwest→STS,超时 2s)。SigV4 路径的准入仍 fail-closed:无 SigV4
             // 信任绑定的 client 认证不了(match_sigv4 无匹配即拒),故 caller 恒 Some 无安全放松。

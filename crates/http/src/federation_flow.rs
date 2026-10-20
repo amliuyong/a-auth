@@ -166,6 +166,12 @@ pub async fn start(
         .get(&tenant, idp_hint)
         .await
         .ok()??;
+    if config.tenant_id != tenant
+        || config.upstream_idp_id != idp_hint
+        || crate::federation_checks::invalid_config_field(&config, &state.form).is_some()
+    {
+        return None;
+    }
     let oidc = config.oidc.as_ref()?; // 无 OIDC 参数(SAML/残缺)→ 回落
     let requires_strong =
         requested_class(query_param(original_authz_request, "acr_values").as_deref())
@@ -333,6 +339,17 @@ pub async fn callback(
             .await
         }
     };
+    if config.tenant_id != flow.tenant_id
+        || config.upstream_idp_id != flow.upstream_idp_id
+        || crate::federation_checks::invalid_config_field(&config, &state.form).is_some()
+    {
+        return audit_federation_rejection(
+            &state,
+            &flow.tenant_id,
+            (StatusCode::BAD_REQUEST, "invalid upstream config").into_response(),
+        )
+        .await;
+    }
     let Some(oidc) = config.oidc.as_ref() else {
         return audit_federation_rejection(
             &state,

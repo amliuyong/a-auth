@@ -27,6 +27,8 @@ pub enum EndpointUrlError {
     PortNotAllowed(u16),
     /// host 是字面私网/loopback/link-local IP(URL 里直接写 IP 的情形,免 DNS 也拦)。
     LiteralPrivateIp,
+    /// Lambda Function URLs are forbidden in every authentication mode.
+    LambdaFunctionUrl,
     /// URL 无法解析(格式非法)。
     Malformed,
 }
@@ -96,6 +98,15 @@ pub fn validate_endpoint_url<'a>(
     };
     if host.is_empty() {
         return Err(EndpointUrlError::EmptyHost);
+    }
+    // Keep the checked authority identical to the HTTP client's DNS host.
+    // Encoded host punctuation must not bypass endpoint restrictions.
+    if host.contains('%') || host.contains('\\') {
+        return Err(EndpointUrlError::Malformed);
+    }
+    let normalized_host = host.trim_end_matches('.').to_ascii_lowercase();
+    if normalized_host.contains(".lambda-url.") && normalized_host.ends_with(".on.aws") {
+        return Err(EndpointUrlError::LambdaFunctionUrl);
     }
 
     // 端口校验(缺省 443)。
@@ -176,11 +187,14 @@ fn v6_is_blocked(ip: &Ipv6Addr) -> bool {
     //   ① IPv4-mapped ::ffff:a.b.c.d;② IPv4-compatible ::a.b.c.d(deprecated 但仍可解析);
     //   ③ NAT64 64:ff9b::/96 与 64:ff9b:1::/48;④ 6to4 2002::/16(内嵌 IPv4 在 seg[1..3])。
     if let Some(v4) = embedded_ipv4(ip) {
-        if v4_is_blocked(&v4) {
-            return true;
-        }
+        return v4_is_blocked(&v4);
     }
-    false
+    // Native public unicast is 2000::/3. Block special-purpose 2001::/23
+    // conservatively, plus both documentation allocations. This also rejects
+    // deprecated site-local, discard-only and unallocated address classes.
+    (seg[0] & 0xe000) != 0x2000
+        || (seg[0] == 0x2001 && (seg[1] < 0x0200 || seg[1] == 0x0db8))
+        || (seg[0] == 0x3fff && (seg[1] & 0xf000) == 0)
 }
 
 /// 从各种内嵌 IPv4 的 IPv6 表示中提取 IPv4 地址(供 SSRF 复判)。无内嵌 → None。
@@ -213,6 +227,22 @@ fn embedded_ipv4(ip: &Ipv6Addr) -> Option<Ipv4Addr> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn rejects_lambda_function_urls_regardless_of_case_or_trailing_dot() {
+        for endpoint in [
+            "https://test.lambda-url.us-east-1.on.aws/",
+            "https://test.LAMBDA-URL.eu-west-1.on.aws./callback",
+        ] {
+            assert_eq!(
+                super::validate_endpoint_url(endpoint, None),
+                Err(super::EndpointUrlError::LambdaFunctionUrl),
+            );
+        }
+        assert!(
+            super::validate_endpoint_url("https://test%2elambda-url.us-east-1.on.aws/", None,)
+                .is_err()
+        );
+    }
     use super::*;
 
     #[test]
@@ -308,6 +338,26 @@ mod tests {
         assert!(!resolved_ips_allowed(&[priv10]));
         // 空列表(解析不出)→ 拒(fail-closed)。
         assert!(!resolved_ips_allowed(&[]));
+    }
+
+    #[test]
+    fn resolved_ipv6_requires_public_unicast_or_a_public_ipv4_translation() {
+        for address in [
+            "fec0::1",     // deprecated site-local
+            "100::1",      // discard-only
+            "2001:db8::1", // documentation
+            "3fff::1",     // documentation
+            "2001:2::1",   // benchmarking
+            "2001:10::1",  // ORCHID
+            "4000::1",     // outside allocated global unicast
+        ] {
+            let ip = address.parse().unwrap();
+            assert!(!resolved_ips_allowed(&[ip]), "{address}");
+        }
+        for address in ["2606:4700::1111", "64:ff9b::8.8.8.8", "2002:0808:0808::"] {
+            let ip = address.parse().unwrap();
+            assert!(resolved_ips_allowed(&[ip]), "{address}");
+        }
     }
 
     #[test]

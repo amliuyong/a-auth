@@ -325,11 +325,13 @@ mod clients;
 pub use clients::{DynamoClientStore, DynamoInitialAccessTokenStore};
 
 mod identity_federation;
+mod oidc_metadata;
 pub use identity_federation::{
     DynamoAdminAuthStore, DynamoFederationConfigStore, DynamoFederationFlowStore,
     DynamoWorkloadTrustStore, HttpJwksFetcher, HttpStsCaller, HttpUpstreamTokenExchanger,
     SecretsManagerResolver,
 };
+pub use oidc_metadata::HttpOidcMetadataFetcher;
 
 mod ciba_device;
 #[cfg(all(test, feature = "transport-test"))]

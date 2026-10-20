@@ -601,7 +601,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** List the authenticated tenant without a caller-selected tenant parameter. */
+        get: operations["list_current_federation_idps"];
         /** `PUT /admin/federation`:登记上游 OIDC IdP 配置(admin 认证,C9.5b)。 */
         put: operations["put_federation_idp"];
         post?: never;
@@ -672,6 +673,22 @@ export interface paths {
         put: operations["update_federation_attribute_mapping"];
         post?: never;
         delete: operations["delete_federation_attribute_mapping"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/federation/{tenant_id}/{upstream_idp_id}/checks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["check_federation_idp"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -2385,6 +2402,8 @@ export interface components {
             /** Format: int64 */
             interval: number;
         };
+        /** @enum {string} */
+        CheckStatus: "PASS" | "FAIL" | "UNKNOWN" | "NOT_RUN";
         ClientDeleteResponse: {
             deleted: boolean;
             deleted_grants: number;
@@ -2730,6 +2749,24 @@ export interface components {
             target_namespace: string;
             target_value: string | null;
         };
+        FederationCheckStep: {
+            field?: string | null;
+            /** @description Stable reason code; provider responses and URLs are never echoed. */
+            reason: string;
+            status: components["schemas"]["CheckStatus"];
+        };
+        FederationChecks: {
+            /** Format: int64 */
+            checked_at: number;
+            discovery: components["schemas"]["FederationCheckStep"];
+            format: components["schemas"]["FederationCheckStep"];
+            jwks: components["schemas"]["FederationCheckStep"];
+            login: components["schemas"]["FederationCheckStep"];
+        };
+        FederationConfigValidationError: {
+            error: string;
+            field: string;
+        };
         /** @description 登记/更新一条联邦上游 OIDC IdP 配置(admin 面 PUT)。secret 只收**引用名**(不收明文)。 */
         FederationIdpCreate: {
             authorization_endpoint: string;
@@ -2750,6 +2787,8 @@ export interface components {
         };
         FederationIdpList: {
             idps: components["schemas"]["FederationIdpView"][];
+            /** @description Logical tenant selected by authenticated administrator context. */
+            tenant_id: string;
             total: number;
         };
         /** @description 联邦 IdP 配置视图(列表回显;**不含 client_secret_ref**——引用名也不回显,防信息面扩大)。 */
@@ -5975,6 +6014,44 @@ export interface operations {
             };
         };
     };
+    list_current_federation_idps: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current tenant's federation providers */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FederationIdpList"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     put_federation_idp: {
         parameters: {
             query?: never;
@@ -6000,7 +6077,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["FederationConfigValidationError"];
+                };
             };
             401: {
                 headers: {
@@ -6338,6 +6417,61 @@ export interface operations {
                 };
                 content?: never;
             };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    check_federation_idp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                upstream_idp_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Separated diagnostics; login remains NOT_RUN */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FederationChecks"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Configuration changed during checks */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Configuration store unavailable */
             503: {
                 headers: {
                     [name: string]: unknown;
