@@ -5,6 +5,10 @@ as CoveAI. It uses the existing authorization-code flow, user consent, workload
 OIDC authentication and RFC 8693 token exchange. The TypeScript resource-server
 SDK remains a verifier/introspection SDK; an exchange client is not added.
 
+The [Agent / CLI client-library decision](CLIENT_LIBRARY_DECISION.md) records
+the measured recipe costs and why a separate client package is not currently
+provided, including the prerequisites for reconsidering that boundary.
+
 ## Provisioning and consent
 
 A tenant administrator first creates an actor-only client through
