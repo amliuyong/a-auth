@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Button,
@@ -17,6 +17,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { Layout } from '../Layout';
 import { api } from '../api/client';
+import type { components } from '../api/schema';
 import { RecoverySetup } from './RecoverySetup';
 import { AccountCredentials } from './AccountCredentials';
 
@@ -31,13 +32,7 @@ import { AccountCredentials } from './AccountCredentials';
  * `/grants` 落 default→API,避免同 path 冲突(spec 025 收敛,同 /consent↔/consent/decision)。
  */
 
-type GrantView = {
-  grant_id: string;
-  client_id: string;
-  resources: { resource: string; scopes: string[] }[];
-  status: string;
-  expires_at: number;
-};
+type GrantView = components['schemas']['GrantView'];
 
 type LoginSessionView = {
   id: string;
@@ -58,15 +53,27 @@ export function Account() {
   const [error, setError] = useState<string | null>(null);
   const [revoking, setRevoking] = useState<string | null>(null);
   const [revokingOthers, setRevokingOthers] = useState(false);
+  const loadRevision = useRef(0);
+
+  const clearAccount = useCallback((signin: boolean) => {
+    loadRevision.current += 1;
+    setNeedLogin(signin);
+    setGrants([]);
+    setSessions([]);
+  }, []);
 
   const load = useCallback(async () => {
+    const revision = ++loadRevision.current;
     setError(null);
     setNeedLogin(false);
+    setGrants(null);
+    setSessions(null);
     try {
       const [grantResult, sessionResult] = await Promise.all([
         api.GET('/grants'),
         api.GET('/account/sessions'),
       ]);
+      if (revision !== loadRevision.current) return;
       if (grantResult.response.status === 401 || sessionResult.response.status === 401) {
         setNeedLogin(true);
         setGrants([]);
@@ -75,7 +82,7 @@ export function Account() {
         (grantResult.response.ok || grantResult.response.status === 404) &&
         sessionResult.response.ok
       ) {
-        setGrants(grantResult.response.ok ? ((grantResult.data as GrantView[]) ?? []) : []);
+        setGrants(grantResult.response.ok ? (grantResult.data ?? []) : []);
         setSessions((sessionResult.data as LoginSessionView[]) ?? []);
       } else {
         setError(t('error.generic'));
@@ -83,6 +90,7 @@ export function Account() {
         setSessions([]);
       }
     } catch (e) {
+      if (revision !== loadRevision.current) return;
       setError(e instanceof TypeError ? t('error.network') : t('error.generic'));
       setGrants([]);
       setSessions([]);
@@ -91,6 +99,7 @@ export function Account() {
 
   useEffect(() => {
     void load();
+    return () => { loadRevision.current += 1; };
   }, [load]);
 
   const revoke = async (grantId: string) => {
@@ -100,7 +109,10 @@ export function Account() {
         params: { path: { grant_id: grantId } },
       });
       if (response.status === 401) {
-        setNeedLogin(true);
+        clearAccount(true);
+      } else if (response.status === 403) {
+        clearAccount(false);
+        setError(t('error.generic'));
       } else if (response.ok) {
         void message.success(t('account.revoke.ok'));
         await load();
@@ -121,12 +133,10 @@ export function Account() {
         params: { path: { session_id: session.id } },
       });
       if (response.status === 401) {
-        setNeedLogin(true);
+        clearAccount(true);
       } else if (response.ok) {
         if (session.current) {
-          setNeedLogin(true);
-          setGrants([]);
-          setSessions([]);
+          clearAccount(true);
           void message.success(t('account.sessions.signedOut'));
         } else {
           void message.success(t('account.sessions.revokeOk'));
@@ -147,7 +157,7 @@ export function Account() {
     try {
       const { response } = await api.DELETE('/account/sessions');
       if (response.status === 401) {
-        setNeedLogin(true);
+        clearAccount(true);
       } else if (response.ok) {
         void message.success(t('account.sessions.revokeOthersOk'));
         await load();
@@ -167,10 +177,16 @@ export function Account() {
   };
 
   // 到期时间:秒级 unix → 本地化日期(随 i18n 语言)。
-  const fmtExpiry = (secs: number) =>
-    new Intl.DateTimeFormat(i18n.language.startsWith('zh') ? 'zh-CN' : 'en-US', {
+  const fmtExpiry = (secs: number) => {
+    const date = new Date(secs * 1000);
+    if (!Number.isFinite(date.getTime())) return t('account.actors.unknown');
+    return new Intl.DateTimeFormat(i18n.language.startsWith('zh') ? 'zh-CN' : 'en-US', {
       dateStyle: 'medium',
-    }).format(new Date(secs * 1000));
+    }).format(date);
+  };
+
+  const grantStatus = (g: GrantView) =>
+    g.status === 'active' && g.expires_at <= Date.now() / 1000 ? 'expired' : g.status;
 
   const fmtDateTime = (secs: number) =>
     new Intl.DateTimeFormat(i18n.language.startsWith('zh') ? 'zh-CN' : 'en-US', {
@@ -180,10 +196,8 @@ export function Account() {
 
   const loading = grants === null || sessions === null;
   const credentialSessionRevoked = useCallback(() => {
-    setNeedLogin(true);
-    setGrants([]);
-    setSessions([]);
-  }, []);
+    clearAccount(true);
+  }, [clearAccount]);
 
   return (
     <Layout wide>
@@ -309,6 +323,9 @@ export function Account() {
 
           <Divider />
           <Typography.Title level={4}>{t('account.grants.title')}</Typography.Title>
+          <Typography.Paragraph type="secondary">
+            {t('account.revoke.boundaries')}
+          </Typography.Paragraph>
           {grants?.length === 0 ? (
             <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('account.empty')} />
           ) : (
@@ -319,7 +336,7 @@ export function Account() {
             renderItem={(g) => (
               <List.Item
                 actions={
-                  g.status === 'active'
+                  grantStatus(g) === 'active'
                     ? [
                         <Popconfirm
                           key="revoke"
@@ -338,9 +355,11 @@ export function Account() {
               >
                 <List.Item.Meta
                   title={
-                    <Space>
-                      <Typography.Text strong>{g.client_id}</Typography.Text>
-                      {statusTag(g.status)}
+                    <Space wrap style={{ maxWidth: '100%' }}>
+                      <Typography.Text strong style={{ overflowWrap: 'anywhere' }}>
+                        {g.client_id}
+                      </Typography.Text>
+                      {statusTag(grantStatus(g))}
                     </Space>
                   }
                   description={
@@ -352,7 +371,7 @@ export function Account() {
                 {g.resources.length > 0 ? (
                   g.resources.map((r) => (
                     <div key={r.resource} style={{ marginBottom: 6 }}>
-                      <Typography.Text code>{r.resource}</Typography.Text>{' '}
+                      <Typography.Text code style={{ overflowWrap: 'anywhere' }}>{r.resource}</Typography.Text>{' '}
                       {r.scopes.map((s) => (
                         <Tag color="blue" key={s}>
                           {s}
@@ -363,6 +382,35 @@ export function Account() {
                 ) : (
                   <Typography.Text type="secondary">{t('account.noResources')}</Typography.Text>
                 )}
+                <div style={{ marginTop: 12 }}>
+                  <Typography.Text strong>{t('account.actors.title')}</Typography.Text>
+                  <div>
+                    {Array.isArray(g.actor_allowlist) &&
+                    g.actor_allowlist.every((actor) => typeof actor === 'string' && actor.trim().length > 0) ? (
+                      g.actor_allowlist.length > 0 ? (
+                        g.actor_allowlist.map((actor, index) => (
+                          <div key={`${index}:${actor}`}>
+                            <Typography.Text code style={{ overflowWrap: 'anywhere' }}>
+                              {actor}
+                            </Typography.Text>
+                          </div>
+                        ))
+                      ) : (
+                        <Typography.Text type="secondary">{t('account.actors.none')}</Typography.Text>
+                      )
+                    ) : (
+                      <Typography.Text type="warning">{t('account.actors.unavailable')}</Typography.Text>
+                    )}
+                  </div>
+                  <Typography.Paragraph style={{ margin: '8px 0 0' }}>
+                    {t('account.actors.depth', {
+                      depth: Number.isInteger(g.max_act_chain) && g.max_act_chain >= 1 && g.max_act_chain <= 8
+                        ? g.max_act_chain
+                        : t('account.actors.unknown'),
+                    })}
+                  </Typography.Paragraph>
+                  <Typography.Text type="secondary">{t('account.actors.limit')}</Typography.Text>
+                </div>
               </List.Item>
             )}
           />
