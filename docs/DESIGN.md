@@ -1113,6 +1113,9 @@ redirect URI 模糊测试、token-exchange 委托校验、refresh 复用检测�
 
 1. **Token vault 要不要做？** AgentCore 的 vault（存下游第三方 token）是否属于本系统边界，
    还是只做"发 token 的 AS"？倾向：P2 后评估一个轻量 broker（KMS 信封加密 + DynamoDB）。
+   [第三方凭据评估](PROVIDER_CREDENTIALS_ASSESSMENT.md)记录 #86 的设计结论：
+   当前延期生产 Vault/broker，由原授权客户端保管；Google Calendar 只作为待确认需求的候选操作，
+   不代表已接入或完成真实 provider 验收。
 2. **Cedar 策略的暴露粒度**：开放到什么程度（托管策略模板 vs 自由编写）？
    **【自部署】** 客户在自己账号里,可给到自由编写;**【SaaS】** 需防止一个租户的策略影响他人,倾向受限模板 + 逐租户命名空间。
 3. **多租户 issuer 模型（仅【SaaS】相关，post-freeze）**：✅ **已定=每租户独立子域 issuer**（`t1.saas.example.com`，CloudFront 泛域名 + 按 Host 路由）——全文的 cookie 隔离(§8)、RFC 9207、逐租户 CMK 都据此设计。**post-freeze 待定(明确切到实现文档)**:BYOD 自带域名的证书/路由——**首选评估 CloudFront SaaS Manager 多租户 distribution**(DEPLOYMENT §1 第 3 步),它可能免去标准 distribution 的单证书约束与 ACM DNS 编排。
