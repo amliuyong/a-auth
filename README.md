@@ -40,7 +40,7 @@ agents, machine identities, delegation chains, and MCP resources.
   external package registries.
   [SDK distribution and release qualification](docs/RS_SDK_RELEASE.md) provides
   independent local artifact installation for npm and PyPI `agent_auth_rs`
-  while registry publication is pending.
+  while npm publication is pending; PyPI 1.0.1 is published and verified.
 - **Repository evidence** — every completed row in the
   [conformance matrix](docs/CONFORMANCE.md) must map to exact automated
   selectors that CI actually runs. Broad suites, comments, and historical

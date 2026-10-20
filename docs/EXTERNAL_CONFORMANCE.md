@@ -18,6 +18,10 @@ written to the project result.
 
 ## Fixed OIDF contract
 
+The [OIDC email scope decision](OIDC_EMAIL_DECISION.md) records the current
+non-support boundary and prerequisites for reconsideration. It does not renew
+or reduce the approved Basic OP exception bindings.
+
 The workflow downloads the official runner at:
 
 - ref: `release-v5.2.1`
