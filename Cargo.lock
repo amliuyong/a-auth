@@ -39,7 +39,7 @@ dependencies = [
 
 [[package]]
 name = "agent-auth-authn"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "agent-auth-infra-core",
  "agent-auth-payment",
@@ -59,7 +59,7 @@ dependencies = [
 
 [[package]]
 name = "agent-auth-authz"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "cedar-policy",
  "ipnet",
@@ -70,7 +70,7 @@ dependencies = [
 
 [[package]]
 name = "agent-auth-ciba"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -78,7 +78,7 @@ dependencies = [
 
 [[package]]
 name = "agent-auth-client"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "base64",
  "sha2 0.10.9",
@@ -86,7 +86,7 @@ dependencies = [
 
 [[package]]
 name = "agent-auth-discovery"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "agent-auth-client",
  "agent-auth-ema",
@@ -96,7 +96,7 @@ dependencies = [
 
 [[package]]
 name = "agent-auth-ema"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "agent-auth-ciba",
  "agent-auth-workload",
@@ -113,7 +113,7 @@ dependencies = [
 
 [[package]]
 name = "agent-auth-grant"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -121,7 +121,7 @@ dependencies = [
 
 [[package]]
 name = "agent-auth-http"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "aes-gcm",
  "agent-auth-authn",
@@ -182,7 +182,7 @@ dependencies = [
 
 [[package]]
 name = "agent-auth-infra-core"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "base64",
  "hmac 0.12.1",
@@ -194,7 +194,7 @@ dependencies = [
 
 [[package]]
 name = "agent-auth-payment"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "base64",
  "hmac 0.12.1",
@@ -205,14 +205,14 @@ dependencies = [
 
 [[package]]
 name = "agent-auth-protocol"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "agent-auth-discovery",
 ]
 
 [[package]]
 name = "agent-auth-token"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "base64",
  "hmac 0.12.1",
@@ -224,7 +224,7 @@ dependencies = [
 
 [[package]]
 name = "agent-auth-workload"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "base64",
  "p256",
