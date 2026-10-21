@@ -408,6 +408,12 @@ an AWS account ID, a stack or resource ARN, or a credential identifier.
 
 ## Exceptions
 
+When an exception cannot waive its matched required test, the failure summary
+identifies the suite/test, normalized status and waiver eligibility. OIDF
+upstream status and recognized result enums are included when available.
+Unknown exception targets and arbitrary upstream result payloads are not
+echoed. These diagnostics do not change which results can be waived.
+
 Exceptions live in `.github/conformance/exceptions.json` and therefore require
 a reviewed pull request. An exception must target one exact failed required
 test and include:

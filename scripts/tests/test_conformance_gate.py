@@ -400,6 +400,14 @@ class ConformanceGateCliTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 1)
         self.assertIsNone(approved_claims)
         self.assertIn("not an error", summary)
+        self.assertIn(
+            f"oidf-basic-op-code/{evidence['exceptions'][0]['test_id']}", summary
+        )
+        self.assertIn("status=error", summary)
+        self.assertIn("required=true", summary)
+        self.assertIn("waivable=true", summary)
+        self.assertIn("upstream_status=INTERRUPTED", summary)
+        self.assertIn("upstream_result=UNKNOWN", summary)
 
     def test_dynamic_client_cleanup_failure_cannot_be_waived(self) -> None:
         evidence = passing_evidence()
@@ -421,6 +429,80 @@ class ConformanceGateCliTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 1)
         self.assertIsNone(approved_claims)
         self.assertIn("non-waivable cleanup", summary)
+        self.assertIn("agent-auth-rfc9700/dynamic-client-cleanup", summary)
+        self.assertIn("status=failed", summary)
+        self.assertIn("waivable=false", summary)
+
+    def test_stale_exception_identifies_a_passing_test(self) -> None:
+        evidence = passing_evidence()
+        evidence["exceptions"] = [
+            {
+                "suite_id": "oidf-basic-op-code",
+                "test_id": evidence["suites"][1]["tests"][0]["id"],
+                "approved_by": "@release-owner",
+                "approved_at": "2026-08-01T12:30:00Z",
+                "reason": "Previously non-PASSED module",
+                "issue_url": "https://github.com/amliuyong/a-auth/issues/99",
+                "expires_at": "2026-08-03T00:00:00Z",
+            }
+        ]
+
+        completed, summary, approved_claims = self.run_gate(evidence)
+
+        self.assertEqual(completed.returncode, 1)
+        self.assertIsNone(approved_claims)
+        self.assertIn("oidf-basic-op-code/oidcc-server[", summary)
+        self.assertIn("status=passed", summary)
+        self.assertIn("upstream_status=FINISHED", summary)
+        self.assertIn("upstream_result=PASSED", summary)
+
+    def test_unknown_exception_target_payload_is_not_echoed(self) -> None:
+        evidence = passing_evidence()
+        private_target = "https://private.example.test/path?token=private-target"
+        evidence["exceptions"] = [
+            {
+                "suite_id": "oidf-basic-op-code",
+                "test_id": private_target,
+                "approved_by": "@release-owner",
+                "approved_at": "2026-08-01T12:30:00Z",
+                "reason": "Unknown result",
+                "issue_url": "https://github.com/amliuyong/a-auth/issues/99",
+                "expires_at": "2026-08-03T00:00:00Z",
+            }
+        ]
+
+        completed, summary, approved_claims = self.run_gate(evidence)
+
+        self.assertEqual(completed.returncode, 1)
+        self.assertIsNone(approved_claims)
+        self.assertIn("target not found among required tests", summary)
+        self.assertNotIn(private_target, summary + completed.stdout + completed.stderr)
+
+    def test_arbitrary_upstream_result_payload_is_not_echoed(self) -> None:
+        evidence = passing_evidence()
+        oidf = evidence["suites"][1]["tests"][0]
+        oidf["status"] = "error"
+        oidf["upstream_status"] = "INTERRUPTED"
+        private_result = "https://private.example.test/path?token=private-result"
+        oidf["upstream_result"] = private_result
+        evidence["exceptions"] = [
+            {
+                "suite_id": "oidf-basic-op-code",
+                "test_id": oidf["id"],
+                "approved_by": "@release-owner",
+                "approved_at": "2026-08-01T12:30:00Z",
+                "reason": "Unknown upstream result",
+                "issue_url": "https://github.com/amliuyong/a-auth/issues/99",
+                "expires_at": "2026-08-03T00:00:00Z",
+            }
+        ]
+
+        completed, summary, approved_claims = self.run_gate(evidence)
+
+        self.assertEqual(completed.returncode, 1)
+        self.assertIsNone(approved_claims)
+        self.assertIn("status=error", summary)
+        self.assertNotIn(private_result, summary + completed.stdout + completed.stderr)
 
     def test_invalid_exception_records_fail_closed(self) -> None:
         evidence = passing_evidence()
