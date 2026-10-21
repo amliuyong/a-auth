@@ -70,6 +70,13 @@ configuration, APIs, deployment resources, or SDKs.
   published resource-server SDKs retain version 1.0.2 and their immutable
   release artifacts.
 
+### Fixed
+
+- Login retains email and password edits when deployment branding arrives
+  during typing, including the pinned OIDF HtmlUnit browser. Native credential
+  inputs keep browser-managed values, theme colors, password visibility,
+  submit-time validation and disabled previews.
+
 ### Security
 
 - Federation configuration and login enforce public endpoint restrictions and,

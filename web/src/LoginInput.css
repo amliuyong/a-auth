@@ -1,0 +1,62 @@
+.login-input {
+  display: flex;
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--login-input-border);
+  border-radius: var(--login-input-radius);
+  color: var(--login-input-text);
+  background: var(--login-input-bg);
+}
+
+.login-input:focus-within,
+.login-input:hover {
+  border-color: var(--login-input-primary);
+}
+
+.login-input:focus-within {
+  outline: 2px solid var(--login-input-primary);
+  outline-offset: 1px;
+}
+
+.login-input[data-invalid="true"] {
+  border-color: var(--login-input-error);
+}
+
+.login-input input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  border: 0;
+  outline: none;
+  border-radius: inherit;
+  padding: 7px 11px;
+  font: inherit;
+  font-size: 16px;
+  line-height: 1.5;
+  color: inherit;
+  background: transparent;
+}
+
+.login-input input::placeholder {
+  color: var(--login-input-placeholder);
+}
+
+.login-input button {
+  display: flex;
+  align-items: center;
+  padding: 0 11px;
+  border: 0;
+  border-radius: inherit;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.login-input[data-disabled="true"] {
+  background: var(--login-input-disabled);
+}
+
+.login-input[data-disabled="true"] input,
+.login-input[data-disabled="true"] button {
+  cursor: not-allowed;
+}

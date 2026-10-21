@@ -8,6 +8,19 @@ const port = Number.parseInt(process.env.OIDF_HTMLUNIT_PORT ?? '4178', 10);
 const dist = resolve(dirname(fileURLToPath(import.meta.url)), '../dist');
 const csrf = 'htmlunit-csrf';
 let consentAuthorizeQuery = null;
+let brandingMode = 'default';
+let holdBranding = false;
+const pendingBranding = [];
+
+function sendBranding(response) {
+  send(response, brandingMode === 'unavailable' ? 503 : 200, 'application/json',
+    JSON.stringify({
+      status: 'ready', version: 1, revision: 1,
+      settings: brandingMode === 'custom'
+        ? { name: 'Delayed Brand', logo: 'shield', primary: 'teal' }
+        : { name: null, logo: 'none', primary: 'blue' },
+    }));
+}
 
 function send(response, status, contentType, body, headers = {}) {
   response.writeHead(status, { 'Content-Type': contentType, ...headers });
@@ -55,6 +68,27 @@ const server = createServer(async (request, response) => {
     process.stdout.write(`fixture request: ${request.method} ${url.pathname}\n`);
     if (request.method === 'GET' && url.pathname === '/health') {
       send(response, 200, 'text/plain', 'ok');
+      return;
+    }
+    if (request.method === 'POST' && url.pathname === '/fixture/branding/hold') {
+      brandingMode = url.searchParams.get('mode') ?? 'default';
+      holdBranding = true;
+      send(response, 200, 'text/plain', 'ok');
+      return;
+    }
+    if (request.method === 'GET' && url.pathname === '/fixture/branding/pending') {
+      send(response, 200, 'text/plain', pendingBranding.length ? 'pending' : 'none');
+      return;
+    }
+    if (request.method === 'POST' && url.pathname === '/fixture/branding/release') {
+      holdBranding = false;
+      for (const held of pendingBranding.splice(0)) sendBranding(held);
+      send(response, 200, 'text/plain', 'ok');
+      return;
+    }
+    if (request.method === 'GET' && url.pathname === '/ui/branding') {
+      if (holdBranding) pendingBranding.push(response);
+      else sendBranding(response);
       return;
     }
     if (request.method === 'POST' && url.pathname === '/login/password') {

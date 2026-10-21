@@ -1,13 +1,20 @@
 package com.agentauth;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 import org.htmlunit.BrowserVersion;
 import org.htmlunit.WebClient;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.openqa.selenium.By;
 import org.openqa.selenium.WebElement;
 import org.openqa.selenium.htmlunit.HtmlUnitDriver;
@@ -15,6 +22,37 @@ import org.openqa.selenium.support.ui.ExpectedConditions;
 import org.openqa.selenium.support.ui.WebDriverWait;
 
 class OidfBrowserCompatibilityTest {
+    private static class FixtureDriver extends HtmlUnitDriver {
+        FixtureDriver() {
+            super(BrowserVersion.CHROME, true);
+        }
+
+        @Override
+        protected WebClient modifyWebClient(WebClient client) {
+            client.getOptions().setThrowExceptionOnScriptError(false);
+            client.getOptions().setCssEnabled(false);
+            return client;
+        }
+
+        void finishBackgroundWork() {
+            getWebClient().waitForBackgroundJavaScript(1000);
+        }
+    }
+
+    private static String fixture(String baseUrl, String method, String path) {
+        try (HttpClient client = HttpClient.newHttpClient()) {
+            HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + path))
+                .timeout(Duration.ofSeconds(5))
+                .method(method, HttpRequest.BodyPublishers.noBody())
+                .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, response.statusCode());
+            return response.body();
+        } catch (Exception error) {
+            throw new AssertionError("Fixture control request failed", error);
+        }
+    }
+
     private static String stage(String value) {
         System.out.println("OIDF HtmlUnit stage: " + value);
         return value;
@@ -27,17 +65,25 @@ class OidfBrowserCompatibilityTest {
         threadMode = Timeout.ThreadMode.SEPARATE_THREAD
     )
     void productionBundleCompletesLoginConsentAndCallback() {
+        completeLogin(null, false);
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "default, false", "custom, false", "unavailable, false",
+        "default, true", "custom, true", "unavailable, true"
+    })
+    @Timeout(value = 90, unit = TimeUnit.SECONDS, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
+    void brandingPreservesCredentialsBeingEdited(String brandingMode, boolean editingPassword) {
+        completeLogin(brandingMode, editingPassword);
+    }
+
+    private void completeLogin(String brandingMode, boolean editingPassword) {
         String baseUrl = System.getProperty("oidf.base-url");
         assertTrue(baseUrl != null && baseUrl.startsWith("http://"));
 
-        HtmlUnitDriver driver = new HtmlUnitDriver(BrowserVersion.CHROME, true) {
-            @Override
-            protected WebClient modifyWebClient(WebClient client) {
-                client.getOptions().setThrowExceptionOnScriptError(false);
-                client.getOptions().setCssEnabled(false);
-                return client;
-            }
-        };
+        if (brandingMode != null) fixture(baseUrl, "POST", "/fixture/branding/hold?mode=" + brandingMode);
+        FixtureDriver driver = new FixtureDriver();
         String stage = stage("load login page");
         try {
             driver.manage().timeouts().pageLoadTimeout(Duration.ofSeconds(30));
@@ -66,9 +112,34 @@ class OidfBrowserCompatibilityTest {
                 By.id("agent-auth-login-password")
             );
             email.clear();
-            email.sendKeys("oidf-user@example.com");
             password.clear();
-            password.sendKeys("Replaceable password 123!");
+            if (brandingMode != null) {
+                wait.until(ignored -> fixture(baseUrl, "GET", "/fixture/branding/pending").equals("pending"));
+                WebElement edited = editingPassword ? password : email;
+                String prefix = editingPassword ? "Replaceable " : "oidf-";
+                if (editingPassword) email.sendKeys("oidf-user@example.com");
+                edited.sendKeys(prefix);
+                stage = stage("resolve branding during credential editing");
+                fixture(baseUrl, "POST", "/fixture/branding/release");
+                if (brandingMode.equals("custom")) {
+                    wait.until(ExpectedConditions.textToBePresentInElementLocated(
+                        By.cssSelector("header"), "Delayed Brand"
+                    ));
+                }
+                driver.finishBackgroundWork();
+                assertEquals(prefix, driver.executeScript("return arguments[0].value", edited),
+                    "Credential prefix must survive branding");
+                if (editingPassword) password.sendKeys("password 123!");
+                else {
+                    email.sendKeys("user@example.com");
+                    password.sendKeys("Replaceable password 123!");
+                }
+            } else {
+                email.sendKeys("oidf-user@example.com");
+                password.sendKeys("Replaceable password 123!");
+            }
+            assertEquals("oidf-user@example.com", driver.executeScript("return arguments[0].value", email));
+            assertEquals("Replaceable password 123!", driver.executeScript("return arguments[0].value", password));
             stage = stage("submit password login");
             driver.findElement(By.id("agent-auth-login-submit")).click();
 
@@ -98,6 +169,7 @@ class OidfBrowserCompatibilityTest {
             );
         } finally {
             driver.quit();
+            if (brandingMode != null) fixture(baseUrl, "POST", "/fixture/branding/release");
         }
     }
 }

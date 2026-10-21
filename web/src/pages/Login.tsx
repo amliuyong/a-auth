@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Button, Divider, Form, Input, Space, Typography, message } from 'antd';
-import type { InputRef } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
 import { Layout } from '../Layout';
+import { LoginInput } from '../LoginInput';
 import { api } from '../api/client';
 import { bufToB64url, b64urlToBuf, webauthnSupported } from '../api/webauthn';
 import { passwordRule } from '../passwordPolicy';
@@ -57,8 +57,8 @@ export function Login({ preview }: { preview?: { branding: BrandingSettings } } 
   const [form] = Form.useForm<LoginForm>();
   // OIDF BrowserControl uses HtmlUnit clear()+sendKeys(); AntD Form field
   // subscriptions can block that event loop, so read login values at submit.
-  const emailInput = useRef<InputRef>(null);
-  const passwordInput = useRef<InputRef>(null);
+  const emailInput = useRef<HTMLInputElement>(null);
+  const passwordInput = useRef<HTMLInputElement>(null);
   const [ready, setReady] = useState(false);
   const [loginFieldErrors, setLoginFieldErrors] = useState<
     Partial<Record<keyof LoginCredentials, string>>
@@ -175,8 +175,8 @@ export function Login({ preview }: { preview?: { branding: BrandingSettings } } 
   };
 
   const readLoginCredentials = (passwordRequired: boolean): LoginCredentials | null => {
-    const emailElement = emailInput.current?.input;
-    const passwordElement = passwordInput.current?.input;
+    const emailElement = emailInput.current;
+    const passwordElement = passwordInput.current;
     const values = {
       email: emailElement?.value ?? '',
       password: passwordElement?.value ?? '',
@@ -408,15 +408,14 @@ export function Login({ preview }: { preview?: { branding: BrandingSettings } } 
                     : undefined
                 }
               >
-                <Input
+                <LoginInput
                   ref={emailInput}
                   id="agent-auth-login-email"
                   type="email"
-                  size="large"
+                  disabled={!!preview}
                   autoComplete="username webauthn"
                   placeholder="you@example.com"
                   required
-                  status={loginFieldErrors.email ? 'error' : undefined}
                   aria-invalid={Boolean(loginFieldErrors.email)}
                   aria-describedby={
                     loginFieldErrors.email ? 'agent-auth-login-email-error' : undefined
@@ -433,13 +432,13 @@ export function Login({ preview }: { preview?: { branding: BrandingSettings } } 
                     : undefined
                 }
               >
-                <Input.Password
+                <LoginInput
                   ref={passwordInput}
                   id="agent-auth-login-password"
-                  size="large"
+                  type="password"
+                  disabled={!!preview}
                   autoComplete="current-password"
                   required
-                  status={loginFieldErrors.password ? 'error' : undefined}
                   aria-invalid={Boolean(loginFieldErrors.password)}
                   aria-describedby={
                     loginFieldErrors.password ? 'agent-auth-login-password-error' : undefined
