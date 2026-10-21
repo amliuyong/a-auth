@@ -10,6 +10,12 @@ configuration, APIs, deployment resources, or SDKs.
 
 ### Added
 
+- Resource-server SDK distribution `agent_auth_rs` 1.0.2 on npm and PyPI.
+  Public artifact digests match the immutable `rs-sdk-v1.0.2` qualification,
+  and independent registry installs pass HTTP, RAR and DPoP checks.
+  The public-installed MCP onboarding example additionally passes controlled
+  TLS acceptance with MCP SDK 1.32.0. See
+  [`RS_SDK_RELEASE.md`](RS_SDK_RELEASE.md) and [`ONBOARDING.md`](ONBOARDING.md).
 - Single-transaction agent payment authorization (issue #77), disabled unless
   a payment resource is configured. A payer's client freezes one payment
   intent, the user approves exactly that payment with fresh strong assurance

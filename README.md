@@ -36,11 +36,13 @@ agents, machine identities, delegation chains, and MCP resources.
 
 - **Release** — [`v1.0.0`](https://github.com/amliuyong/a-auth/releases/tag/v1.0.0)
   is the current stable source release. Release assets are source
-  archives; the Rust crates and resource-server SDKs are not published to
-  external package registries.
-  [SDK distribution and release qualification](docs/RS_SDK_RELEASE.md) provides
-  independent local artifact installation for npm and PyPI `agent_auth_rs`
-  while npm publication is pending; PyPI 1.0.1 is published and verified.
+  archives; Rust crates remain unpublished.
+  The resource-server SDKs are published separately as `agent_auth_rs` 1.0.2
+  on [npm](https://www.npmjs.com/package/agent_auth_rs/v/1.0.2) and
+  [PyPI](https://pypi.org/project/agent-auth-rs/1.0.2/).
+  [SDK distribution and release qualification](docs/RS_SDK_RELEASE.md) records
+  verified public artifact digests, source/tag identity and independent
+  installation checks for the npm tarball and Python wheel/sdist.
 - **Repository evidence** — every completed row in the
   [conformance matrix](docs/CONFORMANCE.md) must map to exact automated
   selectors that CI actually runs. Broad suites, comments, and historical

@@ -23,13 +23,11 @@ cookie、token 或私钥。语言切换保留配置，重新加载失败会清�
 ## 执行完整路径
 
 按照[独立示例](../examples/onboarding/README.md)复制项目、安装标准 MCP/OAuth
-库与实际 RS SDK 产物，再将控制台配置写入本地 `config.json`。SDK registry
-发布仍依赖 #79；公开安装为 NOT_RUN 时使用经过资格验证的本地 tarball，
-不能把源码导入冒充独立安装。
-当前示例选择 `agent_auth_rs@1.0.2`；安装前核对该版本的资格验证及 registry
-回读记录。[1.0.2 发布记录](releases/rs-sdk-1.0.2.json)中的 Python wheel/sdist
-公开安装已通过，但 npm 尚未发布；这个 Node.js 示例的公开安装仍为 NOT_RUN。
-下方 1.0.1 记录是历史验收，不能替代 1.0.2 的发布结果。
+库与公开 RS SDK 包，再将控制台配置写入本地 `config.json`。
+当前示例选择 `agent_auth_rs@1.0.2`；npm 与 PyPI 的固定版本回读、摘要及独立
+安装均已通过，见 [1.0.2 发布记录](releases/rs-sdk-1.0.2.json)。
+Node.js 示例已从 npm 公开 registry 安装并完成下方受控 TLS/MCP 验收。
+下方 1.0.1 AWS 记录保留为历史验收。
 
 MCP Server 的公网 resource 必须是实际 HTTPS 调用地址。内部 HTTP listener
 置于 HTTPS 反向代理之后；PRM 与 MCP 路径均须映射正确。仅在 loopback 上用
@@ -79,6 +77,29 @@ actor 和 Grant 吊销后的失败。篡改未签名的 JWT 只证明签名被�
 
 ## 受控验收记录
 
+2026-10-21 将示例复制到仓库外的独立项目，从
+`https://registry.npmjs.org` 安装 `agent_auth_rs@1.0.2`。安装包的 `gitHead`
+为 `3ad529fbc7e46fa6e79446b2fee51a768ce41d9d`，tarball SHA-256 为
+`4d3afba1ac7a89115466f1798f8ec7ee84aca2faa87101a8bccc2c928cff77de`；
+没有源码路径或符号链接导入。运行版本为 Node.js 22.23.3、MCP SDK 1.32.0、
+oauth4webapi 3.8.8。
+
+| 层次 | 结果 | 覆盖及边界 |
+| --- | --- | --- |
+| npm 公开 registry SDK 独立安装 | PASS | 6 项 HTTP、3 项 RAR、4 项 DPoP 检查 |
+| 公开包与独立示例、本地受控 TLS AS | 13 PASS | PRM、官方 MCP 离线/在线 actor 调用、issuer/audience/scope/proof-bound/RAR 拒绝、在线 inactive 立即重查及 AS 503 |
+| MCP 跨源重定向回归 | PASS | 源入口收到 1 次请求，跨源接收端收到 0 次请求 |
+| 私密文件与 listener 清理 | PASS | 临时 TLS 私钥、token/session 文件删除，三个回环 listener 关闭 |
+| 1.0.2 与 MCP 1.32.0 AWS 重新部署 | NOT_RUN | 本次只验收公开包与受控本地示例 |
+| 真实外部 workload/IdP 平台 | NOT_RUN | 本次使用受控签名密钥与 AS，不代替平台身份或真实 consent |
+
+两次官方 MCP CLI 调用分别用时 0.118 秒（离线）和 0.102 秒（在线 actor），
+各记录 3 个调用阶段；完整受控 fixture 用时 0.840 秒。这些值不包含安装、
+配置或真实用户授权。受控 `active=false` 检查只验证在线拒绝与不缓存正结果；
+真实注册、consent/exchange 与 Grant 吊销证据来自下方独立的历史 AWS 记录。
+
+### 历史 AWS 与 1.0.1 记录
+
 2026-10-20 使用 `rs-sdk-v1.0.1` 对应的 `agent_auth_rs@1.0.1` 独立 tarball，
 SDK 来源为 `0c461abca125893b3133bf82d2af1d138589b966`，
 SHA-256 为 `898e0a76b2eec0aeb7344b30b2144a3a5fa8d421c158986faad3d44b86bc3212`。
@@ -93,7 +114,7 @@ MCP SDK 为 1.31.0，oauth4webapi 为 3.8.8，Node.js 为 22.23.3。
 | AWS 真实 HTTP 授权与调用 | 66 项检查、11 次配方执行 PASS | 注册、密码登录、PKCE、device、刷新、actor consent/exchange、受保护调用及拒绝、吊销 |
 | 吊销边界 | PASS | 同一已吊销且未过期 JWT：AWS 在线入口 401，本地回环离线 MCP 调用成功 |
 | Web 生产包 | 131 PASS | 包含中英文、移动视图、复制、权限失败及既有登录/consent/账户回归 |
-| npm 公开 registry 安装 | NOT_RUN | 等待 #79；上述独立安装使用资格验证的 tarball |
+| npm 公开 registry 安装（当时） | NOT_RUN | 当时使用资格验证的 tarball；1.0.2 的公开安装见上方记录 |
 | 真实外部 workload/IdP 平台 | NOT_RUN | AWS 平台证明使用本次生成、HTTP 注册信任的受控签名身份 |
 
 在 AS、网关和依赖已准备好的条件下，从本次真实注册开始到第一次成功受保护
@@ -105,3 +126,6 @@ MCP SDK 为 1.31.0，oauth4webapi 为 3.8.8，Node.js 为 22.23.3。
 临时用户、客户端、HTTP 创建的信任、私密文件、AWS 测试栈与缓存均完成清理
 回读。原始记录及最终源文件/SDK 制品摘要保留在交付证据目录，未提交实际
 凭据或部署标识。
+
+当时 AS Lambda 的已部署代码摘要已回读，但与 Git 源提交的绑定为 **UNKNOWN**。
+这份运行记录不证明最新 main 的 AS 或后续 branding 变更已部署。
