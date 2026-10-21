@@ -62,6 +62,7 @@ agents, machine identities, delegation chains, and MCP resources.
 [简体中文简介](#简体中文简介) ·
 [Getting started](docs/GETTING_STARTED.md) ·
 [Deployment guide](docs/INSTALL_DEPLOY.md) ·
+[AWS cost estimates](docs/COST.md) ·
 [User guide](docs/USER_GUIDE.md) ·
 [Security](SECURITY.md)
 
