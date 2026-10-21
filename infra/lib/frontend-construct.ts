@@ -13,8 +13,9 @@ import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as wafv2 from 'aws-cdk-lib/aws-wafv2';
-import { Stack, CfnElement } from 'aws-cdk-lib';
+import { Stack, Stage, Token, ArnFormat, CfnElement } from 'aws-cdk-lib';
 import { NagSuppressions } from 'cdk-nag';
+import { requireCommercialRegion } from './deployment-regions';
 
 export const FORWARD_HOST_FUNCTION_CODE =
   'function handler(event){ var h=event.request.headers; if(h.host){ h["x-forwarded-host"]={value:h.host.value}; } return event.request; }';
@@ -77,6 +78,31 @@ export class FrontendConstruct extends Construct {
     super(scope, id);
 
     const stack = Stack.of(this);
+    const crossRegionEdge =
+      Boolean(props.registrationWaf || props.apiOriginAuth) &&
+      stack.region !== 'us-east-1';
+    let edgeScope: Construct = this;
+    if (crossRegionEdge) {
+      requireCommercialRegion('business Region', stack.region);
+      const stage = Stage.of(this);
+      if (!stage) {
+        throw new Error('CloudFront edge resources require a CDK App or Stage');
+      }
+      // Keep the existing us-east-1 construct paths intact. Other business
+      // Regions receive an independent producer stack, avoiding a dependency
+      // cycle between regional Secrets and the edge function/version.
+      const edgeStack = new Stack(
+        stage,
+        `${stack.node.id}-CloudFrontEdge-${stack.region}`,
+        {
+          env: { account: stack.account, region: 'us-east-1' },
+          crossRegionReferences: true,
+          tags: stack.tags.tagValues(),
+          description: `CloudFront edge controls for ${stack.stackName} in ${stack.region}`,
+        },
+      );
+      edgeScope = new Construct(edgeStack, id);
+    }
     const assetPath =
       props.assetPath ?? path.resolve(__dirname, '..', '..', 'web', 'dist');
 
@@ -164,7 +190,7 @@ export class FrontendConstruct extends Construct {
         comment: 'copy viewer Host to X-Forwarded-Host for backend issuer derivation',
       });
       const originAuthEdgeRole = props.apiOriginAuth
-        ? new iam.Role(this, 'OriginAuthEdgeRole', {
+        ? new iam.Role(edgeScope, 'OriginAuthEdgeRole', {
             assumedBy: new iam.CompositePrincipal(
               new iam.ServicePrincipal('lambda.amazonaws.com'),
               new iam.ServicePrincipal('edgelambda.amazonaws.com'),
@@ -199,15 +225,35 @@ export class FrontendConstruct extends Construct {
           true,
         );
       }
+      const originSecrets = props.apiOriginAuth
+        ? [props.apiOriginAuth.primarySecret, props.apiOriginAuth.secondarySecret]
+        : [];
+      const secretRegion = originSecrets[0]?.env.region ?? stack.region;
+      if (originSecrets.some((secret) => secret.env.region !== secretRegion)) {
+        throw new Error('both origin credentials must belong to the same Region');
+      }
+      const secretIds = originSecrets.map((secret) => {
+        const resource = secret.node.defaultChild;
+        const explicitName = resource instanceof secretsmanager.CfnSecret
+          ? resource.name
+          : undefined;
+        return crossRegionEdge ? explicitName ?? secret.secretName : secret.secretArn;
+      });
+      if (crossRegionEdge && secretIds.some(
+        (name) => Token.isUnresolved(name) || !/^[A-Za-z0-9/_+=.@-]{1,512}$/.test(name),
+      )) {
+        throw new Error('cross-Region edge credentials require explicit valid Secret names');
+      }
       const originAuthEdge = props.apiOriginAuth
-        ? new cloudfront.experimental.EdgeFunction(this, 'OriginAuthEdge', {
+        ? new cloudfront.experimental.EdgeFunction(edgeScope, 'OriginAuthEdge', {
             runtime: lambda.Runtime.NODEJS_24_X,
             handler: 'index.handler',
             code: lambda.Code.fromInline(
               originAuthEdgeCode(
-                props.apiOriginAuth.primarySecret.secretArn,
-                props.apiOriginAuth.secondarySecret.secretArn,
+                secretIds[0],
+                secretIds[1],
                 props.apiOriginAuth.revision,
+                secretRegion,
               ),
             ),
             timeout: Duration.seconds(5),
@@ -218,8 +264,37 @@ export class FrontendConstruct extends Construct {
           })
         : undefined;
       if (originAuthEdge && props.apiOriginAuth) {
-        props.apiOriginAuth.primarySecret.grantRead(originAuthEdge);
-        props.apiOriginAuth.secondarySecret.grantRead(originAuthEdge);
+        for (const [index, secret] of originSecrets.entries()) {
+          if (!crossRegionEdge) {
+            secret.grantRead(originAuthEdge);
+            continue;
+          }
+          const arn = Stack.of(edgeScope).formatArn({
+            service: 'secretsmanager',
+            region: secretRegion,
+            resource: 'secret',
+            resourceName: `${secretIds[index]}-??????`,
+            arnFormat: ArnFormat.COLON_RESOURCE_NAME,
+          });
+          originAuthEdge.addToRolePolicy(new iam.PolicyStatement({
+            actions: ['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret'],
+            resources: [arn],
+          }));
+          if (secret.encryptionKey) {
+            if (Token.isUnresolved(secret.encryptionKey.keyArn)) {
+              throw new Error('cross-Region edge credentials require a concrete encryption key ARN');
+            }
+            originAuthEdge.addToRolePolicy(new iam.PolicyStatement({
+              actions: ['kms:Decrypt'],
+              resources: [secret.encryptionKey.keyArn],
+            }));
+          }
+          NagSuppressions.addResourceSuppressions(originAuthEdgeRole!, [{
+            id: 'AwsSolutions-IAM5',
+            reason: 'Only the six-character Secrets Manager suffix is variable; account, owning Region and each explicit origin credential name are fixed.',
+            appliesTo: [`Resource::${arn}`],
+          }], true);
+        }
       }
       const functionAssociations = [
         { function: forwardHost, eventType: cloudfront.FunctionEventType.VIEWER_REQUEST },
@@ -310,9 +385,6 @@ export class FrontendConstruct extends Construct {
       : undefined;
 
     const registrationWaf = props.registrationWaf;
-    if (registrationWaf && stack.region !== 'us-east-1') {
-      throw new Error('CloudFront registration WAF must be created in us-east-1');
-    }
     if (
       registrationWaf &&
       !/^[0-9a-f]{40}$/.test(registrationWaf.deploymentCommit)
@@ -345,7 +417,7 @@ export class FrontendConstruct extends Construct {
       sampledRequestsEnabled: false,
     });
     const webAcl = registrationWaf
-      ? new wafv2.CfnWebACL(this, 'RegistrationWebAcl', {
+      ? new wafv2.CfnWebACL(edgeScope, 'RegistrationWebAcl', {
           defaultAction: { allow: {} },
           scope: 'CLOUDFRONT',
           visibilityConfig: visibility('AgentAuthRegistrationWaf'),
@@ -434,12 +506,12 @@ export class FrontendConstruct extends Construct {
         })
       : undefined;
     if (webAcl) {
-      const wafLogGroup = new logs.LogGroup(this, 'RegistrationWafLogGroup', {
-        logGroupName: `aws-waf-logs-${stack.stackName}-register`,
+      const wafLogGroup = new logs.LogGroup(edgeScope, 'RegistrationWafLogGroup', {
+        logGroupName: `aws-waf-logs-${stack.stackName}${crossRegionEdge ? `-${stack.region}` : ''}-register`,
         retention: logs.RetentionDays.ONE_MONTH,
         removalPolicy: RemovalPolicy.DESTROY,
       });
-      new wafv2.CfnLoggingConfiguration(this, 'RegistrationWafLogging', {
+      new wafv2.CfnLoggingConfiguration(edgeScope, 'RegistrationWafLogging', {
         resourceArn: webAcl.attrArn,
         logDestinationConfigs: [wafLogGroup.logGroupArn],
         loggingFilter: {
@@ -495,6 +567,12 @@ export class FrontendConstruct extends Construct {
         ? 'agent-auth unified entry (default→API, static→S3, security headers)'
         : 'agent-auth SPA (history fallback + security headers)',
     });
+    if (crossRegionEdge && props.apiOriginAuth) {
+      distribution.node.addDependency(
+        props.apiOriginAuth.primarySecret,
+        props.apiOriginAuth.secondarySecret,
+      );
+    }
 
     // 部署 web/dist → 桶,并失效 CloudFront 缓存。
     new s3deploy.BucketDeployment(this, 'DeploySpa', {
@@ -622,10 +700,12 @@ export function originAuthEdgeCode(
   primarySecretId: string,
   secondarySecretId: string,
   revision: string,
+  secretRegion: string,
 ): string {
+  requireCommercialRegion('origin credential Region', secretRegion);
   return `'use strict';
 const { GetSecretValueCommand, SecretsManagerClient } = require('@aws-sdk/client-secrets-manager');
-const client = new SecretsManagerClient({ region: 'us-east-1' });
+const client = new SecretsManagerClient({ region: ${JSON.stringify(secretRegion)} });
 const secretIds = ${JSON.stringify([primarySecretId, secondarySecretId])};
 const revision = ${JSON.stringify(revision)};
 const cacheTtlMs = 30000;

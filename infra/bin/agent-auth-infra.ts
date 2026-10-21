@@ -12,6 +12,7 @@ import {
 import { CredentialMigrationStack } from '../lib/credential-migration-stack';
 import { AuthorityReferenceMigrationStack } from '../lib/authority-reference-migration-stack';
 import { requireWebBaseUrl } from '../lib/config';
+import { requireCommercialRegion, requireStandbyRegion } from '../lib/deployment-regions';
 import {
   devAuthConfig,
   devCimdConfig,
@@ -26,7 +27,10 @@ const app = new App();
 
 // 配置来自环境(账号号走 .env / CDK_DEFAULT_ACCOUNT,不硬编码入 repo)。
 const account = process.env.CDK_DEFAULT_ACCOUNT;
-const region = process.env.CDK_DEFAULT_REGION ?? 'us-east-1';
+const region = requireCommercialRegion(
+  'CDK_DEFAULT_REGION',
+  process.env.CDK_DEFAULT_REGION ?? 'us-east-1',
+);
 const webBaseUrl = requireWebBaseUrl('WEB_BASE_URL', process.env.WEB_BASE_URL);
 const repoRoot = path.resolve(__dirname, '..', '..');
 const requestedDeploymentCommit = process.env.AGENT_AUTH_DEPLOYMENT_COMMIT;
@@ -493,11 +497,7 @@ if (process.env.SAAS_ZONE) {
 
   const standbyRegion = process.env.SAAS_STANDBY_REGION;
   if (standbyRegion) {
-    if (region !== 'us-east-1' || standbyRegion !== 'us-west-2') {
-      throw new Error(
-        'multi-Region SaaS supports only primary us-east-1 and standby us-west-2',
-      );
-    }
+    requireStandbyRegion(region, standbyRegion);
     if (
       saasReplicaRegions.length !== 1 ||
       saasReplicaRegions[0] !== standbyRegion

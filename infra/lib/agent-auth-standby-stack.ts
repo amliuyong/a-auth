@@ -22,6 +22,7 @@ import * as sqs from 'aws-cdk-lib/aws-sqs';
 import { NagSuppressions } from 'cdk-nag';
 import { requireWebBaseUrl } from './config';
 import { validateRedirectPrefixAllowedHosts } from './agent-auth-stack';
+import { requireCommercialRegion } from './deployment-regions';
 
 export interface ReplicatedAuthorityTableNames {
   readonly clients: string;
@@ -287,6 +288,7 @@ export class AgentAuthStandbyStack extends Stack {
     props: AgentAuthStandbyStackProps,
   ) {
     super(scope, id, props);
+    requireCommercialRegion('standby Region', this.region);
 
     const webBaseUrl = requireWebBaseUrl('webBaseUrl', props.webBaseUrl);
     if (!/^[0-9a-f]{40}$/.test(props.deploymentCommit)) {

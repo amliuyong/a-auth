@@ -21,6 +21,7 @@
 #   KEEP_OKTA_FIXTURE=1
 #   EVIDENCE_FILE=/secure/path/issue18-okta-evidence.json
 set -euo pipefail
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/aws_regions.sh"
 set +x
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -118,8 +119,7 @@ BASE_URL="$(normalize_https_origin "$BASE_URL")" ||
   fail "KEEP_OKTA_FIXTURE must be 0 or 1"
 [[ "$RUN_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$ && "$RUN_ID" != *..* ]] ||
   fail "OKTA_SCIM_RUN_ID must be a safe identifier of at most 80 characters"
-[[ "$REGION" == "us-east-1" ]] ||
-  fail "qualifying Okta acceptance requires REGION=us-east-1"
+require_commercial_regions "$REGION"
 [[ ! -e "$EVIDENCE_FILE" && ! -L "$EVIDENCE_FILE" &&
   ! -e "$EVIDENCE_FILE.sha256" && ! -L "$EVIDENCE_FILE.sha256" ]] ||
   fail "EVIDENCE_FILE and its checksum path must not already exist"

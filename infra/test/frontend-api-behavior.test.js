@@ -12,14 +12,18 @@ const {
   originAuthEdgeCode,
 } = require('../dist/lib/frontend-construct');
 
-async function runEdgeHandler(secrets) {
+async function runEdgeHandler(secrets, secretRegion = 'us-east-1') {
   const reads = [];
+  const clientRegions = [];
   class GetSecretValueCommand {
     constructor(input) {
       this.input = input;
     }
   }
   class SecretsManagerClient {
+    constructor(options) {
+      clientRegions.push(options.region);
+    }
     async send(command) {
       reads.push(command.input.SecretId);
       return { SecretString: secrets[command.input.SecretId] };
@@ -33,7 +37,7 @@ async function runEdgeHandler(secrets) {
     },
   };
   vm.runInNewContext(
-    originAuthEdgeCode('primary-id', 'secondary-id', 'rotation-7'),
+    originAuthEdgeCode('primary-id', 'secondary-id', 'rotation-7', secretRegion),
     context,
   );
   const request = {
@@ -46,8 +50,38 @@ async function runEdgeHandler(secrets) {
   const event = { Records: [{ cf: { request } }] };
   await context.exports.handler(event);
   await context.exports.handler(event);
-  return { request, reads };
+  return { request, reads, clientRegions };
 }
+
+test('Lambda@Edge reads credentials in their business Region', async () => {
+  for (const region of ['eu-west-1', 'ap-southeast-2']) {
+    const { clientRegions, reads } = await runEdgeHandler({
+      'primary-id': 'primary-origin-secret-at-least-32-bytes',
+      'secondary-id': 'secondary-origin-secret-at-least-32-bytes',
+    }, region);
+    assert.deepEqual(clientRegions, [region]);
+    assert.deepEqual(reads, ['primary-id', 'secondary-id']);
+  }
+});
+
+test('cross-Region origin credential names cannot widen edge IAM resources', () => {
+  const app = new App();
+  const stack = new Stack(app, 'InvalidOriginCredentialName', {
+    env: { account: '123456789012', region: 'eu-west-1' },
+    crossRegionReferences: true,
+  });
+  const primarySecret = new secretsmanager.Secret(stack, 'Primary', {
+    secretName: 'unrelated-*',
+  });
+  const secondarySecret = new secretsmanager.Secret(stack, 'Secondary', {
+    secretName: 'origin-secondary',
+  });
+  assert.throws(() => new FrontendConstruct(stack, 'Frontend', {
+    apiDomain: 'api.example.com',
+    apiOriginAuth: { primarySecret, secondarySecret, revision: '1' },
+    assetPath: path.resolve(__dirname),
+  }), /explicit valid Secret names/);
+});
 
 test('origin-request Lambda@Edge overwrites viewer credentials and caches both slots', async () => {
   const primary = 'primary-origin-secret-at-least-32-bytes';

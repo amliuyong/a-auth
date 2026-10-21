@@ -43,11 +43,16 @@ cargo install cargo-lambda        # 或 pip install cargo-lambda / brew install 
 
 ### 1.2 AWS 账号与身份
 
-- 用 profile **`default`**(IAM user `work`),region **`us-east-1`**(所有资源都在此区)。
+- 选择自己的 AWS profile 和业务区域；下面以 profile **`default`**、
+  **`us-east-1`** 为例。业务区域支持标准商业分区 `aws`，暂不支持中国区、
+  GovCloud 或其他分区。主备模式为一个主区和一个不同的备用区。
+- CloudFront 的 ACM 证书、全局 WAF/日志和 Lambda@Edge 位于 `us-east-1`；
+  API、数据库、KMS、Secrets 和后台任务跟随业务区域配置。
 - 动手前确认身份:
 
 ```bash
-aws sts get-caller-identity --profile default --region us-east-1
+export REGION=us-east-1             # 示例；也可选择 eu-west-1、ap-southeast-2 等
+aws sts get-caller-identity --profile default --region "$REGION"
 ```
 
 - **账号号绝不写进 repo**;需要时从上面命令取,或放本地 `.env`(已 gitignore)。
@@ -58,16 +63,24 @@ aws sts get-caller-identity --profile default --region us-east-1
 cd infra
 npm ci                             # 装 CDK 依赖(首次)
 export CDK_DEFAULT_ACCOUNT=$(aws sts get-caller-identity --profile default --query Account --output text)
-export CDK_DEFAULT_REGION=us-east-1
-npx cdk bootstrap aws://$CDK_DEFAULT_ACCOUNT/us-east-1 --profile default
+export CDK_DEFAULT_REGION="$REGION"
+npx cdk bootstrap "aws://$CDK_DEFAULT_ACCOUNT/$REGION" --profile default
+# 业务主区不在 us-east-1 时，还须 bootstrap CloudFront 边缘资源所在区。
+if [[ "$REGION" != "us-east-1" ]]; then
+  npx cdk bootstrap "aws://$CDK_DEFAULT_ACCOUNT/us-east-1" --profile default
+fi
 ```
+
+多区域部署还需 bootstrap 所选备用区。先确认账号已启用各目标区域，且目标区域
+支持 HTTP API、ARM64 Lambda、DynamoDB Global Tables、KMS MRK、Secrets 复制、
+AWS Backup 等所需服务；CDK 合成成功不代替这些服务的实际部署和切换验收。
 
 ### 1.4 ⚠️ 环境区域污染
 
-若 shell 预置了 `AWS_REGION=us-west-2`(或别的区),会劫持部署区域。**每次开新 shell 都显式导出**:
+每次开新 shell 都明确选择 `REGION`，再同步 AWS/CDK 的区域变量，避免遗留环境指向错误区域:
 
 ```bash
-export AWS_REGION=us-east-1 AWS_DEFAULT_REGION=us-east-1 CDK_DEFAULT_REGION=us-east-1
+export AWS_REGION="$REGION" AWS_DEFAULT_REGION="$REGION" CDK_DEFAULT_REGION="$REGION"
 ```
 
 ---
@@ -127,8 +140,8 @@ checkpoint 和当前提交的 request marker。若只是重复部署同一 commi
 
 ```bash
 export AWS_PROFILE=default
-export REGION=us-east-1
-export STANDBY_REGION=us-west-2
+export REGION="${REGION:-us-east-1}"
+export STANDBY_REGION="${STANDBY_REGION:-us-west-2}" # 必须不同于主区
 export EXPECTED_COMMIT="$(git rev-parse HEAD)"
 
 ./scripts/build_lambda_artifacts.sh
@@ -182,9 +195,9 @@ cargo clippy -p agent-auth-http --features aws --all-targets
 
 ```bash
 cd infra
-export AWS_REGION=us-east-1 AWS_DEFAULT_REGION=us-east-1
+export AWS_REGION="$REGION" AWS_DEFAULT_REGION="$REGION"
 export CDK_DEFAULT_ACCOUNT=$(aws sts get-caller-identity --profile default --query Account --output text)
-export CDK_DEFAULT_REGION=us-east-1
+export CDK_DEFAULT_REGION="$REGION"
 export WEB_BASE_URL=https://<cloudfront-domain>
 npx cdk deploy AgentAuthDev --profile default --require-approval never
 npx cdk deploy AgentAuthDevAuthorityReferenceMigration --exclusively \
@@ -367,11 +380,16 @@ aws acm describe-certificate --certificate-arn "$ARN" --profile default --region
 
 ### 4.2 部署 SaaS 栈
 
+先选择一个不同于 `REGION` 的 `STANDBY_REGION` 并完成该区 bootstrap。
+生产 SaaS 必须配置该复制目标，以保留主区 admission fence；备用 runtime 的
+两阶段部署见 [`MULTI_REGION_FAILOVER.md`](MULTI_REGION_FAILOVER.md)。
+
 ```bash
 cd infra
-export AWS_REGION=us-east-1 AWS_DEFAULT_REGION=us-east-1
+export AWS_REGION="$REGION" AWS_DEFAULT_REGION="$REGION"
 export CDK_DEFAULT_ACCOUNT=$(aws sts get-caller-identity --profile default --query Account --output text)
-export CDK_DEFAULT_REGION=us-east-1
+export CDK_DEFAULT_REGION="$REGION"
+export SAAS_REPLICA_REGIONS="${STANDBY_REGION:?先选择不同的备用区域}"
 
 export SAAS_ZONE=saas.example.com                       # 托管区
 export SAAS_CONTROL_HOST=c.saas.example.com             # 控制面(非 issuer)
@@ -510,7 +528,7 @@ aws secretsmanager get-secret-value \
 
 ### 5.4 Data-governance live drill (Issue #30)
 
-该演练只允许在 `configured-account/us-east-1` 的 `AgentAuthSaas` 上运行，并要求 clean local HEAD 与栈的
+该演练允许在配置账号与商业区域的 `AgentAuthSaas` 上运行，并要求 clean local HEAD 与栈的
 `DeploymentCommit`、恢复栈 commit 完全一致。它会 erase t1 的隔离用户，并永久 offboard 明确标记为
 disposable 的 t2；不要对承载真实租户的栈运行。
 
@@ -586,7 +604,7 @@ ACTION=cleanup RUN_ID=<run-id> AWS_PROFILE=default REGION=us-east-1 \
 | 症状 | 可能原因 | 处理 |
 |---|---|---|
 | discovery/authorize 报 "bad host" | 栈仍是旧模板或自定义域配置不一致 | 确认 Lambda 的 `AGENT_AUTH_HOST` 来自当前 API endpoint/`CUSTOM_DOMAIN`,重新 synth + deploy |
-| 资源部署到了错误区域 | shell 预置 `AWS_REGION` 污染 | 每次显式 `export AWS_REGION=us-east-1`(§1.4) |
+| 资源部署到了错误区域 | shell 的 AWS/CDK 区域变量不一致 | 每次选择 `REGION` 并同步变量(§1.4) |
 | SaaS 租户 discovery 返 400 | 请求的是控制面 Host(`c.<zone>`)或非租户子域 | 控制面非 issuer;租户须用 `t{N}.<zone>` |
 | SelfHosted DCR `/register` 全拒 | 已启用收紧档，但当前 tenant 没有有效 IAT，或票据已过期/吊销/消费 | 使用该 tenant 的 Admin 控制台签发新 IAT；无需重新部署 |
 | SaaS DCR `/register` 全拒 | 对应 tenant 尚无有效 IAT，或请求误发到 control Host | 从该 tenant 的 Admin Host 签发 IAT，并向该 tenant issuer 的 `/register` 提交；不得使用跨租户共享票据 |

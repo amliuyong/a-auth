@@ -28,6 +28,7 @@ RPO_TARGET_SECS=60
 POLL_SECS="${POLL_SECS:-5}"
 STATE_ROOT="${STATE_ROOT:-$HOME/.agent-auth-failover-drills}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$REPO_ROOT/e2e/lib/aws_regions.sh"
 
 case "$ACTION" in
   run) ;;
@@ -63,8 +64,8 @@ now_epoch() { date -u +%s; }
 hash_text() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }
 
 assert_supported_region_pair() {
-  [[ "$PRIMARY_REGION" == "us-east-1" && "$STANDBY_REGION" == "us-west-2" ]] ||
-    fail "qualifying failover supports only us-east-1 primary and us-west-2 standby"
+  require_commercial_regions "$PRIMARY_REGION" "$STANDBY_REGION" ||
+    fail "failover requires two distinct known AWS commercial Regions (aws partition)"
 }
 
 validated_issuer_host() {

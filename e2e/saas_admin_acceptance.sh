@@ -11,6 +11,7 @@
 #   set +a
 #   ./e2e/saas_admin_acceptance.sh
 set -euo pipefail
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/aws_regions.sh"
 set +x
 
 PROFILE="${PROFILE:-${AWS_PROFILE:-default}}"
@@ -28,9 +29,8 @@ trap cleanup EXIT INT TERM
 pass() { printf 'PASS: %s\n' "$1"; }
 fail() { printf 'FAIL: %s\n' "$1" >&2; exit 1; }
 require() { command -v "$1" >/dev/null || fail "missing command: $1"; }
-[[ "$REGION" == "us-east-1" ]] ||
-  fail "issue #17 acceptance requires REGION=us-east-1"
-for command in aws curl jq; do
+require_commercial_regions "$REGION"
+for command in aws curl jq python3; do
   require "$command"
 done
 [[ "$BROWSER" == "0" || "$BROWSER" == "1" ]] ||

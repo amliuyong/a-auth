@@ -1120,12 +1120,12 @@ fi
       'apply',
       'AgentAuthSaas',
       'ci-test',
-      'us-west-2',
+      'cn-north-1',
     );
     assert.notEqual(wrongRegion.status, 0);
     assert.match(
       wrongRegion.stdout + wrongRegion.stderr,
-      /requires REGION=us-east-1/,
+      /known AWS commercial Regions/,
     );
     assert.equal(fs.existsSync(stateFile), false);
 

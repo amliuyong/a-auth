@@ -13,6 +13,7 @@
 # This verifier never mutates a table. A rejected candidate must be reconciled
 # by a recovery runtime using the fenced governance data plane, then rechecked.
 set -euo pipefail
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/aws_regions.sh"
 set +x
 
 STACK="${STACK:-AgentAuthSaas}"
@@ -33,8 +34,7 @@ pass() { printf 'PASS: %s\n' "$*"; }
 for command in aws cmp date git jq mktemp python3 sha256sum sort wc; do
   command -v "$command" >/dev/null || fail "missing command: $command"
 done
-[[ "$REGION" == "us-east-1" ]] ||
-  fail "qualifying cutover verification requires REGION=us-east-1"
+require_commercial_regions "$REGION"
 [[ "$STACK" == "AgentAuthSaas" ]] ||
   fail "qualifying cutover verification requires STACK=AgentAuthSaas"
 [[ -n "$RESTORED_AUTHORITY_TABLES_FILE" &&

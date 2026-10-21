@@ -20,6 +20,12 @@
 CloudFront 按服务请求的边缘地区计费，本例用北美单价，不是把其全球费用视为
 `us-east-1` 的区域定价；CloudFront 打包套餐也未套入本模型。
 
+`us-east-1` 是本篇的报价基准，业务主区和备用区可以配置为其他标准商业区域
+（`aws` 分区，暂不考虑中国区、GovCloud 等分区）。当前多区域拓扑为单主区加一个备用区，
+区域设置见 [多区域部署手册](MULTI_REGION_FAILOVER.md)；选择其他区域需刷新区域单价。
+CloudFront 证书、全局 WAF/日志与 Lambda@Edge 按 AWS 要求保留在 `us-east-1`，
+因此其他业务主区仍可能产生少量边缘区费用、跨区域引用辅助 Lambda 和跨区调用费用。
+
 `100 万请求` 指到达 **AS 的 HTTP API** 的请求，包括授权、token、refresh、
 exchange、introspection 和管理等调用。登录用户数与这个计数没有固定换算关系。
 RS/MCP 的离线 JWT 校验在业务资源服务器本地完成；它的每次业务调用不会自动

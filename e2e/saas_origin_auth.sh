@@ -11,6 +11,7 @@
 #   ISSUER=https://t1.example.com EXPECTED_COMMIT=<full git sha> \
 #   AWS_PROFILE=default ./e2e/saas_origin_auth.sh
 set -euo pipefail
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/aws_regions.sh"
 umask 077
 
 ISSUER="${ISSUER:?ISSUER is required}"
@@ -32,8 +33,7 @@ for command in aws cmp curl date git jq python3 sha256sum unzip; do
 done
 [[ "$EXPECTED_COMMIT" =~ ^[0-9a-f]{40}$ ]] ||
   fail "EXPECTED_COMMIT must be a full lowercase Git SHA"
-[[ "$PRIMARY_REGION" == "us-east-1" && "$STANDBY_REGION" == "us-west-2" ]] ||
-  fail "qualifying SaaS evidence requires the reviewed us-east-1/us-west-2 Region pair"
+require_commercial_regions "$PRIMARY_REGION" "$STANDBY_REGION"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 [[ "$(git -C "$REPO_ROOT" rev-parse HEAD)" == "$EXPECTED_COMMIT" ]] ||

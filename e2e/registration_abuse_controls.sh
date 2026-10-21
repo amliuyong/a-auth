@@ -268,6 +268,10 @@ DEV_ORIGIN="${DEV_ADMIN_URL%/admin}"
 SAAS_AUTH_FN="$(stack_output "$SAAS_FILE" AuthFnName)"
 SAAS_WAF_ARN="$(stack_output "$SAAS_FILE" RegistrationWebAclArn)"
 SAAS_WAF_LOG_GROUP="$(stack_output "$SAAS_FILE" RegistrationWafLogGroupName)"
+WAF_REGION="${SAAS_WAF_ARN#arn:aws:wafv2:}"
+WAF_REGION="${WAF_REGION%%:*}"
+[[ "$WAF_REGION" == "us-east-1" ]] ||
+  fail "CloudFront WebACL must belong to the commercial us-east-1 edge Region"
 SAAS_DISTRIBUTION_ID="$(stack_output "$SAAS_FILE" FrontendDistributionId)"
 
 aws lambda get-function-configuration \
@@ -291,7 +295,7 @@ WAF_ID="${WAF_NAME_AND_ID##*/}"
 [[ -n "$WAF_NAME" && -n "$WAF_ID" && "$WAF_NAME" != "$WAF_ID" ]] ||
   fail "SaaS WebACL ARN is malformed"
 aws wafv2 get-web-acl \
-  --profile "$PROFILE" --region "$REGION" --scope CLOUDFRONT \
+  --profile "$PROFILE" --region "$WAF_REGION" --scope CLOUDFRONT \
   --name "$WAF_NAME" --id "$WAF_ID" --output json >"$WORK/web-acl.json"
 jq -e --arg probe "c10-8-$EXPECTED_COMMIT" '
   # CloudFormation accepts ByteMatch search strings as text, while
@@ -442,7 +446,7 @@ WAF_STATUS="$(curl -sS --proto '=https' --connect-timeout 10 --max-time 30 \
 WAF_LOGGED=0
 for _ in $(seq 1 30); do
   if ! aws logs filter-log-events \
-    --profile "$PROFILE" --region "$REGION" \
+    --profile "$PROFILE" --region "$WAF_REGION" \
     --log-group-name "$SAAS_WAF_LOG_GROUP" \
     --start-time "$PROBE_STARTED_MS" --output json >"$WORK/waf-logs.json"; then
     sleep 2

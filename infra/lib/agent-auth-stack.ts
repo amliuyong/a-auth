@@ -12,6 +12,7 @@ import {
   CfnElement,
   CustomResource,
   SecretValue,
+  Token,
 } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as kms from 'aws-cdk-lib/aws-kms';
@@ -41,6 +42,7 @@ import { NagSuppressions } from 'cdk-nag';
 import { FrontendConstruct } from './frontend-construct';
 import { requireWebBaseUrl } from './config';
 import { normalizeCimdDomains } from './cimd-config';
+import { requireCommercialRegion, requireStandbyRegion } from './deployment-regions';
 
 interface DynamoDbReplicaProvider extends Construct {
   readonly onEventHandler: lambda.Function;
@@ -428,7 +430,7 @@ export interface AgentAuthStackProps extends StackProps {
    * X.509-SVID / mTLS(spec 012 §1.4 / C5.7,P3):**独立 mTLS 自定义域名**(绕过 CloudFront,直连 API Gateway
    * 连接级双向 TLS)。`mtlsSvidEnabled=true` 且域名配置齐备时才建 API Gateway DomainName、播种占位
    * truststore、映射同一 HttpApi/$default 并创建 Route53 alias。**仅 SelfHosted**(评审 B1);证书
-   * `mtlsCertArn`(区域证书,us-east-1)+ 归属 zone(mtlsZoneId/Name)。缺任一或 feature 关闭都不建。
+   * `mtlsCertArn`(业务区域证书)+ 归属 zone(mtlsZoneId/Name)。缺任一或 feature 关闭都不建。
    * 运维 onboarding 时须用签发 SVID 的真实 CA bundle PEM 覆盖占位 `truststore.pem` 并 bump version。
    */
   readonly mtlsDomain?: string;
@@ -451,7 +453,11 @@ export class AgentAuthStack extends Stack {
   public readonly authorityReferenceMigrationHandler: lambda.Function;
 
   constructor(scope: Construct, id: string, props: AgentAuthStackProps) {
-    super(scope, id, props);
+    super(scope, id, { ...props, crossRegionReferences: true });
+
+    if (!Token.isUnresolved(this.region)) {
+      requireCommercialRegion('business Region', this.region);
+    }
 
     const webBaseUrl = requireWebBaseUrl('webBaseUrl', props.webBaseUrl);
     const invitationTtlSecs = props.invitationTtlSecs ?? 86_400;
@@ -550,26 +556,22 @@ export class AgentAuthStack extends Stack {
         'tenantKeyReplicaRegions must contain unique non-primary AWS regions',
       );
     }
-    if (
-      tenantKeyReplicaRegions.length > 0 &&
-      (this.region !== 'us-east-1' ||
-        tenantKeyReplicaRegions.length !== 1 ||
-      tenantKeyReplicaRegions[0] !== 'us-west-2')
-    ) {
+    if (tenantKeyReplicaRegions.length > 1) {
       throw new Error(
-        'multi-Region deployment supports only primary us-east-1 and standby us-west-2',
+        'active/passive deployment supports exactly one standby Region',
       );
+    }
+    for (const standbyRegion of tenantKeyReplicaRegions) {
+      requireStandbyRegion(this.region, standbyRegion);
     }
     if (
       props.productionRecoveryEnabled &&
       (props.saasZone || props.saasControlHost) &&
-      (this.region !== 'us-east-1' ||
-        tenantKeyReplicaRegions.length !== 1 ||
-        tenantKeyReplicaRegions[0] !== 'us-west-2')
+      tenantKeyReplicaRegions.length !== 1
     ) {
       throw new Error(
-        'production SaaS requires the replay-safe us-east-1/us-west-2 Region fence; ' +
-          'set SAAS_REPLICA_REGIONS=us-west-2',
+        'production SaaS requires exactly one standby Region for the replay-safe Region fence; ' +
+          'set SAAS_REPLICA_REGIONS to the selected standby Region',
       );
     }
     let legacyTenantAdminSecrets: Record<string, secretsmanager.ISecret> = {};

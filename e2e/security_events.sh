@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Live acceptance for Issue #24. By default this validates AgentAuthDev and
-# tenant t1 on AgentAuthSaas with the selected AWS profile in us-east-1.
+# tenant t1 on AgentAuthSaas with the selected AWS profile and commercial Region.
 #
 # The test covers:
 #   - an Auth Lambda event written to DynamoDB, exported by the tenant Admin API,
@@ -18,6 +18,7 @@
 #   STACKS="AgentAuthDev" AWS_PROFILE=default ./e2e/security_events.sh
 #   STACKS="AgentAuthSaas" SAAS_TENANT=t2 AWS_PROFILE=default ./e2e/security_events.sh
 set -euo pipefail
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/aws_regions.sh"
 set +x
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -68,8 +69,7 @@ for command in aws curl jq openssl python3; do
   require "$command"
 done
 
-[[ "$REGION" == "us-east-1" ]] ||
-  fail "security-events E2E requires AWS region us-east-1 (got $REGION)"
+require_commercial_regions "$REGION"
 [[ -z "${AWS_CONFIG_FILE:-}" ]] ||
   fail "security-events E2E rejects AWS_CONFIG_FILE overrides"
 [[ -z "${AWS_SHARED_CREDENTIALS_FILE:-}" ]] ||

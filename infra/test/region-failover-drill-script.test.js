@@ -295,7 +295,7 @@ exit 87
   );
   fs.writeFileSync(
     path.join(bin, 'python3'),
-    '#!/usr/bin/env bash\n[[ "${1:-}" == "-c" ]]\n',
+    '#!/usr/bin/env bash\nif [[ "${1:-}" == "-c" ]]; then exit 0; fi\nPATH="$ORIGINAL_PATH" exec python3 "$@"\n',
     { mode: 0o755 },
   );
 
@@ -309,6 +309,7 @@ exit 87
         AWS_PROFILE: 'ci-test',
         HOME: home,
         PATH: `${bin}:${process.env.PATH}`,
+        ORIGINAL_PATH: process.env.PATH,
         RUN_ID: 'fresh-context',
         SAAS_ZONE: 'auth.example.com',
         STATE_ROOT: path.join(directory, 'state'),
@@ -420,22 +421,45 @@ validated_issuer_host "$1" "$2" "$3"`,
   }
 });
 
-test('multi-region deployment accepts only the reviewed Region pair', () => {
-  assert.match(
-    source,
-    /assert_supported_region_pair\(\)[\s\S]*PRIMARY_REGION.*us-east-1.*STANDBY_REGION.*us-west-2/,
-  );
+test('failover validates commercial Region pairs and rechecks persisted context', () => {
+  const start = source.indexOf('assert_supported_region_pair()');
+  const end = source.indexOf('\nvalidated_issuer_host()', start);
+  const validate = source.slice(start, end);
+  const run = (primary, standby) => spawnSync('bash', ['-c', `
+set -euo pipefail
+fail() { printf '%s\\n' "$*" >&2; exit 1; }
+source "$REPO_ROOT/e2e/lib/aws_regions.sh"
+${validate}
+assert_supported_region_pair
+`], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      REPO_ROOT: path.resolve(__dirname, '../..'),
+      PRIMARY_REGION: primary,
+      STANDBY_REGION: standby,
+    },
+  });
+  for (const pair of [
+    ['us-east-1', 'us-west-2'],
+    ['eu-west-1', 'ap-southeast-2'],
+    ['ap-southeast-2', 'eu-central-1'],
+  ]) {
+    const result = run(...pair);
+    assert.equal(result.status, 0, result.stderr);
+  }
+  for (const pair of [
+    ['eu-west-1', 'eu-west-1'],
+    ['cn-north-1', 'us-east-1'],
+    ['us-east-1', 'us-gov-west-1'],
+    ['zz-west-1', 'eu-west-1'],
+    ['eu-west-1', ''],
+  ]) {
+    assert.notEqual(run(...pair).status, 0);
+  }
   assert.match(
     source,
     /load_context_settings\(\)[\s\S]*PRIMARY_REGION=.*primary_region[\s\S]*STANDBY_REGION=.*standby_region[\s\S]*assert_supported_region_pair/,
-  );
-  assert.match(
-    infraAppSource,
-    /region !== 'us-east-1' \|\| standbyRegion !== 'us-west-2'/,
-  );
-  assert.match(
-    infraAppSource,
-    /supports only primary us-east-1 and standby us-west-2/,
   );
 });
 

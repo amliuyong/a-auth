@@ -52,7 +52,7 @@ const REGION_LOCAL_TABLES = [
   'SsfDeliveriesTable',
 ];
 
-function synth(
+function primaryDeployment(
   input = ['us-west-2'],
   productionRecoveryEnabled = true,
   stackId = 'MultiRegionConfigTest',
@@ -95,25 +95,85 @@ function synth(
     kmsTenantGateRefillPerSec: 20,
     ...overrides,
   });
-  return Template.fromStack(stack).toJSON();
+  return { app, stack };
 }
 
-test('production SaaS cannot silently remove or redirect the Region fence', () => {
-  assert.throws(
-    () => synth([]),
-    /production SaaS requires the replay-safe us-east-1\/us-west-2 Region fence/,
-  );
-  assert.throws(
-    () => synth(['eu-west-1']),
-    /multi-Region deployment supports only primary us-east-1 and standby us-west-2/,
-  );
+function synth(...args) {
+  return Template.fromStack(primaryDeployment(...args).stack).toJSON();
+}
+
+test('commercial business Regions keep protected CloudFront edge resources in us-east-1', () => {
+  for (const [primary, standby] of [
+    ['eu-west-1', 'ap-southeast-2'],
+    ['ap-southeast-2', 'eu-central-1'],
+  ]) {
+    const { app, stack } = primaryDeployment({
+      env: { account: '123456789012', region: primary },
+      tenantKeyReplicaRegions: [standby],
+      deployFrontend: true,
+      frontendAssetPath: path.resolve(__dirname),
+      registrationWafEnabled: true,
+      tenantAdminSecretArns: {
+        t1: `arn:aws:secretsmanager:${primary}:123456789012:secret:legacy/t1-AbCd12`,
+        t2: `arn:aws:secretsmanager:${primary}:123456789012:secret:legacy/t2-EfGh34`,
+      },
+    });
+    Aspects.of(app).add(new AwsSolutionsChecks({ verbose: true }));
+    const assembly = app.synth();
+    const business = assembly.getStackArtifact(stack.artifactId).template;
+    const edge = assembly.stacks.find(
+      (artifact) => artifact.environment.region === 'us-east-1',
+    );
+    assert.ok(edge, 'CloudFront regional control resources need an edge stack');
+    const resources = Object.values(edge.template.Resources);
+    assert.equal(resources.filter((r) => r.Type === 'AWS::WAFv2::WebACL').length, 1);
+    assert.equal(resources.filter((r) => r.Type === 'AWS::WAFv2::LoggingConfiguration').length, 1);
+    const auth = resources.find(
+      (r) => r.Type === 'AWS::Lambda::Function' &&
+        r.Properties.Description?.startsWith('Inject managed SaaS origin credentials'),
+    );
+    assert.ok(auth);
+    assert.match(auth.Properties.Code.ZipFile, new RegExp(primary));
+    assert.match(auth.Properties.Code.ZipFile, /MultiRegionConfigTest\/cloudfront-origin-auth/);
+    assert.equal(resources.filter((r) => r.Type === 'AWS::SecretsManager::Secret').length, 0);
+    const iam = JSON.stringify(resources.filter((r) => r.Type === 'AWS::IAM::Policy'));
+    assert.match(iam, new RegExp(`secretsmanager:${primary}:123456789012:secret:MultiRegionConfigTest/cloudfront-origin-auth`));
+    const distribution = Object.values(business.Resources).find(
+      (r) => r.Type === 'AWS::CloudFront::Distribution',
+    );
+    assert.ok(distribution.Properties.DistributionConfig.WebACLId);
+    assert.equal(distribution.Properties.DistributionConfig.DefaultCacheBehavior.LambdaFunctionAssociations.length, 1);
+    const serialized = JSON.stringify(business);
+    assert.match(serialized, new RegExp(standby));
+    assert.deepEqual(business.Outputs.RegionId, { Value: primary });
+    assert.match(serialized, new RegExp(`fence#${primary}`));
+    assert.ok(!serialized.includes('AWS::WAFv2::WebACL'));
+    for (const artifact of assembly.stacks) {
+      assert.ok(!JSON.stringify(artifact.template).includes('AWS::Lambda::Url'));
+      assert.deepEqual(artifact.messages.filter((m) => m.level === 'error'), []);
+    }
+  }
 });
 
-test('disposable multi-Region stacks cannot select another Region pair', () => {
+test('production SaaS requires exactly one distinct commercial standby Region', () => {
   assert.throws(
-    () => synth(['eu-west-1'], false),
-    /multi-Region deployment supports only primary us-east-1 and standby us-west-2/,
+    () => synth([]),
+    /production SaaS requires exactly one standby Region/,
   );
+  for (const regions of [
+    ['us-east-1'],
+    ['us-west-2', 'eu-west-1'],
+    ['cn-north-1'],
+    ['us-gov-west-1'],
+    ['zz-west-1'],
+  ]) {
+    assert.throws(() => synth(regions));
+  }
+  assert.doesNotThrow(() => synth(['eu-west-1']));
+});
+
+test('disposable stacks retain optional recovery with configurable Regions', () => {
+  assert.doesNotThrow(() => synth(['eu-west-1'], false));
   assert.doesNotThrow(() => synth([], false));
 });
 
@@ -139,7 +199,7 @@ function synthStandby(
   authorityTableNames.passkeys = authorityTableNames.passkey;
   delete authorityTableNames.passkey;
   const stack = new AgentAuthStandbyStack(app, 'MultiRegionStandbyTest', {
-    env: { account: '123456789012', region: 'us-west-2' },
+    env: overrides.env ?? { account: '123456789012', region: 'us-west-2' },
     lambdaAssetPath: assetPath,
     credentialMigrationAssetPath: assetPath,
     deploymentCommit: '0123456789abcdef0123456789abcdef01234567',
@@ -153,7 +213,7 @@ function synthStandby(
     cloudFrontOriginSecondarySecretName:
       `${cloudFrontOriginSecretName}-secondary`,
     saasOriginAuthRevision: 'rotation-7',
-    runtimeSecretArns: {
+    runtimeSecretArns: overrides.runtimeSecretArns ?? {
       server:
         'arn:aws:secretsmanager:us-west-2:123456789012:secret:server-AbCd12',
       governance_hmac:
@@ -210,6 +270,44 @@ function resourceByPrefix(template, prefix, type) {
   assert.equal(matches.length, 1, `expected one ${type} with prefix ${prefix}`);
   return matches[0];
 }
+
+test('standby runtime and its Secret references follow the selected commercial pair', () => {
+  for (const [primary, standby] of [
+    ['eu-west-1', 'ap-southeast-2'],
+    ['ap-southeast-2', 'eu-central-1'],
+  ]) {
+    const arn = (name) =>
+      `arn:aws:secretsmanager:${standby}:123456789012:secret:${name}-AbCd12`;
+    const residency = {
+      jurisdiction: 'commercial',
+      allowed_regions: [primary, standby],
+      governance_region: primary,
+    };
+    const { template } = synthStandby(undefined, true, {
+      env: { account: '123456789012', region: standby },
+      runtimeSecretArns: {
+        server: arn('server'),
+        governance_hmac: arn('governance'),
+        standby_bootstrap_config: arn('bootstrap'),
+        platform_admin: arn('admin'),
+        tenant_admin: { t1: arn('tenant-t1'), t2: arn('tenant-t2') },
+        scim: { t1: arn('scim-t1'), t2: arn('scim-t2') },
+      },
+      tenantResidency: { t1: residency, t2: residency },
+    });
+    assert.deepEqual(template.Outputs.RegionId, { Value: standby });
+    const serialized = JSON.stringify(template);
+    assert.match(serialized, new RegExp(`secretsmanager:${standby}:`));
+    assert.doesNotMatch(serialized, /secretsmanager:us-west-2:/);
+    const localKeys = Object.values(template.Resources).filter(
+      (resource) => resource.Type === 'AWS::KMS::Key',
+    );
+    for (const key of localKeys) {
+      assert.equal(key.Properties.KeySpec ?? 'SYMMETRIC_DEFAULT', 'SYMMETRIC_DEFAULT',
+        'standby keeps regional encryption keys and references replicated tenant signing keys');
+    }
+  }
+});
 
 function standbyRuntimeBootstrapRevisions(template) {
   return Object.fromEntries(
@@ -652,17 +750,17 @@ test('c11_1_standby_region_local_contract', () => {
   assert.ok(env.AUTH_REFS_TABLE.Ref?.startsWith('ClientAuthorityRefsTable'));
 });
 
-test('primary stack rejects unreviewed multi-Region pairs', () => {
+test('primary stack rejects Regions outside the commercial partition', () => {
   assert.throws(
-    () => synth({ tenantKeyReplicaRegions: ['eu-west-1'] }),
-    /supports only primary us-east-1 and standby us-west-2/,
+    () => synth({ tenantKeyReplicaRegions: ['cn-north-1'] }),
+    /known AWS commercial Region/,
   );
   assert.throws(
     () =>
       synth({
-        env: { account: '123456789012', region: 'eu-central-1' },
+        env: { account: '123456789012', region: 'us-gov-east-1' },
       }),
-    /supports only primary us-east-1 and standby us-west-2/,
+    /known AWS commercial Region/,
   );
 });
 
