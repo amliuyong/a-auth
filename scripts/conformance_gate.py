@@ -438,6 +438,9 @@ def main() -> int:
             for test in suites[suite_id]["tests"]
             if test["required"]
         ]
+        required_tests_by_key = {
+            (suite_id, test["id"]): test for suite_id, test in required_tests
+        }
         failed_tests = [
             (suite_id, test)
             for suite_id, test in required_tests
@@ -464,10 +467,37 @@ def main() -> int:
         )
         max_exception_age = timedelta(days=policy["max_exception_days"])
         for exception, key in zip(exception_list, exception_keys, strict=True):
-            require(
-                key in waivable_keys,
-                "exception must target a waivable failed required test, not an error, skip, or non-waivable cleanup",
-            )
+            if key not in waivable_keys:
+                reason = (
+                    "exception must target a waivable failed required test, "
+                    "not an error, skip, or non-waivable cleanup"
+                )
+                test = required_tests_by_key.get(key)
+                if test is not None:
+                    details = [
+                        f"status={test['status']}",
+                        f"required={str(test['required']).lower()}",
+                        f"waivable={str(test.get('waivable', True)).lower()}",
+                    ]
+                    if suites[key[0]]["kind"] == "oidf-plan":
+                        details.append(
+                            f"upstream_status={test['upstream_status'] or 'UNKNOWN'}"
+                        )
+                        upstream_result = test["upstream_result"]
+                        if upstream_result in {
+                            "PASSED",
+                            "FAILED",
+                            "WARNING",
+                            "REVIEW",
+                            "SKIPPED",
+                            "UNKNOWN",
+                            "ERROR",
+                        }:
+                            details.append(f"upstream_result={upstream_result}")
+                    reason += f"; {key[0]}/{key[1]} ({', '.join(details)})"
+                else:
+                    reason += "; target not found among required tests"
+                raise ValueError(reason)
             for field in ("approved_by", "reason"):
                 require_nonempty_string(
                     exception.get(field),
