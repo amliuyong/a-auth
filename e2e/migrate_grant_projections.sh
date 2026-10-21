@@ -2,6 +2,7 @@
 # Backfill the two tenant-scoped DynamoDB projections introduced after early
 # Grant rows were written. The default plan action is read-only.
 set -euo pipefail
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/aws_regions.sh"
 
 ACTION="${ACTION:-plan}"
 STACK="${STACK:-AgentAuthSaas}"
@@ -22,12 +23,9 @@ if [[ "$ACTION" == "apply" ]]; then
     printf 'FAIL: ACTION=apply requires CONFIRM_STACK=%s\n' "$STACK" >&2
     exit 1
   fi
-  if [[ "$REGION" != "us-east-1" ]]; then
-    printf 'FAIL: ACTION=apply requires REGION=us-east-1\n' >&2
-    exit 1
-  fi
+  require_commercial_regions "$REGION"
 fi
-for command in aws flock jq; do
+for command in aws flock jq python3; do
   command -v "$command" >/dev/null || {
     printf 'FAIL: missing command: %s\n' "$command" >&2
     exit 1

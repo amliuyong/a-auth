@@ -16,6 +16,7 @@
 #   ACTION=cleanup RUN_ID=<run-id> AWS_PROFILE=default REGION=us-east-1 \
 #   ./e2e/governance_restore_cutover_live.sh
 set -euo pipefail
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/aws_regions.sh"
 set +x
 
 ACTION="${ACTION:-run}"
@@ -74,8 +75,7 @@ if [[ ! "$RUN_ID" =~ ^[A-Za-z0-9._-]{1,64}$ ]] ||
   [[ "$RUN_ID" == "." || "$RUN_ID" == ".." ]]; then
   fail "invalid RUN_ID"
 fi
-[[ "$REGION" == "us-east-1" ]] ||
-  fail "qualifying gate requires REGION=us-east-1"
+require_commercial_regions "$REGION"
 [[ "$STACK" == "AgentAuthSaas" ]] ||
   fail "qualifying gate requires STACK=AgentAuthSaas"
 [[ "$POLL_SECS" =~ ^[1-9][0-9]*$ ]] ||

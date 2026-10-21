@@ -30,6 +30,7 @@
 # cleanup uses product APIs only for fixture IDs recorded by this script. It
 # never directly deletes cloud resources and cannot reverse tenant offboarding.
 set -euo pipefail
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/aws_regions.sh"
 set +x
 
 ACTION="${ACTION:-run}"
@@ -94,14 +95,11 @@ for command in \
   python3 sha256sum sleep sort tee wc; do
   command -v "$command" >/dev/null || fail "missing command: $command"
 done
-[[ "$REGION" == "us-east-1" ]] ||
-  fail "qualifying drill requires REGION=us-east-1"
+require_commercial_regions "$REGION" "$STANDBY_REGION"
 [[ "$STACK" == "AgentAuthSaas" ]] ||
   fail "qualifying drill requires STACK=AgentAuthSaas"
 [[ "$STANDBY_STACK" == "AgentAuthSaasStandby" ]] ||
   fail "qualifying drill requires STANDBY_STACK=AgentAuthSaasStandby"
-[[ "$STANDBY_REGION" == "us-west-2" ]] ||
-  fail "qualifying drill requires STANDBY_REGION=us-west-2"
 [[ "$INJECT_RETRY_INTERRUPTION" == "0" ||
   "$INJECT_RETRY_INTERRUPTION" == "1" ]] ||
   fail "INJECT_RETRY_INTERRUPTION must be 0 or 1"
@@ -496,19 +494,17 @@ initialize_context() {
   residency="$(stack_output_from_file "$stack_file" TenantResidency)"
   scim_arns="$(stack_output_from_file "$stack_file" ScimSecretArns)"
 
-  jq -e '
+  jq -e --arg region "$REGION" --arg standby "$STANDBY_REGION" '
     (keys | sort) == ["t1", "t2"] and
-    all(.[]; .governance_region == "us-east-1") and
+    all(.[]; .governance_region == $region) and
     (.t1.allowed_regions == .t2.allowed_regions) and
-    (.t1.allowed_regions | index("us-east-1") != null)
+    ((.t1.allowed_regions | sort) == ([$region, $standby] | sort))
   ' <<<"$residency" >/dev/null ||
-    fail "TenantResidency must contain only t1/t2 with us-east-1 governance"
+    fail "TenantResidency must contain only t1/t2 with configured primary governance and the exact Region pair"
   regions_json="$(jq -c '.t1.allowed_regions | sort' <<<"$residency")"
-  [[ "$regions_json" == '["us-east-1","us-west-2"]' ]] ||
-    fail "TenantResidency must configure exactly us-east-1 and us-west-2"
-  jq -e '
+  jq -e --arg region "$REGION" --arg account "$account" '
     (keys | sort) == ["t1", "t2"] and
-    all(.[]; test("^arn:aws[^:]*:secretsmanager:us-east-1:[0-9]{12}:secret:"))
+    all(.[]; startswith("arn:aws:secretsmanager:" + $region + ":" + $account + ":secret:"))
   ' <<<"$scim_arns" >/dev/null ||
     fail "ScimSecretArns is not an exact t1/t2 ARN map"
   jq -e '

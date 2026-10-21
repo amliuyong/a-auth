@@ -6,6 +6,7 @@
 # path, then removes the transient receiver, fixture users, and stream rows. The
 # canonical security-event ledger and archive remain intact as acceptance evidence.
 set -Eeuo pipefail
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/aws_regions.sh"
 set +x
 
 PROFILE="${PROFILE:-${AWS_PROFILE:-default}}"
@@ -555,8 +556,8 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-[[ "$REGION" == "us-east-1" ]] || fail "SSF live acceptance requires us-east-1"
-for command in aws curl jq openssl zip node; do require "$command"; done
+require_commercial_regions "$REGION"
+for command in aws curl jq openssl zip node python3; do require "$command"; done
 
 "${AWS[@]}" sts get-caller-identity >/dev/null
 for stack in "$DEV_STACK" "$SAAS_STACK"; do

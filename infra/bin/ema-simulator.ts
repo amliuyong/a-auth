@@ -5,6 +5,7 @@ import { App, Aspects } from 'aws-cdk-lib';
 import { AwsSolutionsChecks } from 'cdk-nag';
 import { EmaSimulatorStack } from '../lib/ema-simulator-stack';
 import { requireCleanGitWorktree } from '../lib/deployment-provenance';
+import { requireCommercialRegion } from '../lib/deployment-regions';
 
 const app = new App();
 const repoRoot = path.resolve(__dirname, '..', '..');
@@ -31,7 +32,10 @@ const agentAuthIssuers = explicitIssuers?.length
 new EmaSimulatorStack(app, 'AgentAuthEmaSimulator', {
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,
-    region: process.env.CDK_DEFAULT_REGION ?? 'us-east-1',
+    region: requireCommercialRegion(
+      'CDK_DEFAULT_REGION',
+      process.env.CDK_DEFAULT_REGION ?? 'us-east-1',
+    ),
   },
   agentAuthIssuers,
   simulatorCommit,

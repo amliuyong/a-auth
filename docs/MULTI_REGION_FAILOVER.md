@@ -131,10 +131,13 @@ second outbound delivery worker.
 
 ### Preconditions
 
-1. Use a configured AWS profile. The supported pair is primary `us-east-1` and
-   standby `us-west-2`; production SaaS synthesis requires
-   `SAAS_REPLICA_REGIONS=us-west-2` and rejects a missing or different pair so
-   a later deployment cannot silently remove the primary admission fence.
+1. Use a configured AWS profile and choose two distinct known commercial
+   Regions in the `aws` partition. China, GovCloud and other partitions are
+   outside this implementation. Set `CDK_DEFAULT_REGION` to the primary and
+   `SAAS_REPLICA_REGIONS` to exactly one standby; production SaaS rejects a
+   missing standby so a later deployment cannot silently remove admission fencing.
+   The examples below default to `us-east-1`/`us-west-2`; combinations such as
+   `eu-west-1`/`ap-southeast-2` are configurable.
 2. Build all Lambda artifacts and deploy one reviewed commit to both Regions.
    Both stacks expose `DeploymentCommit`; the drill refuses a mismatch with
    either stack or local `HEAD`, and refuses tracked or untracked worktree
@@ -158,6 +161,27 @@ second outbound delivery worker.
 7. Run `cdk diff` first. Any replacement of an existing authority table,
    retained key, or retained Secret is a stop condition.
 
+Enable both selected Regions in the account and bootstrap them plus `us-east-1`.
+Confirm required regional service availability and quotas before deployment.
+CloudFront ACM certificates, global WAF/logging and Lambda@Edge use `us-east-1`
+even when the business primary is elsewhere. CDK creates a separate
+`<primary-stack>-CloudFrontEdge-<primary-region>` stack for those controls and
+uses cross-Region references; dependency-aware deployment must include it.
+Edge code reads the two origin credential names in the configured primary
+Region, with IAM restricted to that account, Region and those names.
+
+Region choices are checked against `infra/config/commercial-regions.json`,
+shared by CDK and operational scripts and verified against the locked CDK
+Region metadata. Refresh that inventory when upgrading CDK to admit newly
+introduced commercial Regions.
+
+Keep an existing deployment's Region pair unchanged during an ordinary upgrade.
+Choosing a new pair is a deployment/migration decision: establish the new
+replicas, matching MRKs/Secrets, residency policy and both exact-commit runtimes,
+then perform the full fenced drill before moving traffic. Editing environment
+variables alone does not migrate authority or qualify the new pair. Never reuse
+an old drill context for another deployment or Region pair.
+
 ### Deploy the primary replication layer
 
 Deploy the primary first without `SAAS_STANDBY_REGION`:
@@ -165,10 +189,12 @@ Deploy the primary first without `SAAS_STANDBY_REGION`:
 ```bash
 cd infra
 export AWS_PROFILE=default
-export CDK_DEFAULT_REGION=us-east-1
+export PRIMARY_REGION="${PRIMARY_REGION:-us-east-1}"
+export STANDBY_REGION="${STANDBY_REGION:-us-west-2}"
+export CDK_DEFAULT_REGION="$PRIMARY_REGION"
 export CDK_DEFAULT_ACCOUNT="$(aws --profile default sts get-caller-identity \
   --query Account --output text)"
-export SAAS_REPLICA_REGIONS=us-west-2
+export SAAS_REPLICA_REGIONS="$STANDBY_REGION"
 export AGENT_AUTH_DEPLOYMENT_COMMIT="$(git -C .. rev-parse HEAD)"
 
 npx cdk diff AgentAuthSaas --profile default
@@ -183,7 +209,7 @@ set has 16 tables, including the governance and attribute-authority tables. Do
 not create the standby from guessed physical names. Read these primary outputs:
 
 ```bash
-PRIMARY_OUTPUTS="$(aws --profile default --region us-east-1 cloudformation \
+PRIMARY_OUTPUTS="$(aws --profile default --region "$PRIMARY_REGION" cloudformation \
   describe-stacks --stack-name AgentAuthSaas --query 'Stacks[0].Outputs' \
   --output json)"
 
@@ -196,7 +222,7 @@ export SAAS_STANDBY_REGION_CONTROL_TABLE="$(jq -r \
 PRIMARY_SECRET_ARNS="$(jq -r \
   '.[] | select(.OutputKey=="ReplicatedRuntimeSecretArns") | .OutputValue' \
   <<<"$PRIMARY_OUTPUTS")"
-export SAAS_STANDBY_RUNTIME_SECRET_ARNS="$(jq -c --arg region us-west-2 '
+export SAAS_STANDBY_RUNTIME_SECRET_ARNS="$(jq -c --arg region "$STANDBY_REGION" '
   walk(
     if type == "string" and startswith("arn:") then
       split(":") | .[3]=$region | join(":")
@@ -216,7 +242,7 @@ Secret ARN is converted to the standby Region by the same command above.
 Keep the same SaaS configuration and set:
 
 ```bash
-export SAAS_STANDBY_REGION=us-west-2
+export SAAS_STANDBY_REGION="$STANDBY_REGION"
 
 npx cdk diff AgentAuthSaasStandby --profile default
 npx cdk deploy AgentAuthSaasStandby \
@@ -269,8 +295,8 @@ Run from persistent encrypted storage:
 
 ```bash
 AWS_PROFILE=default \
-PRIMARY_REGION=us-east-1 \
-STANDBY_REGION=us-west-2 \
+PRIMARY_REGION="$PRIMARY_REGION" \
+STANDBY_REGION="$STANDBY_REGION" \
 PRIMARY_STACK=AgentAuthSaas \
 STANDBY_STACK=AgentAuthSaasStandby \
 SAAS_ZONE=example.com \

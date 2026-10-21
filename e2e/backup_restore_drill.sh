@@ -20,6 +20,7 @@
 #   ISSUER_T1=https://t1.example.com ISSUER_T2=https://t2.example.com \
 #   AWS_PROFILE=default REGION=us-east-1 ./e2e/backup_restore_drill.sh
 set -euo pipefail
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/aws_regions.sh"
 
 ACTION="${ACTION:-run}"
 STACK="${STACK:-AgentAuthSaas}"
@@ -85,8 +86,7 @@ info() { printf 'INFO: %s\n' "$*"; }
 for command in aws date jq sha256sum; do
   command -v "$command" >/dev/null || fail "missing command: $command"
 done
-[[ "$REGION" == "us-east-1" ]] ||
-  fail "production drill requires REGION=us-east-1 (got $REGION)"
+require_commercial_regions "$REGION"
 [[ "$POLL_SECS" =~ ^[1-9][0-9]*$ ]] ||
   fail "POLL_SECS must be a positive integer"
 [[ "$CLOUDTRAIL_LOOKUP_SECS" =~ ^[1-9][0-9]*$ ]] ||

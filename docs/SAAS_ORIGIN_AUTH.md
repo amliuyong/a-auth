@@ -75,7 +75,9 @@ Manager ARN suffix, and derives the fixed secondary name. The Lambda role has
 in Lambda environment variables or CloudFormation outputs.
 
 The primary and standby stacks read replicas with the same names. CloudFront
-exists only in the primary stack. Its Lambda@Edge execution role can read
+is attached to the primary stack. CloudFront WAF/logging and Lambda@Edge are
+created in `us-east-1`; a primary outside that Region receives a separate edge
+stack. Its Lambda@Edge execution role can read
 exactly the two primary-region secrets and injects both slots for whichever
 regional API is configured as the origin. The function code, distribution
 configuration, Lambda environments, and CloudFormation outputs contain secret
@@ -95,8 +97,8 @@ propagation converge.
 1. Record the current `SAAS_ORIGIN_AUTH_REVISION`.
 2. Generate a new random 48-byte-or-longer value in a mode-`0600` file. Do not
    pass the value on a command line or store it in shell history.
-3. Write the new value to the **secondary** secret in `us-east-1`.
-4. Wait until the `us-west-2` replica returns the same version/value without
+3. Write the new value to the **secondary** secret in the configured primary Region.
+4. Wait until the configured standby replica returns the same version/value without
    printing either value.
 5. Set `SAAS_ORIGIN_AUTH_REVISION` to a new bounded identifier.
 6. Deploy `AgentAuthSaas`, wait for the distribution to finish propagating,

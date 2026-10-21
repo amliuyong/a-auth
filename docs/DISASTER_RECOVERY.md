@@ -6,6 +6,11 @@ DynamoDB authority table inside the deployed Region. Multi-Region traffic
 failover, Global Tables, and multi-Region KMS keys are covered by the separate
 multi-Region runbook.
 
+Select the deployed commercial Region through `REGION`. The `us-east-1`
+commands below are examples; scripts validate the selected Region against the
+shared commercial inventory and retain their account/stack/receipt checks.
+Changing `REGION` does not move an existing deployment or a persisted drill.
+
 The drill never calls `GetSecretValue`, reads protected DynamoDB credential
 payloads, or points production traffic at a restored table. It verifies
 credential presence/type/version metadata, records only

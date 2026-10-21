@@ -9,6 +9,15 @@
 
 ## 0 · 部署域名(具体事实)
 
+**业务区域可配置**：`CDK_DEFAULT_REGION` 选择主区，
+`SAAS_REPLICA_REGIONS` 与 `SAAS_STANDBY_REGION` 选择同一个不同的备用区。
+支持标准商业分区 `aws` 的已知区域，当前拓扑为单主区加一个备用区；
+中国区、GovCloud、其他分区及多 writer 拓扑暂不支持。
+CloudFront 的证书、全局 WAF/日志和 Lambda@Edge 仍按 AWS 要求位于 `us-east-1`。
+其他主区会生成独立的 `<业务栈>-CloudFrontEdge-<主区>` 栈，并通过 CDK 跨区域引用连接；
+API、表、Secret、MRK 及后台任务留在配置的业务区域。现有 `us-east-1` 主区保留原有资源路径。
+各区域的启用状态、服务支持、配额及实际 failover 验收需另行确认。
+
 **issuer 是 per-deploy/per-tenant 配置,不是硬编码常量**(我们 SaaS 的 hosted zone **`saas.example.com` 已创建**,通配证书 `*.saas.example.com` + CloudFront 通配 alt name):
 
 - **【自部署】issuer = 该栈的公开 AS 域名**。生产带自定义域时使用客户配置域(如 `https://auth.customer.example`),无自定义域时使用 CloudFront 默认域；两者都承载全部 AS 端点(单租户)。CDK 必须把已校验的 `WEB_BASE_URL` host 作为 `AGENT_AUTH_HOST` 注入所有运行时 Lambda；API Gateway 仅为 CloudFront 回源,不得成为公开 issuer,也不得回落 `localhost`。制品绝不硬编码我们的 `*.a-auth.com`。
@@ -111,8 +120,8 @@ set 生命周期绝不是一个请求内的同步事务。
   若升级时已有跨夜 `active_overlap` checkpoint，必须在 maintenance fence 内先完成 backfill 与
   最终 SHA 部署，再恢复 worker 并运行 `forward-finish`；否则旧 binary 退休时不会写
   `last_completed_outcome`，最终 gate 必须失败。
-- `SAAS_REPLICA_REGIONS` 是逗号分隔的备用区列表；生产 SaaS 默认必须精确设置为
-  `us-west-2`，防止后续部署静默移除主区 admission fence。只有显式设置
+- `SAAS_REPLICA_REGIONS` 是备用区配置；当前生产 SaaS 必须设置为一个不同的商业区域，
+  防止后续部署静默移除主区 admission fence。只有显式设置
   `SAAS_PRODUCTION_RECOVERY=0` 的 disposable test stack 可以使用空列表。CDK 将列表作为
   `TENANT_KEY_REPLICA_REGIONS` JSON 注入 provisioner。新 key 始终创建为 MRK primary；
   列表非空时，任一区域 replica 尚未创建、未可用、公钥不一致或真实签名探针失败都会阻止
