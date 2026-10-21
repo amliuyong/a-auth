@@ -62,6 +62,11 @@ The public read endpoint is `GET /ui/branding`. Authenticated administration use
 
 ## Validation boundaries
 
+The production-bundle HtmlUnit smoke controls the branding response while email
+or password is being edited. Default, custom and unavailable branding must retain
+the input and complete login, consent and callback. Chromium checks also cover
+English/Chinese keyboard password visibility and disabled preview inputs.
+
 HTTP acceptance covers defaults, bounded input, permissions, stale editors,
 concurrent writers, SaaS isolation and future-version protection. The DynamoDB
 Local acceptance starts fresh HTTP processes against one table to verify

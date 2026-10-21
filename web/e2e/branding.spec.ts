@@ -46,6 +46,47 @@ test('a stored brand is rendered on the real login page without changing login c
 });
 
 for (const language of ['en', 'zh']) {
+  test(`${language} login retains edits and keyboard password visibility after delayed branding`, async ({ page }) => {
+    await page.addInitScript((value) => localStorage.setItem('agent-auth-lang', value), language);
+    let releaseBranding!: () => void;
+    const brandingResponse = new Promise<void>((resolve) => { releaseBranding = resolve; });
+    await page.route('**/ui/branding', async (route) => {
+      await brandingResponse;
+      await route.fulfill({ json: { status: 'ready', version: 1, revision: 1,
+        settings: { name: 'Delayed Brand', logo: 'shield', primary: 'teal' } } });
+    });
+    let loginBody: unknown;
+    await page.route('**/login/password', async (route) => {
+      loginBody = route.request().postDataJSON();
+      await route.fulfill({ json: { authenticated: true, password_change_required: false } });
+    });
+    await page.route('**/authorize?*', (route) => route.fulfill({ body: 'continued' }));
+    await page.goto('/login?client_id=web-client');
+    const email = page.locator('#agent-auth-login-email');
+    const password = page.locator('#agent-auth-login-password');
+    await email.fill('oidf-user@example.com');
+    await password.fill('Replaceable password 123!');
+    releaseBranding();
+    await expect(page.getByRole('banner')).toContainText('Delayed Brand');
+    await expect(email).toHaveValue('oidf-user@example.com');
+    await expect(password).toHaveValue('Replaceable password 123!');
+    const show = page.getByRole('button', { name: language === 'en' ? 'Show password' : '显示密码', exact: true });
+    await show.focus();
+    await page.keyboard.press('Space');
+    await expect(password).toHaveAttribute('type', 'text');
+    await expect(password).toHaveValue('Replaceable password 123!');
+    await page.getByRole('button', { name: language === 'en' ? 'Hide password' : '隐藏密码', exact: true }).focus();
+    await page.keyboard.press('Enter');
+    await expect(password).toHaveAttribute('type', 'password');
+    await expect(password).toHaveValue('Replaceable password 123!');
+    await page.locator('#agent-auth-login-submit').click();
+    await page.waitForURL(/\/authorize\?client_id=web-client$/);
+    expect(loginBody).toEqual({ email: 'oidf-user@example.com', password: 'Replaceable password 123!',
+      authorize_query: 'client_id=web-client' });
+  });
+}
+
+for (const language of ['en', 'zh']) {
   test(`mobile ${language} consent retains long authority facts and escapes the brand name`, async ({ page }) => {
     await page.setViewportSize({ width: 360, height: 800 });
     await page.addInitScript((value) => localStorage.setItem('agent-auth-lang', value), language);
@@ -111,6 +152,9 @@ test('an owner can preview synthetic consent without performing an authorization
   await expect(page.getByRole('tab', { name: 'Branding', exact: true })).toBeVisible();
   await page.getByLabel('Display name', { exact: true }).fill('Preview Brand');
   const preview = page.getByTestId('branding-preview');
+  await expect(preview.locator('#agent-auth-login-email')).toBeDisabled();
+  await expect(preview.locator('#agent-auth-login-password')).toBeDisabled();
+  await expect(preview.getByRole('button', { name: 'Show password', exact: true })).toBeDisabled();
   await expect(preview.getByRole('button', { name: 'Sign in', exact: true })).toBeDisabled();
   await expect(preview.locator('#agent-auth-login-ready')).toHaveCount(0);
   await page.getByRole('radio', { name: 'Consent', exact: true }).check();
