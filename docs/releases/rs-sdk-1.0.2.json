@@ -4,7 +4,7 @@
     "npm": "agent_auth_rs",
     "pypi": "agent_auth_rs"
   },
-  "status": "PARTIAL",
+  "status": "PASS",
   "source_commit": "3ad529fbc7e46fa6e79446b2fee51a768ce41d9d",
   "source_pr": "https://github.com/amliuyong/a-auth/pull/114",
   "source_ci": {
@@ -90,16 +90,135 @@
     "final_registry_install_attempt": 2
   },
   "npm": {
-    "status": "NOT_PUBLISHED",
+    "status": "PASS",
     "registry": "https://registry.npmjs.org",
-    "metadata_readback": "HTTP_404",
-    "independent_registry_install": "NOT_RUN",
-    "reason": "BROWSER_PASSKEY_AUTHENTICATION_PENDING",
+    "metadata": "https://registry.npmjs.org/agent_auth_rs/1.0.2",
+    "verified_at": "2026-10-21T01:48:07.123298+00:00",
+    "gitHead": "3ad529fbc7e46fa6e79446b2fee51a768ce41d9d",
+    "dist_tag_latest": "1.0.2",
+    "artifacts": [
+      {
+        "file": "agent_auth_rs-1.0.2.tgz",
+        "sha256": "4d3afba1ac7a89115466f1798f8ec7ee84aca2faa87101a8bccc2c928cff77de",
+        "url": "https://registry.npmjs.org/agent_auth_rs/-/agent_auth_rs-1.0.2.tgz"
+      }
+    ],
+    "independent_registry_install": {
+      "status": "PASS",
+      "distribution": "npm",
+      "resolved": "https://registry.npmjs.org/agent_auth_rs/-/agent_auth_rs-1.0.2.tgz",
+      "runtime": "v22.23.3",
+      "protected_http_cases": 6,
+      "rar_cases": 3,
+      "dpop_cases": 4,
+      "source_imports": false,
+      "lock_integrity": "sha512-JrlHRG+VkpZTX+3XDY4SGlr1RDeqADqwnRgqTt2/6XTaZYl/yabCwf2y0JCFYJj/xSwietb6D2mwUfZ9ox2eMw=="
+    },
+    "publication_method": "OWNER_AUTHORIZED_BOOTSTRAP",
+    "oidc_provenance": "NOT_CONFIGURED",
+    "authentication": "OFFICIAL_NPM_BROWSER_FLOW_COMPLETED_BY_OWNER_ON_MAC",
+    "security_key_shared": false,
     "recovery_code": "NOT_USED",
-    "verified_at": "2026-10-20T22:30:12.232062+00:00"
+    "operator_import_path_first_attempt": "FAIL_BEFORE_CREDENTIALS_OR_PUBLISHER",
+    "initial_postupload_readback": "404_PENDING_PROPAGATION",
+    "initial_public_placeholder": "0.0.0-stage",
+    "stage_approval_mechanism": "NOT_VERIFIED",
+    "upload_repeated": false
   },
   "main_ci": "WAIVED_BY_REQUESTER_NOT_PASS",
-  "issue79": "OPEN_PENDING_NPM",
-  "issue80": "OPEN_PENDING_PUBLIC_NPM_INSTALLED_ONBOARDING_ACCEPTANCE",
-  "aws_redeployment": "NOT_RUN"
+  "issue79": "ACCEPTANCE_PASS",
+  "issue80": "ACCEPTANCE_PASS_WITH_DISTINCT_HISTORICAL_AWS_AND_CURRENT_CONTROLLED_EVIDENCE",
+  "aws_redeployment": "NOT_RUN",
+  "onboarding_public_npm": {
+    "status": "PASS",
+    "at": "2026-10-21T01:47:17.397884+00:00",
+    "source_commit": "3ad529fbc7e46fa6e79446b2fee51a768ce41d9d",
+    "sdk_version": "1.0.2",
+    "mcp_sdk_version": "1.32.0",
+    "oauth4webapi_version": "3.8.8",
+    "runtime": "Node.js 22.23.3",
+    "source_imports": false,
+    "environment": "CONTROLLED_LOCAL_TLS_AS",
+    "cross_origin_redirect_regression": "PASS",
+    "controlled_runtime": {
+      "result": "PASS",
+      "environment": "CONTROLLED_LOCAL_TLS_AS",
+      "provider_login": "NOT_RUN",
+      "aws_acceptance": "NOT_RUN",
+      "checks": [
+        {
+          "check": "https-protected-resource-metadata",
+          "result": "PASS"
+        },
+        {
+          "check": "official-mcp-offline-call",
+          "result": "PASS",
+          "elapsed_seconds": 0.118,
+          "stages": 3
+        },
+        {
+          "check": "missing-token",
+          "result": "PASS",
+          "status": 401
+        },
+        {
+          "check": "wrong-issuer",
+          "result": "PASS",
+          "status": 401
+        },
+        {
+          "check": "wrong-audience",
+          "result": "PASS",
+          "status": 401
+        },
+        {
+          "check": "missing-scope",
+          "result": "PASS",
+          "status": 403
+        },
+        {
+          "check": "unsupported-proof-bound-token",
+          "result": "PASS",
+          "status": 401
+        },
+        {
+          "check": "offline-grant-backed-rar",
+          "result": "PASS",
+          "status": 403
+        },
+        {
+          "check": "official-mcp-online-actor-call",
+          "result": "PASS",
+          "elapsed_seconds": 0.102,
+          "stages": 3
+        },
+        {
+          "check": "online-inactive-immediately-rechecked",
+          "result": "PASS",
+          "status": 401
+        },
+        {
+          "check": "online-as-unavailable",
+          "result": "PASS",
+          "status": 503
+        },
+        {
+          "check": "online-audience-mismatch",
+          "result": "PASS",
+          "status": 401
+        },
+        {
+          "check": "online-scope-mismatch",
+          "result": "PASS",
+          "status": 403
+        }
+      ],
+      "private_fixture_cleanup": "PASS",
+      "elapsed_seconds": 0.84
+    },
+    "provider_login": "NOT_RUN",
+    "aws_redeployment": "NOT_RUN",
+    "historical_aws_acceptance": "SEE_DOCS_ONBOARDING_2026_10_20_1_0_1",
+    "historical_as_source_commit_binding": "UNKNOWN"
+  }
 }

@@ -10,25 +10,28 @@ Copy this directory outside the repository. In that copy:
 
 ```bash
 npm ci
-npm install --no-save /absolute/path/to/qualified/agent_auth_rs-1.0.2.tgz
-```
-
-The RS SDK peer is optional only so dependencies can be installed before
-publication. Every server run requires the real SDK installation above.
-The tarball must come from #79's clean source artifact qualification. No
-workspace/source import or editable install is used.
-
-Public registry installation remains **NOT_RUN** until #79 publishes and
-verifies its registry receipt. After that, replace the second command with:
-
-```bash
 npm install --no-save agent_auth_rs@1.0.2
 ```
 
-The [1.0.2 publication record](../../docs/releases/rs-sdk-1.0.2.json) verifies
-PyPI wheel/sdist publication and independent installation. npm remains
-unpublished; Python acceptance does not satisfy this Node.js example's
-public-registry installation gate.
+The RS SDK peer is optional only so dependencies can be installed before
+publication. Every server run requires the SDK installation above.
+No workspace/source import or editable install is used.
+
+Public registry installation is **PASS** for 1.0.2. The
+[publication record](../../docs/releases/rs-sdk-1.0.2.json) binds the public
+tarball digest and `gitHead` to clean qualified source and its immutable tag.
+An independent copy with this public package and MCP SDK 1.32.0 passed
+13 controlled TLS/MCP checks and the cross-origin redirect regression;
+see the [dated acceptance record](../../docs/ONBOARDING.md).
+Real external-provider login and a new AWS deployment remain NOT_RUN.
+
+For an offline artifact installation, use the same qualified tarball:
+
+```bash
+npm install --no-save /absolute/path/to/qualified/agent_auth_rs-1.0.2.tgz
+```
+
+Verify its SHA-256 against the publication record before installation.
 
 Open `/admin?tab=onboarding` at your current tenant. Select the appropriate
 registered clients and copy its public configuration into `config.json`, or

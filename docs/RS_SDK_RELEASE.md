@@ -2,22 +2,18 @@
 
 ## Distribution status
 
-Registry release is **PARTIAL**. PyPI `agent_auth_rs==1.0.2` is published:
-the wheel and sdist match the qualified digests, and independent installs of
-both production-registry distributions pass the HTTP, RAR and DPoP checks.
-npm `agent_auth_rs@1.0.2` is **NOT_PUBLISHED**; browser Passkey authentication
-and public-registry installation acceptance remain pending. The clean 1.0.2
-qualification includes the [MCP security patch](DEPENDENCY_PATCHES.md).
-The three qualified artifacts and immutable tag already exist. Existing 1.0.1
-tags, artifacts and PyPI uploads remain historical.
-Issue #79 stays open until both registries have verified receipts and
-installation acceptance for the new release.
+Registry release **1.0.2 is published and verified** on npm and PyPI.
+The public npm tarball, Python wheel and sdist match the qualified digests.
+Separate clean projects installed each production-registry distribution and
+passed 6 protected HTTP, 3 RAR and 4 DPoP checks per install.
+The clean qualification includes the [MCP security patch](DEPENDENCY_PATCHES.md).
+Existing 1.0.1 tags, artifacts and PyPI uploads remain historical.
 The dated [1.0.2 publication record](releases/rs-sdk-1.0.2.json) binds
 qualification, registry bytes and installation results to the exact source.
 
 | Artifact | Version | Runtime | Public entry |
 | --- | --- | --- | --- |
-| npm `agent_auth_rs` | 1.0.2 (pending) | Node.js >=22.14, ESM | `agent_auth_rs` |
+| npm `agent_auth_rs` | 1.0.2 (published, verified) | Node.js >=22.14, ESM | `agent_auth_rs` |
 | Python wheel / sdist `agent_auth_rs` | 1.0.2 (published, verified) | Python >=3.10 | `agent_auth_rs` |
 
 Both registries use the same unscoped SDK name without a personal prefix.
@@ -38,6 +34,15 @@ subsequent production JSON metadata and downloaded bytes matched qualification.
 No repeat upload was required. Separate clean projects installed the wheel and
 sdist from PyPI; each passed 6 protected HTTP, 3 RAR and 4 DPoP checks.
 This owner-authorized bootstrap has no OIDC provenance attestation.
+
+npm upload completed on 2026-10-21 after the owner authenticated in the
+official npm browser flow on their Mac. No private security key was shared.
+Initial readback returned 404 and the package page displayed the staged
+placeholder `0.0.0-stage`; later public metadata resolved to `1.0.2`, with
+`latest` pointing to that version. The tarball SHA-256 and `gitHead` match the
+qualified source. No repeat upload or recovery code was used.
+The public-installed [onboarding example](ONBOARDING.md) additionally passed
+13 controlled TLS/MCP checks with MCP SDK 1.32.0.
 
 The historical immutable
 [`rs-sdk-v1.0.1`](https://github.com/amliuyong/a-auth/tree/rs-sdk-v1.0.1)
@@ -96,9 +101,8 @@ npm install --save-exact agent_auth_rs@1.0.2
 python -m pip install agent_auth_rs==1.0.2
 ```
 
-The Python 1.0.2 command is verified against production PyPI, with separate
-wheel and sdist installs. The npm command remains pending successful
-publication acceptance; use the qualified tarball until that receipt exists.
+Both commands are verified against their production registries, with separate
+Python wheel and sdist installs.
 Node 22 and Python 3.12 are the
 release qualification
 workflow's selected runtimes; other supported versions require their own
@@ -210,16 +214,17 @@ pairwise subjects without deriving identities. RAR narrows access. Grant-backed
 RAR requires authenticated introspection. Offline JWT verification can remain
 valid until expiry after revocation and cannot cancel a running business call.
 
-当前 1.0.2 的 PyPI 发布、固定版本制品回读及两个独立安装为 **PASS**；
-npm 发布及公开 registry 安装为 **NOT_RUN**。本地打包验证与各 registry 的
-发布验收分开记录。只有 npm/PyPI 的固定版本制品回读、摘要、源提交与安装验证
-全部完成，才能关闭 #79。跳过的 exact selectors 不计 PASS；postmerge main CI
-为 WAIVED_BY_REQUESTER_NOT_PASS。
+当前 1.0.2 的 npm/PyPI 发布、固定版本制品回读及三个独立安装均为 **PASS**。
+本地打包验证与各 registry 的发布验收分开记录。源提交/tag、公开制品摘要与
+安装验证已完成 #79 的分发验收。跳过的 exact selectors 不计 PASS；
+postmerge main CI 为 WAIVED_BY_REQUESTER_NOT_PASS。
 
 ## Primary publisher references
 
 - [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/)
   requires npm >=11.5.1 and Node >=22.14.
+- [npm staged publishing](https://docs.npmjs.com/staged-publishing/)
+  explains the `0.0.0-stage` placeholder for a new staged package.
 - [PyPI trusted publisher usage](https://docs.pypi.org/trusted-publishers/using-a-publisher/)
 - [PyPI pending publisher setup](https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/)
 - [PyPA publishing action](https://github.com/pypa/gh-action-pypi-publish)
