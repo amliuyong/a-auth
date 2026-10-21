@@ -34,9 +34,10 @@ agents, machine identities, delegation chains, and MCP resources.
 
 ## Current Status
 
-- **Release** — [`v1.0.0`](https://github.com/amliuyong/a-auth/releases/tag/v1.0.0)
-  is the current stable source release. Release assets are source
-  archives; Rust crates remain unpublished.
+- **Release** — [GitHub Releases](https://github.com/amliuyong/a-auth/releases)
+  lists published stable source versions. The
+  [v1.1.0 release notes](docs/releases/v1.1.0.md) describe this source revision.
+  Release assets are source archives; Rust crates remain unpublished.
   The resource-server SDKs are published separately as `agent_auth_rs` 1.0.2
   on [npm](https://www.npmjs.com/package/agent_auth_rs/v/1.0.2) and
   [PyPI](https://pypi.org/project/agent-auth-rs/1.0.2/).

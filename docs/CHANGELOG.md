@@ -8,6 +8,8 @@ configuration, APIs, deployment resources, or SDKs.
 
 ## [Unreleased]
 
+## [1.1.0] - Release candidate
+
 ### Added
 
 - Resource-server SDK distribution `agent_auth_rs` 1.0.2 on npm and PyPI.
@@ -28,12 +30,73 @@ configuration, APIs, deployment resources, or SDKs.
   `verify_payment_authorization` (Python) SDK checks for payment execution,
   with shared cross-language terms-digest vectors. Generic RAR enforcement is
   unchanged.
+- The account authorization view shows approved actor identifiers or patterns,
+  maximum delegation depth, resources, scopes and expiry. Revocation reloads
+  the actual Grant status; offline JWT verification can still accept an
+  unexpired token. See [`WORKLOAD_CONSENT.md`](WORKLOAD_CONSENT.md).
+- An administrator Security Events tab with event filters, cursor pagination,
+  event detail and archive/delivery status. It uses the existing authenticated
+  read API and clears retained results on access failures. See
+  [`SECURITY_EVENTS.md`](SECURITY_EVENTS.md).
+- Enterprise OIDC guidance for Okta, Entra ID and generic providers, with
+  separate draft, discovery/JWKS and actual-login results. The authenticated
+  tenant list endpoint supports both deployment shapes. See
+  [`FEDERATION_TEMPLATES.md`](FEDERATION_TEMPLATES.md).
+- Self-hosted login and consent branding with bounded names, built-in logos
+  and colors, isolated synthetic preview, durable revision checks and reset.
+  SaaS mode remains unsupported. See [`BRANDING.md`](BRANDING.md).
+- Scenario-based administrator onboarding and independently installable CLI/MCP
+  examples for PKCE, device, refresh, workload exchange and revocation. The
+  public SDK 1.0.2 controlled checks and historical SDK 1.0.1 AWS checks remain
+  separate. See [`ONBOARDING.md`](ONBOARDING.md).
+- Recorded loopback TLS interoperability with mcp-remote 0.15.2, MCP Inspector
+  mcpdo 2.11.0 and mcp-auth 0.2.0, including natural-expiry refresh. These
+  results do not establish production/AWS, Inspector GUI or real DPoP
+  interoperability. See [`MCP_INTEROP.md`](MCP_INTEROP.md).
+- A documented deployment cost model for us-east-1. See [`COST.md`](COST.md).
 - A 60-second introduction video, linked from an animated preview at the top
   of the README.
 
 ### Changed
 
 - New Agent Auth logo for the web UI favicon and the README.
+- Business primary and standby Regions are configurable within the commercial
+  `aws` partition. The topology remains one primary and one different standby;
+  CloudFront certificate, global WAF/logs and Lambda@Edge resources stay in
+  us-east-1. Non-default Regions require their own bootstrap and runtime
+  qualification. See [`INSTALL_DEPLOY.md`](INSTALL_DEPLOY.md) and
+  [`MULTI_REGION_FAILOVER.md`](MULTI_REGION_FAILOVER.md).
+- Rust workspace and OpenAPI release metadata advance to 1.1.0. The separately
+  published resource-server SDKs retain version 1.0.2 and their immutable
+  release artifacts.
+
+### Security
+
+- Federation configuration and login enforce public endpoint restrictions and,
+  in SaaS, tenant-owned Secrets Manager references. Replace legacy SaaS
+  federation references outside the tenant namespace before upgrading.
+- Patched MCP SDK to 1.32.0, Vite and related test/build dependencies, the
+  conformance CA bundle to certifi 2026.10.19, and documentation markdown-it to
+  15.0.3. See [`DEPENDENCY_PATCHES.md`](DEPENDENCY_PATCHES.md).
+- Documentation tooling still contains unpatched braces 3.0.3 under
+  GHSA-vfj7-8cjw-p6xm. Repository npm audit remains
+  `FAIL_UNPATCHED_UPSTREAM`: one underlying High advisory propagates through
+  five affected dependency nodes. It is tracked in
+  [Issue #111](https://github.com/amliuyong/a-auth/issues/111); no downgrade,
+  vendor patch or audit suppression is applied.
+- Lambda Function URLs remain prohibited.
+
+### Release qualification
+
+- These are candidate notes until v1.1.0 is published. Candidate-specific
+  source, deployment and external-gate evidence is recorded with the release
+  draft; v1.0.0 evidence does not qualify the new candidate.
+- The external gate qualifies only its exact deployed issuer and commit.
+  Project tests are not standards-body certification; FAPI, OpenID Federation
+  and blanket RFC 9700 certification remain explicit non-claims.
+- Deployment configuration and persisted formats remain outside the HTTP/SDK
+  Semantic Versioning guarantee. Review the linked deployment, federation,
+  branding and payment runbooks before upgrading.
 
 ## [1.0.0] - 2026-10-16
 
@@ -159,6 +222,7 @@ configuration, APIs, deployment resources, or SDKs.
   SDKs, capability specifications, conformance inventory, and runbooks into a
   clean public Git history at commit `3b406ce`.
 
-[Unreleased]: https://github.com/amliuyong/a-auth/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/amliuyong/a-auth/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/amliuyong/a-auth/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/amliuyong/a-auth/compare/v0.5.0...v1.0.0
 [0.5.0]: https://github.com/amliuyong/a-auth/releases/tag/v0.5.0
