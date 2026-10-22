@@ -127,6 +127,19 @@ const CLIENT_COLUMN_MIN_WIDTHS: Record<ClientColumnKey, number> = {
   actions: 210,
 };
 
+type InitialAccessColumnKey =
+  | 'token_id' | 'owner' | 'scopes' | 'status' | 'expires' | 'policy' | 'audit' | 'actions';
+
+const INITIAL_ACCESS_COLUMN_DEFAULT_WIDTHS: Record<InitialAccessColumnKey, number> = {
+  token_id: 220, owner: 180, scopes: 180, status: 110,
+  expires: 190, policy: 190, audit: 180, actions: 110,
+};
+
+const INITIAL_ACCESS_COLUMN_MIN_WIDTHS: Record<InitialAccessColumnKey, number> = {
+  token_id: 140, owner: 140, scopes: 140, status: 100,
+  expires: 150, policy: 140, audit: 140, actions: 90,
+};
+
 type ResizableHeaderCellProps = Omit<HTMLAttributes<HTMLTableCellElement>, 'onResize'> & {
   width?: number;
   minWidth?: number;
@@ -180,7 +193,6 @@ function ResizableHeaderCell({
           aria-label={resizeLabel}
           aria-orientation="vertical"
           aria-valuenow={Math.round(width)}
-          data-client-column-resizer
           onPointerDown={onPointerDown}
           style={{
             position: 'absolute',
@@ -196,6 +208,59 @@ function ResizableHeaderCell({
         />
       )}
     </th>
+  );
+}
+
+function useResizableColumns<Key extends string>(
+  defaults: Record<Key, number>,
+  minimums: Record<Key, number>,
+) {
+  const [widths, setWidths] = useState(() => ({ ...defaults }));
+  const resize = useCallback((key: Key, width: number) => {
+    setWidths((current) => (
+      current[key] === width ? current : { ...current, [key]: width }
+    ));
+  }, []);
+  const resizableHeader = (key: Key, label: string) => ({
+    width: widths[key],
+    onHeaderCell: () => ({
+      width: widths[key],
+      minWidth: minimums[key],
+      resizeLabel: label,
+      onColumnResize: (width: number) => resize(key, width),
+    } as ResizableHeaderCellProps),
+  });
+  return {
+    resizableHeader,
+    tableWidth: Object.values<number>(widths).reduce((total, width) => total + width, 0),
+  };
+}
+
+function AdminTableSearch({
+  query,
+  onQueryChange,
+  placeholder,
+}: {
+  query: string;
+  onQueryChange: (query: string) => void;
+  placeholder: string;
+}) {
+  const { t } = useTranslation();
+  const [input, setInput] = useState(query);
+  useEffect(() => { setInput(query); }, [query]);
+  return (
+    <Input.Search
+      allowClear
+      value={input}
+      placeholder={placeholder}
+      enterButton={t('admin.search')}
+      onChange={(event) => {
+        setInput(event.target.value);
+        if (!event.target.value && query) onQueryChange('');
+      }}
+      onSearch={onQueryChange}
+      style={{ width: '100%', maxWidth: 480 }}
+    />
   );
 }
 
@@ -439,7 +504,7 @@ function AdminConsole({
   const { t } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const setViewParam = (name: 'user_q' | 'client_q', value: string) => {
+  const setViewParam = (name: 'user_q' | 'client_q' | 'iat_q', value: string) => {
     const next = new URLSearchParams(searchParams);
     const normalized = value.trim();
     if (normalized) next.set(name, normalized);
@@ -464,6 +529,7 @@ function AdminConsole({
       next.delete('user_status');
     }
     if (key !== 'clients') next.delete('client_q');
+    if (key !== 'initial-access') next.delete('iat_q');
     setSearchParams(next);
   };
 
@@ -513,7 +579,13 @@ function AdminConsole({
       label: t('admin.tab.initialAccess'),
       icon: <KeyOutlined />,
       group: integration,
-      children: <InitialAccessTokensTab onUnauthorized={onUnauthorized} />,
+      children: (
+        <InitialAccessTokensTab
+          onUnauthorized={onUnauthorized}
+          query={searchParams.get('iat_q') ?? ''}
+          onQueryChange={(value) => setViewParam('iat_q', value)}
+        />
+      ),
     },
     { key: 'onboarding', label: t('admin.onboarding.title'), icon: <RocketOutlined />, group: integration, children: <OnboardingTab onUnauthorized={onUnauthorized} /> },
     { key: 'security-events', label: t('admin.tab.securityEvents'), icon: <AuditOutlined />, group: operations, children: <SecurityEventsTab onUnauthorized={onUnauthorized} /> },
@@ -2835,20 +2907,15 @@ function ClientsTab({
   const { t } = useTranslation();
   const [clients, setClients] = useState<ClientView[]>([]);
   const [authMethods, setAuthMethods] = useState<string[]>([]);
-  const [searchInput, setSearchInput] = useState(query);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [editing, setEditing] = useState<ClientView | 'new' | null>(null);
   const [credentialClient, setCredentialClient] = useState<ClientView | null>(null);
   const [secretModal, setSecretModal] = useState<{ clientId: string; secret: string } | null>(null);
-  const [columnWidths, setColumnWidths] = useState<Record<ClientColumnKey, number>>(
-    () => ({ ...CLIENT_COLUMN_DEFAULT_WIDTHS }),
+  const { resizableHeader, tableWidth } = useResizableColumns(
+    CLIENT_COLUMN_DEFAULT_WIDTHS, CLIENT_COLUMN_MIN_WIDTHS,
   );
   const loadGeneration = useRef(0);
-
-  useEffect(() => {
-    setSearchInput(query);
-  }, [query]);
 
   const load = useCallback(async () => {
     const generation = ++loadGeneration.current;
@@ -2879,22 +2946,6 @@ function ClientsTab({
       message.error(t('admin.sso.forbidden'));
     }
   };
-
-  const resizeColumn = useCallback((key: ClientColumnKey, width: number) => {
-    setColumnWidths((current) => (
-      current[key] === width ? current : { ...current, [key]: width }
-    ));
-  }, []);
-  const resizableHeader = (key: ClientColumnKey, label: string) => ({
-    width: columnWidths[key],
-    onHeaderCell: () => ({
-      width: columnWidths[key],
-      minWidth: CLIENT_COLUMN_MIN_WIDTHS[key],
-      resizeLabel: label,
-      onColumnResize: (width: number) => resizeColumn(key, width),
-    } as ResizableHeaderCellProps),
-  });
-  const clientTableWidth = Object.values(columnWidths).reduce((total, width) => total + width, 0);
 
   const columns: TableColumnsType<ClientView> = [
     { title: t('admin.clients.col.id'), dataIndex: 'client_id', key: 'client_id',
@@ -2956,17 +3007,10 @@ function ClientsTab({
         <Typography.Title level={4} style={{ margin: 0 }}>{t('admin.clients.title')}</Typography.Title>
         <Button type="primary" onClick={() => setEditing('new')}>{t('admin.clients.register')}</Button>
       </Space>
-      <Input.Search
-        allowClear
-        value={searchInput}
+      <AdminTableSearch
+        query={query}
+        onQueryChange={onQueryChange}
         placeholder={t('admin.clients.searchPlaceholder')}
-        enterButton={t('admin.search')}
-        onChange={(event) => {
-          setSearchInput(event.target.value);
-          if (!event.target.value && query) onQueryChange('');
-        }}
-        onSearch={(value) => onQueryChange(value)}
-        style={{ width: '100%', maxWidth: 480 }}
       />
       {error && <Alert type="error" showIcon message={t('admin.error.load')} />}
       <Table
@@ -2977,7 +3021,7 @@ function ClientsTab({
         dataSource={filteredClients}
         locale={{ emptyText: t('admin.clients.empty') }}
         pagination={false}
-        scroll={{ x: clientTableWidth }}
+        scroll={{ x: tableWidth }}
         tableLayout="fixed"
       />
       {editing && (
@@ -3314,9 +3358,20 @@ function CredentialManagementModal({
   );
 }
 
-function InitialAccessTokensTab({ onUnauthorized }: { onUnauthorized: () => void }) {
+function InitialAccessTokensTab({
+  onUnauthorized,
+  query,
+  onQueryChange,
+}: {
+  onUnauthorized: () => void;
+  query: string;
+  onQueryChange: (query: string) => void;
+}) {
   const { t } = useTranslation();
   const [tokens, setTokens] = useState<InitialAccessTokenView[]>([]);
+  const { resizableHeader, tableWidth } = useResizableColumns(
+    INITIAL_ACCESS_COLUMN_DEFAULT_WIDTHS, INITIAL_ACCESS_COLUMN_MIN_WIDTHS,
+  );
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [revealed, setRevealed] = useState<string | null>(null);
@@ -3379,6 +3434,11 @@ function InitialAccessTokensTab({ onUnauthorized }: { onUnauthorized: () => void
     }
   };
 
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredTokens = normalizedQuery
+    ? tokens.filter((token) => [token.token_id, token.owner, ...token.scopes]
+      .some((value) => value.toLowerCase().includes(normalizedQuery)))
+    : tokens;
   return (
     <>
       <Space direction="vertical" size="middle" style={{ width: '100%' }}>
@@ -3399,31 +3459,39 @@ function InitialAccessTokensTab({ onUnauthorized }: { onUnauthorized: () => void
             {t('admin.iat.create')}
           </Button>
         </Space>
+        <AdminTableSearch
+          query={query}
+          onQueryChange={onQueryChange}
+          placeholder={t('admin.iat.searchPlaceholder')}
+        />
         <Table
           rowKey="token_id"
           loading={loading}
-          dataSource={tokens}
+          components={{ header: { cell: ResizableHeaderCell } }}
+          dataSource={filteredTokens}
           pagination={false}
-          scroll={{ x: 1280 }}
+          scroll={{ x: tableWidth }}
+          tableLayout="fixed"
           locale={{ emptyText: t('admin.iat.empty') }}
           columns={[
             {
               title: t('admin.iat.col.id'),
               dataIndex: 'token_id',
-              width: 220,
-              render: (value: string) => <Typography.Text code copyable>{value}</Typography.Text>,
+              ...resizableHeader('token_id', t('admin.iat.col.id')),
+              render: (value: string) => <Typography.Text code copyable style={{ whiteSpace: 'nowrap' }}>{value}</Typography.Text>,
             },
-            { title: t('admin.iat.col.owner'), dataIndex: 'owner', width: 180 },
+            { title: t('admin.iat.col.owner'), dataIndex: 'owner',
+              ...resizableHeader('owner', t('admin.iat.col.owner')) },
             {
               title: t('admin.iat.col.scopes'),
               dataIndex: 'scopes',
-              width: 180,
+              ...resizableHeader('scopes', t('admin.iat.col.scopes')),
               render: (scopes: string[]) => scopes.map((scope) => <Tag key={scope}>{scope}</Tag>),
             },
             {
               title: t('admin.credentials.col.status'),
               key: 'status',
-              width: 110,
+              ...resizableHeader('status', t('admin.credentials.col.status')),
               render: (_: unknown, token: InitialAccessTokenView) => (
                 <CredentialStatusTag credential={token} />
               ),
@@ -3431,13 +3499,13 @@ function InitialAccessTokensTab({ onUnauthorized }: { onUnauthorized: () => void
             {
               title: t('admin.credentials.col.expires'),
               dataIndex: 'expires_at',
-              width: 190,
+              ...resizableHeader('expires', t('admin.credentials.col.expires')),
               render: (value: number) => formatUtcTimestamp(value),
             },
             {
               title: t('admin.iat.col.policy'),
               key: 'policy',
-              width: 190,
+              ...resizableHeader('policy', t('admin.iat.col.policy')),
               render: (_: unknown, token: InitialAccessTokenView) => (
                 <Typography.Text>
                   {t('admin.iat.rate', { count: token.rate_limit_per_minute })}
@@ -3448,14 +3516,13 @@ function InitialAccessTokensTab({ onUnauthorized }: { onUnauthorized: () => void
             {
               title: t('admin.credentials.col.audit'),
               dataIndex: 'audit_identity',
-              width: 180,
+              ...resizableHeader('audit', t('admin.credentials.col.audit')),
               ellipsis: true,
             },
             {
               title: t('admin.clients.col.actions'),
               key: 'actions',
-              width: 110,
-              fixed: 'right',
+              ...resizableHeader('actions', t('admin.clients.col.actions')),
               render: (_: unknown, token: InitialAccessTokenView) =>
                 effectiveCredentialStatus(token) === 'active' ? (
                   <Popconfirm

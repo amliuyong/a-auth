@@ -64,7 +64,7 @@ async function expectClientColumnsUniformAndResizable(page: Page) {
 
   const headers = page.getByRole('columnheader');
   await expect(headers).toHaveCount(7);
-  await expect(page.locator('[data-client-column-resizer]')).toHaveCount(7);
+  await expect(headers.getByRole('separator')).toHaveCount(7);
   const headerBoxes = await headers.evaluateAll((elements) =>
     elements.map((element) => {
       const box = element.getBoundingClientRect();
@@ -106,7 +106,7 @@ async function expectClientColumnsUniformAndResizable(page: Page) {
   expect(beforeCellBox).not.toBeNull();
   expect(beforeHeaderBox!.width).toBeCloseTo(beforeCellBox!.width, 0);
 
-  const resizeHandle = clientIdHeader.locator('[data-client-column-resizer]');
+  const resizeHandle = clientIdHeader.getByRole('separator');
   const handleBox = await resizeHandle.boundingBox();
   expect(handleBox).not.toBeNull();
   await page.mouse.move(handleBox!.x + handleBox!.width / 2, handleBox!.y + handleBox!.height / 2);
@@ -685,6 +685,116 @@ test('client credentials rotate with one-time reveal and explicit cutover', asyn
   await expect(credentialsDialog.getByText('cred_next', { exact: true })).toBeVisible();
   await expect(credentialsDialog.getByText('cred_current', { exact: true })).toHaveCount(0);
 });
+
+const TABLE_TOKENS = [
+  {
+    token_id: 'iat_primary',
+    owner: 'bootstrap-robot',
+    scopes: ['dcr:register'],
+    created_at: 1_750_000_000,
+    expires_at: 2_000_000_000,
+    status: 'active',
+    audit_identity: 'admin:issuer',
+    rate_limit_per_minute: 12,
+    one_time: true,
+    used_at: null,
+    version: 1,
+  },
+  {
+    token_id: 'iat_secondary',
+    owner: 'deployment-agent',
+    scopes: ['dcr:register'],
+    created_at: 1_750_000_000,
+    expires_at: 2_000_000_000,
+    status: 'active',
+    audit_identity: 'admin:issuer',
+    rate_limit_per_minute: 30,
+    one_time: false,
+    used_at: null,
+    version: 1,
+  },
+];
+
+async function routeTableTokens(page: Page) {
+  await page.route('**/admin/initial-access-tokens', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ tokens: TABLE_TOKENS, total: TABLE_TOKENS.length }),
+  }));
+}
+
+test('initial access search follows the same URL, reload and history behavior as Clients', async ({ page }) => {
+  await connectedAdmin(page);
+  await routeTableTokens(page);
+  await page.goto('/admin?tab=initial-access&iat_q=BOOTSTRAP-ROBOT');
+  const search = page.getByPlaceholder(/search token|搜索票据/i);
+  await expect(search).toHaveValue('BOOTSTRAP-ROBOT');
+  await expect(page.getByText('iat_primary', { exact: true })).toBeVisible();
+  await expect(page.getByText('iat_secondary', { exact: true })).toHaveCount(0);
+
+  await search.fill('IAT_SECONDARY');
+  await search.press('Enter');
+  await expect(page).toHaveURL(/iat_q=IAT_SECONDARY/);
+  await expect(page.getByText('iat_secondary', { exact: true })).toBeVisible();
+  await expect(page.getByText('iat_primary', { exact: true })).toHaveCount(0);
+  await page.reload();
+  await expect(search).toHaveValue('IAT_SECONDARY');
+  await expect(page.getByText('iat_secondary', { exact: true })).toBeVisible();
+
+  await search.fill('dcr:register');
+  await search.press('Enter');
+  await expect(page.getByText('iat_primary', { exact: true })).toBeVisible();
+  await expect(page.getByText('iat_secondary', { exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: /dashboard|仪表盘/i }).click();
+  await expect(page).toHaveURL(/\/admin$/);
+  await page.goBack();
+  await expect(search).toHaveValue('dcr:register');
+  await page.goForward();
+  await expect(page).toHaveURL(/\/admin$/);
+  await page.goBack();
+  await search.fill('');
+  await expect(page).toHaveURL(/\/admin\?tab=initial-access$/);
+  await expect(page.getByText('iat_primary', { exact: true })).toBeVisible();
+  await expect(page.getByText('iat_secondary', { exact: true })).toBeVisible();
+});
+
+for (const [language, width] of [['en', 1366], ['zh', 768]] as const) {
+  test(`initial access columns resize and scroll uniformly like Clients (${language}, ${width}px)`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.addInitScript((lang) => localStorage.setItem('agent-auth-lang', lang), language);
+    await connectedAdmin(page);
+    await routeTableTokens(page);
+    await page.goto('/admin?tab=initial-access');
+    const headers = page.getByRole('columnheader');
+    await expect(headers).toHaveCount(8);
+    await expect(headers.getByRole('separator')).toHaveCount(8);
+    const firstHeader = headers.first();
+    const firstCell = page.getByRole('row').filter({ hasText: 'iat_primary' }).getByRole('cell').first();
+    const before = await firstHeader.boundingBox();
+    const handle = await firstHeader.getByRole('separator').boundingBox();
+    expect(before).not.toBeNull();
+    expect(handle).not.toBeNull();
+    await page.mouse.move(handle!.x + handle!.width / 2, handle!.y + handle!.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(handle!.x + handle!.width / 2 + 80, handle!.y + handle!.height / 2);
+    await page.mouse.up();
+    const after = await firstHeader.boundingBox();
+    const cell = await firstCell.boundingBox();
+    expect(after!.width).toBeGreaterThanOrEqual(before!.width + 75);
+    expect(after!.width).toBeCloseTo(cell!.width, 0);
+    const actions = headers.last();
+    const beforeScroll = await actions.boundingBox();
+    await page.locator('.ant-table-content').evaluate((element) => {
+      element.scrollLeft = element.scrollWidth;
+    });
+    const afterScroll = await actions.boundingBox();
+    expect(afterScroll!.x).toBeLessThan(beforeScroll!.x - 20);
+    await expect(actions).toBeInViewport();
+    await page.getByRole('row').filter({ hasText: 'iat_primary' })
+      .getByRole('button', { name: /^revoke$|^吊\s*销$/i }).click({ trial: true });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+  });
+}
 
 test('initial access tokens are issued once, listed, and revoked', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
