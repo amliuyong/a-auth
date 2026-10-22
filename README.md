@@ -1,13 +1,33 @@
-# Agent Auth
+<!-- markdownlint-disable-file MD041 -->
+<!-- markdownlint-disable MD033 -->
 
-<img src="web/public/assets/favicon.svg" alt="Agent Auth logo" width="96" height="96">
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/agent-auth-logo-dark.svg">
+    <img src="docs/assets/agent-auth-logo-light.svg" width="460" alt="Agent Auth">
+  </picture>
+</p>
 
-An OAuth 2.1 and OpenID Connect authorization server for AI agents, workloads,
-and MCP resource servers.
+<p align="center"><strong>An OAuth 2.1 and OpenID Connect authorization server for AI agents, workloads, and MCP resource servers.</strong></p>
 
-[![CI status](https://github.com/amliuyong/a-auth/actions/workflows/ci.yml/badge.svg)](https://github.com/amliuyong/a-auth/actions/workflows/ci.yml)
-[![Apache 2.0 license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Rust 1.85 or newer](https://img.shields.io/badge/Rust-1.85%2B-orange.svg)](https://www.rust-lang.org/)
+<p align="center">
+  <a href="#简体中文简介">简体中文简介</a> ·
+  <a href="docs/GETTING_STARTED.md">Getting started</a> ·
+  <a href="docs/INSTALL_DEPLOY.md">Deployment guide</a> ·
+  <a href="docs/COST.md">AWS cost estimates</a> ·
+  <a href="docs/USER_GUIDE.md">User guide</a> ·
+  <a href="SECURITY.md">Security</a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/amliuyong/a-auth/actions/workflows/ci.yml"><img src="https://github.com/amliuyong/a-auth/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="Apache 2.0 license"></a>
+  <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Rust-1.85%2B-orange.svg" alt="Rust 1.85 or newer"></a>
+</p>
+
+<!-- markdownlint-enable MD033 -->
+
+---
 
 [<img src="docs/assets/agent-auth-intro.gif" alt="Animated preview of the Agent Auth introduction video: Agent Auth signs an access token for an agent, bound to one MCP resource server; the agent presents it, a different server rejects it, and the intended server verifies it with public keys" width="800">](docs/assets/agent-auth-intro.mp4)
 
@@ -59,13 +79,6 @@ agents, machine identities, delegation chains, and MCP resources.
   a real [Okta Cross App Access ID-JAG exchange](https://github.com/amliuyong/a-auth/issues/2)
   is recorded in the conformance matrix (C12.2 and C13.8). These are recorded
   runs, not part of the daily external release gate.
-
-[简体中文简介](#简体中文简介) ·
-[Getting started](docs/GETTING_STARTED.md) ·
-[Deployment guide](docs/INSTALL_DEPLOY.md) ·
-[AWS cost estimates](docs/COST.md) ·
-[User guide](docs/USER_GUIDE.md) ·
-[Security](SECURITY.md)
 
 ## Why Agent Auth?
 

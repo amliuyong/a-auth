@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="460" height="160" viewBox="0 0 460 160" role="img" aria-labelledby="agent-auth-title agent-auth-desc">
+  <title id="agent-auth-title">Agent Auth</title>
+  <desc id="agent-auth-desc">Agent Auth icon and wordmark with the tagline OAuth 2.1 · OpenID Connect. For light backgrounds.</desc>
+  <g transform="translate(8 16) scale(4)">
+    <rect width="32" height="32" rx="7.5" fill="#0D1B2A"/>
+    <path d="M6.6 25.2 16 6.6l9.4 18.6" fill="none" stroke="#EEF3F6" stroke-linecap="round" stroke-linejoin="round" stroke-width="3.6"/>
+    <path d="M11.7 25.2 16 16.6l4.3 8.6" fill="none" stroke="#F2A93B" stroke-linecap="round" stroke-linejoin="round" stroke-width="3.6"/>
+  </g>
+  <text x="163" y="85" fill="#0D1B2A" font-family="Arial, Helvetica, sans-serif" font-size="54" font-weight="700" letter-spacing="-1.6" textLength="286" lengthAdjust="spacingAndGlyphs">Agent Auth</text>
+  <text x="166" y="118" fill="#486174" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="600" letter-spacing="1.6" textLength="284" lengthAdjust="spacingAndGlyphs">OAUTH 2.1 · OPENID CONNECT</text>
+</svg>
