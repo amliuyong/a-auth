@@ -1,0 +1,263 @@
+.admin-workbench {
+  min-height: 100vh;
+  background: #f5f7fa;
+}
+
+.admin-workbench .admin-main {
+  min-width: 0;
+  background: #f5f7fa;
+}
+
+.admin-workbench .admin-sidebar {
+  border-right: 1px solid #e2e8f0;
+}
+
+.admin-workbench .admin-sidebar > .ant-layout-sider-children {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  max-height: 100vh;
+  overflow-y: auto;
+}
+
+.admin-brand {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+  color: #1c2d3e;
+  line-height: 1.5;
+}
+
+.admin-brand img {
+  flex: 0 0 auto;
+}
+
+.admin-brand strong {
+  display: block;
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.4px;
+}
+
+.admin-brand span {
+  display: block;
+  color: #617386;
+  font-size: 11px;
+}
+
+.admin-sidebar .admin-brand {
+  padding: 26px 23px 24px;
+}
+
+.admin-navigation {
+  padding: 0 12px 12px;
+}
+
+.admin-navigation-group {
+  margin: 21px 12px 7px;
+  color: #617386;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.admin-navigation [role="tab"] {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  min-height: 39px;
+  margin: 3px 0;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #516478;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.admin-navigation [role="tab"] > span {
+  flex: 0 0 auto;
+}
+
+.admin-navigation [role="tab"]:hover {
+  background: #f1f4f8;
+  color: #244c73;
+}
+
+.admin-navigation [role="tab"][aria-selected="true"] {
+  background: #eaf0f7;
+  color: #244c73;
+  font-weight: 600;
+}
+
+.admin-navigation [role="tab"]:focus-visible {
+  outline: 2px solid #244c73;
+  outline-offset: 2px;
+}
+
+.admin-sidebar-footer {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: auto;
+  padding: 28px 24px 22px;
+  color: #617386;
+  font-size: 12px;
+}
+
+.admin-workbench .admin-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  height: auto;
+  min-height: 76px;
+  padding: 14px 28px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #fff;
+  line-height: 1.5;
+}
+
+.admin-header-context,
+.admin-context-label,
+.admin-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.admin-context-label {
+  flex-wrap: wrap;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.admin-header-actions {
+  flex-shrink: 0;
+  gap: 4px;
+}
+
+.admin-workbench .admin-content {
+  width: 100%;
+  max-width: 1680px;
+  min-width: 0;
+  margin: 0 auto;
+  padding: 28px 32px;
+}
+
+.admin-workbench .admin-content > [role="tabpanel"] > .ant-space {
+  gap: 20px !important;
+}
+
+.admin-workbench .admin-content h4.ant-typography {
+  font-size: 23px;
+  line-height: 1.4;
+  letter-spacing: -0.5px;
+}
+
+.admin-workbench .admin-footer {
+  background: transparent;
+  color: #617386;
+  text-align: center;
+  font-size: 12px;
+}
+
+.admin-workbench .ant-table-wrapper {
+  min-width: 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.admin-workbench .ant-table {
+  overflow-wrap: anywhere;
+}
+
+.admin-workbench .ant-table-cell .ant-typography code,
+.admin-workbench .ant-descriptions-item-content {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.admin-workbench .ant-descriptions-bordered > .ant-descriptions-view {
+  background: #fff;
+}
+
+.admin-user-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.admin-user-identity {
+  display: grid;
+  gap: 4px;
+}
+
+.admin-user-identity .ant-typography {
+  margin: 0;
+}
+
+.admin-user-identity .admin-user-id {
+  color: #617386;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+}
+
+.admin-user-secondary-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  min-width: 165px;
+}
+
+.admin-user-secondary-actions .ant-btn {
+  justify-content: flex-start;
+}
+
+.admin-navigation-drawer .ant-drawer-body {
+  padding: 8px 4px 20px;
+}
+
+@media (max-width: 991px) {
+  .admin-workbench .admin-content {
+    padding: 24px;
+  }
+}
+
+@media (max-width: 575px) {
+  .admin-workbench .admin-header {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 12px 16px;
+  }
+
+  .admin-header-context {
+    flex: 1 1 100%;
+  }
+
+  .admin-header-actions {
+    margin-left: auto;
+  }
+
+  .admin-workbench .admin-content {
+    padding: 20px 16px;
+  }
+
+  .admin-workbench .admin-content h4.ant-typography {
+    font-size: 21px;
+  }
+
+  .admin-navigation [role="tab"] {
+    min-height: 44px;
+  }
+}

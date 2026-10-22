@@ -179,7 +179,7 @@ test('Chinese mobile preserves selected configuration, contains overflow and exp
   await selectedClients(page);
   const before = await page.getByTestId('onboarding-config').textContent();
   await page.getByRole('banner').getByRole('button', { name: /中\s*文/ }).click();
-  await expect(page.getByRole('tab', { name: '场景接入指南', exact: true })).toBeVisible();
+  await expect(page.getByRole('tabpanel', { name: '场景接入指南', exact: true })).toBeVisible();
   await expect(page.getByTestId('onboarding-config')).toHaveText(before!);
   expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
   await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', {

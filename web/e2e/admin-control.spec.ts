@@ -88,6 +88,9 @@ for (const scenario of ADMIN_VIEWPORTS) {
     await page.getByLabel(/admin token/i).fill('t1-admin-secret');
     await page.getByRole('button', { name: /connect|连接/i }).click();
 
+    if (scenario.viewport) {
+      await page.getByRole('button', { name: /open navigation|打开导航/i }).click();
+    }
     await expect(page.getByRole('tab', { name: /dashboard|overview|仪表盘|概览/i })).toBeVisible();
     await expect(page.getByRole('heading', { name: /tenants|租户/i })).toHaveCount(0);
     await page.waitForTimeout(PROBE_SETTLE_MS);

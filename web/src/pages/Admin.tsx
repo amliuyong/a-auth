@@ -16,8 +16,8 @@ import {
   Grid,
   Input,
   InputNumber,
-  Layout as AntLayout,
   Modal,
+  Popover,
   Popconfirm,
   Segmented,
   Select,
@@ -26,16 +26,29 @@ import {
   Statistic,
   Switch,
   Table,
-  Tabs,
   Tag,
   Typography,
   message,
 } from 'antd';
+import {
+  AppstoreOutlined,
+  ApiOutlined,
+  AuditOutlined,
+  ClusterOutlined,
+  EllipsisOutlined,
+  KeyOutlined,
+  MailOutlined,
+  NodeIndexOutlined,
+  RocketOutlined,
+  SettingOutlined,
+  SkinOutlined,
+  TeamOutlined,
+} from '@ant-design/icons';
 import type { TableColumnsType } from 'antd';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { useBlocker, useSearchParams } from 'react-router-dom';
-import { setLang } from '../i18n';
+import { AdminPagePanel, AdminShell, type AdminPage } from '../AdminShell';
 import { AdminBranding } from './AdminBranding';
 import {
   adminApi,
@@ -60,8 +73,6 @@ import {
   type FederationForm,
 } from '../federationTemplates';
 import { OnboardingTab } from './OnboardingTab';
-
-const { Header, Content, Footer } = AntLayout;
 
 type ClientView = components['schemas']['ClientView'];
 type RegisteredClientJwks = components['schemas']['RegisteredClientJwks'];
@@ -336,57 +347,22 @@ export function Admin() {
     setAccessType(null);
   };
   const canManageAccess = accessType === 'token' || sessionInfo?.role === 'owner';
+  if (mode === 'tenant' && sessionInfo?.role !== 'member') {
+    return (
+      <AdminConsole
+        onUnauthorized={disconnect}
+        canManageAccess={canManageAccess}
+        oidcSession={accessType === 'session'}
+        tenantId={sessionInfo?.tenant_id}
+      />
+    );
+  }
   return (
-    <AdminShell onSignout={disconnect}>
+    <AdminShell onSignout={disconnect} scope={mode ?? undefined} tenantId={sessionInfo?.tenant_id}>
       {mode === 'control'
         ? <ControlConsole onUnauthorized={disconnect} />
-        : sessionInfo?.role === 'member'
-          ? <Alert type="warning" showIcon message={t('admin.sso.memberDenied')} />
-          : (
-            <AdminConsole
-              onUnauthorized={disconnect}
-              canManageAccess={canManageAccess}
-              oidcSession={accessType === 'session'}
-            />
-          )}
+        : <Alert type="warning" showIcon message={t('admin.sso.memberDenied')} />}
     </AdminShell>
-  );
-}
-
-/** 宽版外壳(区别于窄卡片的用户交互页):顶栏 + 语言/断开按钮。 */
-function AdminShell({
-  children,
-  onSignout,
-}: {
-  children: React.ReactNode;
-  onSignout?: () => void | Promise<void>;
-}) {
-  const { t, i18n } = useTranslation();
-  const toggle = () => setLang(i18n.language.startsWith('zh') ? 'en' : 'zh');
-  return (
-    <AntLayout style={{ minHeight: '100vh', background: '#f0f2f5' }}>
-      <Header
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          background: '#001529',
-          padding: '0 24px',
-        }}
-      >
-        <Typography.Text strong style={{ color: '#fff', fontSize: 18 }}>
-          {t('app.name')} · {t('admin.title')}
-        </Typography.Text>
-        <Space>
-          <Button size="small" onClick={toggle} ghost>{t('lang.switch')}</Button>
-          {onSignout && <Button size="small" onClick={onSignout} ghost danger>{t('admin.token.signout')}</Button>}
-        </Space>
-      </Header>
-      <Content style={{ padding: '32px 24px', maxWidth: 1440, margin: '0 auto', width: '100%' }}>
-        {children}
-      </Content>
-      <Footer style={{ textAlign: 'center', color: '#8c8c8c' }}>{t('footer.secured')}</Footer>
-    </AntLayout>
   );
 }
 
@@ -448,23 +424,20 @@ function TokenGate({
   );
 }
 
-/** 已连接:仪表盘 + client 管理 tabs。 */
+/** Tenant pages retain their query-based deep links and visited state. */
 function AdminConsole({
   onUnauthorized,
   canManageAccess,
   oidcSession,
+  tenantId,
 }: {
   onUnauthorized: () => void;
   canManageAccess: boolean;
   oidcSession: boolean;
+  tenantId?: string;
 }) {
   const { t } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
-  const tabKeys = ['overview', 'onboarding', 'branding', 'users', 'namespaces', 'clients', 'initial-access', 'federation', 'admin-sso', 'messages', 'security-events'] as const;
-  const requestedTab = searchParams.get('tab');
-  const activeTab = tabKeys.includes(requestedTab as (typeof tabKeys)[number])
-    ? requestedTab!
-    : 'overview';
 
   const setViewParam = (name: 'user_q' | 'client_q', value: string) => {
     const next = new URLSearchParams(searchParams);
@@ -494,66 +467,85 @@ function AdminConsole({
     setSearchParams(next);
   };
 
+  const identity = t('admin.nav.identity');
+  const integration = t('admin.nav.integration');
+  const operations = t('admin.nav.operations');
+  const pages: AdminPage[] = [
+    { key: 'overview', label: t('admin.tab.overview'), icon: <AppstoreOutlined />, children: <OverviewTab onUnauthorized={onUnauthorized} /> },
+    {
+      key: 'users',
+      label: t('admin.tab.users'),
+      icon: <TeamOutlined />,
+      group: identity,
+      children: (
+        <UsersTab
+          onUnauthorized={onUnauthorized}
+          query={searchParams.get('user_q') ?? ''}
+          onQueryChange={(value) => setViewParam('user_q', value)}
+          status={userStatus}
+          onStatusChange={setUserStatus}
+        />
+      ),
+    },
+    { key: 'federation', label: t('admin.tab.federation'), icon: <NodeIndexOutlined />, group: identity, children: <FederationTab onUnauthorized={onUnauthorized} /> },
+    {
+      key: 'namespaces',
+      label: t('admin.tab.namespaces'),
+      icon: <ClusterOutlined />,
+      group: identity,
+      children: <AttributeNamespacesTab onUnauthorized={onUnauthorized} />,
+    },
+    {
+      key: 'clients',
+      label: t('admin.tab.clients'),
+      icon: <ApiOutlined />,
+      group: integration,
+      children: (
+        <ClientsTab
+          onUnauthorized={onUnauthorized}
+          query={searchParams.get('client_q') ?? ''}
+          onQueryChange={(value) => setViewParam('client_q', value)}
+        />
+      ),
+    },
+    {
+      key: 'initial-access',
+      label: t('admin.tab.initialAccess'),
+      icon: <KeyOutlined />,
+      group: integration,
+      children: <InitialAccessTokensTab onUnauthorized={onUnauthorized} />,
+    },
+    { key: 'onboarding', label: t('admin.onboarding.title'), icon: <RocketOutlined />, group: integration, children: <OnboardingTab onUnauthorized={onUnauthorized} /> },
+    { key: 'security-events', label: t('admin.tab.securityEvents'), icon: <AuditOutlined />, group: operations, children: <SecurityEventsTab onUnauthorized={onUnauthorized} /> },
+    { key: 'messages', label: t('admin.tab.messages'), icon: <MailOutlined />, group: operations, children: <MessagesTab onUnauthorized={onUnauthorized} /> },
+    { key: 'branding', label: t('branding.title'), icon: <SkinOutlined />, group: operations, children: (
+      <AdminBranding canManageAccess={canManageAccess} onUnauthorized={onUnauthorized} />
+    ) },
+    {
+      key: 'admin-sso',
+      label: t('admin.tab.adminSso'),
+      icon: <SettingOutlined />,
+      group: operations,
+      children: (
+        <AdminOidcTab
+          onUnauthorized={onUnauthorized}
+          canManageAccess={canManageAccess}
+          oidcSession={oidcSession}
+        />
+      ),
+    },
+  ];
+  const requestedTab = searchParams.get('tab');
+  const activeTab = pages.some((page) => page.key === requestedTab) ? requestedTab! : 'overview';
   return (
-    <Tabs
-      activeKey={activeTab}
-      onChange={changeTab}
-      items={[
-        { key: 'overview', label: t('admin.tab.overview'), children: <OverviewTab onUnauthorized={onUnauthorized} /> },
-        { key: 'onboarding', label: t('admin.onboarding.title'), children: <OnboardingTab onUnauthorized={onUnauthorized} /> },
-        { key: 'branding', label: t('branding.title'), children: (
-          <AdminBranding canManageAccess={canManageAccess} onUnauthorized={onUnauthorized} />
-        ) },
-        {
-          key: 'users',
-          label: t('admin.tab.users'),
-          children: (
-            <UsersTab
-              onUnauthorized={onUnauthorized}
-              query={searchParams.get('user_q') ?? ''}
-              onQueryChange={(value) => setViewParam('user_q', value)}
-              status={userStatus}
-              onStatusChange={setUserStatus}
-            />
-          ),
-        },
-        {
-          key: 'namespaces',
-          label: t('admin.tab.namespaces'),
-          children: <AttributeNamespacesTab onUnauthorized={onUnauthorized} />,
-        },
-        {
-          key: 'clients',
-          label: t('admin.tab.clients'),
-          children: (
-            <ClientsTab
-              onUnauthorized={onUnauthorized}
-              query={searchParams.get('client_q') ?? ''}
-              onQueryChange={(value) => setViewParam('client_q', value)}
-            />
-          ),
-        },
-        {
-          key: 'initial-access',
-          label: t('admin.tab.initialAccess'),
-          children: <InitialAccessTokensTab onUnauthorized={onUnauthorized} />,
-        },
-        { key: 'federation', label: t('admin.tab.federation'), children: <FederationTab onUnauthorized={onUnauthorized} /> },
-        {
-          key: 'admin-sso',
-          label: t('admin.tab.adminSso'),
-          children: (
-            <AdminOidcTab
-              onUnauthorized={onUnauthorized}
-              canManageAccess={canManageAccess}
-              oidcSession={oidcSession}
-            />
-          ),
-        },
-        { key: 'messages', label: t('admin.tab.messages'), children: <MessagesTab onUnauthorized={onUnauthorized} /> },
-        { key: 'security-events', label: t('admin.tab.securityEvents'), children: <SecurityEventsTab onUnauthorized={onUnauthorized} /> },
-      ]}
-    />
+    <AdminShell
+      navigation={{ pages, activeKey: activeTab, onChange: changeTab }}
+      onSignout={onUnauthorized}
+      scope="tenant"
+      tenantId={tenantId}
+    >
+      {pages.map((page) => <AdminPagePanel key={page.key} page={page} active={page.key === activeTab} />)}
+    </AdminShell>
   );
 }
 
@@ -2274,53 +2266,66 @@ function UsersTab({
   };
 
   const columns = [
-    { title: t('admin.users.col.email'), dataIndex: 'email', key: 'email', width: 220,
-      render: (v: string) => <Typography.Text copyable>{v}</Typography.Text> },
-    { title: t('admin.users.col.userId'), dataIndex: 'user_id', key: 'user_id', width: 260,
-      render: (v: string) => <Typography.Text code>{v}</Typography.Text> },
+    { title: t('admin.users.col.email'), key: 'identity', width: 320,
+      render: (_: unknown, u: UserView) => (
+        <div className="admin-user-identity">
+          <Typography.Text copyable>{u.email}</Typography.Text>
+          <Typography.Text className="admin-user-id">{u.user_id}</Typography.Text>
+        </div>
+      ) },
     { title: t('admin.users.col.status'), dataIndex: 'status', key: 'status', width: 110, render: statusTag },
-    { title: t('admin.users.col.created'), dataIndex: 'created_at', key: 'created_at', width: 180,
-      render: (v: number) => new Date(v * 1000).toLocaleString() },
-    { title: t('admin.users.col.lastLogin'), dataIndex: 'last_login_at', key: 'last_login_at', width: 180,
+    { title: t('admin.users.col.lastLogin'), dataIndex: 'last_login_at', key: 'last_login_at', width: 210,
       render: (v?: number | null) => v == null
         ? t('admin.users.neverLoggedIn')
         : formatUtcTimestamp(v) },
     {
-      title: t('admin.users.col.actions'), key: 'actions', width: 350, fixed: 'right' as const,
+      title: t('admin.users.col.actions'), key: 'actions', width: 140, fixed: 'right' as const,
       render: (_: unknown, u: UserView) => (
-        <Space wrap>
-          <Button size="small" onClick={() => openDetail(u.user_id)}>{t('admin.users.action.view')}</Button>
-          {u.status !== 'tombstoned' && isLocalEmailUser(u) && (
-            <Button size="small" onClick={() => setResetting(u)}>
-              {t('admin.users.action.resetPassword')}
-            </Button>
-          )}
-          {u.status === 'active' && isLocalEmailUser(u) && (
-            <Button
-              size="small"
-              loading={regeneratingUserId === u.user_id}
-              disabled={regeneratingUserId !== null}
-              onClick={() => void regenerateInvitation(u)}
-            >
-              {t('admin.users.action.invite')}
-            </Button>
-          )}
-          {u.status === 'active' && (
-            <Popconfirm title={t('admin.users.disable.confirm')} onConfirm={() => setStatusAction(u.user_id, 'disable')}>
-              <Button size="small">{t('admin.users.action.disable')}</Button>
-            </Popconfirm>
-          )}
-          {u.status === 'disabled' && (
-            <Button size="small" type="primary" ghost onClick={() => setStatusAction(u.user_id, 'enable')}>
-              {t('admin.users.action.enable')}
-            </Button>
-          )}
+        <div className="admin-user-actions">
+          <Button type="text" size="small" onClick={() => openDetail(u.user_id)}>{t('admin.users.action.view')}</Button>
           {u.status !== 'tombstoned' && (
-            <Popconfirm title={t('admin.users.delete.confirm')} onConfirm={() => remove(u.user_id)}>
-              <Button size="small" danger>{t('admin.users.action.delete')}</Button>
-            </Popconfirm>
+            <Popover trigger="click" placement="bottomRight" content={(
+              <div className="admin-user-secondary-actions" role="group" aria-label={t('admin.users.col.actions')}>
+                {u.status !== 'tombstoned' && isLocalEmailUser(u) && (
+                  <Button type="text" onClick={() => setResetting(u)}>
+                    {t('admin.users.action.resetPassword')}
+                  </Button>
+                )}
+                {u.status === 'active' && isLocalEmailUser(u) && (
+                  <Button
+                    type="text"
+                    loading={regeneratingUserId === u.user_id}
+                    disabled={regeneratingUserId !== null}
+                    onClick={() => void regenerateInvitation(u)}
+                  >
+                    {t('admin.users.action.invite')}
+                  </Button>
+                )}
+                {u.status === 'active' && (
+                  <Popconfirm title={t('admin.users.disable.confirm')} onConfirm={() => setStatusAction(u.user_id, 'disable')}>
+                    <Button type="text">{t('admin.users.action.disable')}</Button>
+                  </Popconfirm>
+                )}
+                {u.status === 'disabled' && (
+                  <Button type="text" onClick={() => setStatusAction(u.user_id, 'enable')}>
+                    {t('admin.users.action.enable')}
+                  </Button>
+                )}
+                {u.status !== 'tombstoned' && (
+                  <Popconfirm title={t('admin.users.delete.confirm')} onConfirm={() => remove(u.user_id)}>
+                    <Button type="text" danger>{t('admin.users.action.delete')}</Button>
+                  </Popconfirm>
+                )}
+              </div>
+            )}>
+              <Button
+                type="text"
+                icon={<EllipsisOutlined />}
+                aria-label={`${t('admin.users.action.more')}: ${u.email}`}
+              />
+            </Popover>
           )}
-        </Space>
+        </div>
       ),
     },
   ];
@@ -2331,7 +2336,9 @@ function UsersTab({
         <Typography.Title level={4} style={{ margin: 0 }}>{t('admin.users.title')}</Typography.Title>
         <Button type="primary" onClick={() => setCreating(true)}>{t('admin.users.create')}</Button>
       </Space>
-      <Alert type="info" showIcon message={t('admin.users.hint')} />
+      <Typography.Paragraph type="secondary" style={{ margin: 0 }}>
+        {t('admin.users.hint')}
+      </Typography.Paragraph>
       <div
         style={{
           display: 'flex',
@@ -2381,7 +2388,7 @@ function UsersTab({
               : 'admin.users.empty',
           ),
         }}
-        scroll={{ x: 1300 }}
+        scroll={{ x: 780 }}
         tableLayout="fixed"
       />
       {cursor && (

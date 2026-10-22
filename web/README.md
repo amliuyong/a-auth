@@ -17,9 +17,23 @@ npm run build      # tsc + vite build → dist/
 ## 约束(用户要求,已满足)
 
 - **i18n 中英**:`src/i18n`,antd locale 随 i18n 同步;语言优先级 `?ui_locales` → localStorage → navigator。
-- **企业级观感**:antd + 统一 Layout(深色导航 + 居中卡片)。
+- **企业级观感**:antd；Admin 使用分组侧栏、上下文顶栏、冷灰背景与深蓝操作色。
+  Console 主题独立生效，登录、同意和账户页面继续使用各自的 Layout。
 - **path 可 bookmark**:`createBrowserRouter` 真实路由,每页独立 URL;重定向保留 query(authorize 上下文不丢)。
 - **消费生成的 OpenAPI 类型**:`openapi-typescript` 从 `openapi/openapi.json` 生成类型,`openapi-fetch` 类型化客户端。
+
+## Admin Console
+
+桌面导航按身份与访问、接入与应用、运维与设置分组。窄屏通过顶栏菜单打开导航；
+方向键、Home、End 移动焦点，Enter 或 Space 选择页面。平台控制面和无管理权限的
+会话不展示租户功能导航。
+
+页面仍使用 `/admin?tab=...`，搜索和状态筛选保存在 query 中，支持书签、刷新和
+浏览器前进／后退；不新增可能与 Admin API 冲突的 SPA 子路径。已访问页面的状态
+保留，一次性邀请链接继续受到离页提醒保护。
+
+用户列表将邮箱与用户 ID 放在同一列。详情展示创建时间和聚合状态，其他账户操作
+位于每行的“更多操作”中；禁用和删除仍需要确认。
 
 ## 🔴 部署 gate / P0.5 待办
 
