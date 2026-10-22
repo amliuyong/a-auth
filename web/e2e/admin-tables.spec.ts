@@ -170,6 +170,9 @@ test('enterprise navigation groups all pages and supports keyboard selection', a
   await expect(navigation.getByRole('tablist')).toHaveAttribute('aria-orientation', 'vertical');
   const clients = navigation.getByRole('tab', { name: 'Clients', exact: true });
   await expect(clients).toHaveAttribute('aria-selected', 'true');
+  const historyLength = await page.evaluate(() => history.length);
+  await clients.click();
+  expect(await page.evaluate(() => history.length)).toBe(historyLength);
   await clients.focus();
   await page.keyboard.press('Home');
   const overview = navigation.getByRole('tab', { name: 'Dashboard', exact: true });

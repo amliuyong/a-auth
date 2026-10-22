@@ -111,7 +111,7 @@ export function AdminShell({
   );
   const nav = navigation && (
     <AdminNavigation {...navigation} onChange={(key) => {
-      navigation.onChange(key);
+      if (key !== navigation.activeKey) navigation.onChange(key);
       setMenuOpen(false);
     }} />
   );
