@@ -1,13 +1,33 @@
-# Agent Auth
+<!-- markdownlint-disable-file MD041 -->
+<!-- markdownlint-disable MD033 -->
 
-<img src="web/public/assets/favicon.svg" alt="Agent Auth logo" width="96" height="96">
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/agent-auth-logo-dark.svg">
+    <img src="docs/assets/agent-auth-logo-light.svg" width="460" alt="Agent Auth">
+  </picture>
+</p>
 
-An OAuth 2.1 and OpenID Connect authorization server for AI agents, workloads,
-and MCP resource servers.
+<p align="center"><strong>An OAuth 2.1 and OpenID Connect authorization server for AI agents, workloads, and MCP resource servers.</strong></p>
 
-[![CI status](https://github.com/amliuyong/a-auth/actions/workflows/ci.yml/badge.svg)](https://github.com/amliuyong/a-auth/actions/workflows/ci.yml)
-[![Apache 2.0 license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Rust 1.85 or newer](https://img.shields.io/badge/Rust-1.85%2B-orange.svg)](https://www.rust-lang.org/)
+<p align="center">
+  <a href="#简体中文简介">简体中文简介</a> ·
+  <a href="docs/GETTING_STARTED.md">Getting started</a> ·
+  <a href="docs/INSTALL_DEPLOY.md">Deployment guide</a> ·
+  <a href="docs/COST.md">AWS cost estimates</a> ·
+  <a href="docs/USER_GUIDE.md">User guide</a> ·
+  <a href="SECURITY.md">Security</a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/amliuyong/a-auth/actions/workflows/ci.yml"><img src="https://github.com/amliuyong/a-auth/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="Apache 2.0 license"></a>
+  <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Rust-1.85%2B-orange.svg" alt="Rust 1.85 or newer"></a>
+</p>
+
+<!-- markdownlint-enable MD033 -->
+
+---
 
 [<img src="docs/assets/agent-auth-intro.gif" alt="Animated preview of the Agent Auth introduction video: Agent Auth signs an access token for an agent, bound to one MCP resource server; the agent presents it, a different server rejects it, and the intended server verifies it with public keys" width="800">](docs/assets/agent-auth-intro.mp4)
 
@@ -24,8 +44,9 @@ OAuth and OIDC clients while adding first-class authorization boundaries for
 agents, machine identities, delegation chains, and MCP resources.
 
 > [!IMPORTANT]
-> Agent Auth 1.0 is the first stable release. Semantic Versioning covers the
-> HTTP API described by [`openapi/openapi.json`](openapi/openapi.json) and the
+> Agent Auth [`v1.1.0`](https://github.com/amliuyong/a-auth/releases/tag/v1.1.0)
+> is the current stable source release. Semantic Versioning covers the HTTP
+> API described by [`openapi/openapi.json`](openapi/openapi.json) and the
 > TypeScript and Python resource-server SDK APIs; deployment configuration and
 > persisted data formats are outside that guarantee. Review the
 > [conformance matrix](docs/CONFORMANCE.md), deployment design, and security
@@ -34,9 +55,9 @@ agents, machine identities, delegation chains, and MCP resources.
 
 ## Current Status
 
-- **Release** — [GitHub Releases](https://github.com/amliuyong/a-auth/releases)
-  lists published stable source versions. The
-  [v1.1.0 release notes](docs/releases/v1.1.0.md) describe this source revision.
+- **Release** — [`v1.1.0`](https://github.com/amliuyong/a-auth/releases/tag/v1.1.0)
+  is the current stable source release. See the
+  [release notes](docs/releases/v1.1.0.md) for its changes.
   Release assets are source archives; Rust crates remain unpublished.
   The resource-server SDKs are published separately as `agent_auth_rs` 1.0.2
   on [npm](https://www.npmjs.com/package/agent_auth_rs/v/1.0.2) and
@@ -59,13 +80,6 @@ agents, machine identities, delegation chains, and MCP resources.
   a real [Okta Cross App Access ID-JAG exchange](https://github.com/amliuyong/a-auth/issues/2)
   is recorded in the conformance matrix (C12.2 and C13.8). These are recorded
   runs, not part of the daily external release gate.
-
-[简体中文简介](#简体中文简介) ·
-[Getting started](docs/GETTING_STARTED.md) ·
-[Deployment guide](docs/INSTALL_DEPLOY.md) ·
-[AWS cost estimates](docs/COST.md) ·
-[User guide](docs/USER_GUIDE.md) ·
-[Security](SECURITY.md)
 
 ## Why Agent Auth?
 
@@ -261,6 +275,8 @@ Agent Auth 是一个面向 AI agent、workload 和 MCP Resource Server 的 OAuth
 经过了怎样的委托链、资源服务器如何独立验证权限”等 agent 授权问题，同时兼容
 传统 OAuth/OIDC 客户端。
 
+当前稳定源码版本为
+[`v1.1.0`](https://github.com/amliuyong/a-auth/releases/tag/v1.1.0)。
 项目采用 Rust 实现协议与策略核心，提供 AWS CDK 部署、React 管理界面以及
 TypeScript/Python Resource Server SDK。1.0 起按语义化版本对 HTTP API
 （`openapi/openapi.json`）与 TypeScript/Python Resource Server SDK 做兼容承诺，
