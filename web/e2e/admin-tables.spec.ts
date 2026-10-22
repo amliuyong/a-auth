@@ -156,6 +156,58 @@ test('overview shows metadata URLs and the OpenAPI download', async ({ page }) =
   await expect(openApiDownload).toHaveAttribute('download', 'agent-auth-openapi.json');
 });
 
+test('enterprise navigation groups all pages and supports keyboard selection', async ({ page }) => {
+  await connectedAdmin(page);
+  await routeLayoutRegressionClient(page);
+  await page.goto('/admin?tab=clients&ui_locales=en');
+
+  const navigation = page.getByRole('navigation', { name: 'Admin navigation' });
+  await expect(navigation).toBeVisible();
+  await expect(navigation.getByText('Identity and access', { exact: true })).toBeVisible();
+  await expect(navigation.getByText('Integration and applications', { exact: true })).toBeVisible();
+  await expect(navigation.getByText('Operations and settings', { exact: true })).toBeVisible();
+  await expect(navigation.getByRole('tab')).toHaveCount(11);
+  await expect(navigation.getByRole('tablist')).toHaveAttribute('aria-orientation', 'vertical');
+  const clients = navigation.getByRole('tab', { name: 'Clients', exact: true });
+  await expect(clients).toHaveAttribute('aria-selected', 'true');
+  await clients.focus();
+  await page.keyboard.press('Home');
+  const overview = navigation.getByRole('tab', { name: 'Dashboard', exact: true });
+  await expect(overview).toBeFocused();
+  // Moving focus alone must not discard the current page or its query.
+  await expect(clients).toHaveAttribute('aria-selected', 'true');
+  await page.keyboard.press('Enter');
+  await expect(overview).toHaveAttribute('aria-selected', 'true');
+  expect(new URL(page.url()).searchParams.has('tab')).toBe(false);
+  await page.goBack();
+  await expect(clients).toHaveAttribute('aria-selected', 'true');
+});
+
+test('mobile enterprise navigation selects a page and can be reopened in Chinese', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await connectedAdmin(page);
+  await routeLayoutRegressionClient(page);
+  await page.goto('/admin?ui_locales=en');
+  const toggle = page.getByRole('button', { name: 'Open navigation', exact: true });
+  await expect(toggle).toBeVisible();
+  await toggle.click();
+  const navigation = page.getByRole('navigation', { name: 'Admin navigation' });
+  await expect(navigation.getByRole('tab')).toHaveCount(11);
+  await navigation.getByRole('tab', { name: 'Clients', exact: true }).click();
+  await expect(navigation).toBeHidden();
+  await expect(page.getByRole('tabpanel', { name: 'Clients', exact: true })).toBeVisible();
+  expect(new URL(page.url()).searchParams.get('tab')).toBe('clients');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+  await page.getByRole('banner').getByRole('button', { name: /中\s*文/ }).click();
+  await page.getByRole('button', { name: '打开导航', exact: true }).click();
+  const chineseNavigation = page.getByRole('navigation', { name: '管理导航' });
+  await expect(chineseNavigation.getByText('身份与访问', { exact: true })).toBeVisible();
+  await expect(chineseNavigation.getByRole('tab', { name: '客户端', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await page.keyboard.press('Escape');
+  await expect(chineseNavigation).toBeHidden();
+  await expect(page.getByRole('button', { name: '打开导航', exact: true })).toBeFocused();
+});
+
 test('c10_24_clients_show_utc_activity_and_never_used', async ({ page }) => {
   await connectedAdmin(page);
   await page.route('**/admin/clients', (route) =>

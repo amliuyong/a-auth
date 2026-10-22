@@ -530,6 +530,7 @@ test('c10_25_completed_mutation_reloads_latest_status_filter', async ({ page }) 
 
   await page.goto('/admin?tab=users');
   await expect(page.getByText('pending@example.com', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: /more actions|更多操作/i }).click();
   await page.getByRole('button', { name: /^delete$|^删除$/i }).click();
   await page.getByRole('button', { name: /^(ok|yes|确定|确 定)$/i }).click();
   await deleteStarted;
@@ -657,6 +658,7 @@ test('users tab: regenerating an invitation reveals the replacement once', async
   ]);
   await page.goto('/admin?tab=users');
 
+  await page.getByRole('button', { name: /more actions|更多操作/i }).click();
   await page.getByRole('button', { name: /generate invitation|生成邀请/i }).click();
   await expect(page.getByLabel(/invitation URL|邀请链接/i))
     .toHaveValue('https://localhost/invite#token=regenerated-token');
@@ -693,6 +695,7 @@ test('c9_11_admin_serializes_concurrent_invitation_regeneration', async ({ page 
   });
   await page.goto('/admin?tab=users');
 
+  await page.getByRole('button', { name: /more actions|更多操作/i }).click();
   const regenerate = page.getByRole('button', { name: /generate invitation|生成邀请/i });
   await regenerate.evaluate((element) => {
     (element as HTMLButtonElement).click();
@@ -716,7 +719,13 @@ test('users tab: disable flips status and toggles action', async ({ page }) => {
   await page.goto('/admin');
   await page.getByRole('tab', { name: /users|用户/i }).click();
 
-  // 点 Disable → Popconfirm 确认 → 列表刷新为 disabled + 出现 Enable 按钮。
+  // Secondary operations stay out of the row and still require confirmation.
+  await expect(page.getByText('dave@example.com', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^disable$|^禁用$/i })).toHaveCount(0);
+  await page.getByRole('button', { name: /more actions|更多操作/i }).click();
+  await page.getByRole('button', { name: /^disable$|^禁用$/i }).click();
+  await page.getByRole('button', { name: /^(cancel|取消|取 消)$/i }).click();
+  await expect(page.getByRole('button', { name: /^enable$|^启用$/i })).toHaveCount(0);
   await page.getByRole('button', { name: /^disable$|^禁用$/i }).click();
   await page.getByRole('button', { name: /^(ok|yes|确定|确 定)$/i }).click();
 
@@ -730,6 +739,7 @@ test('c10_25_delete_removes_user_from_default_view', async ({ page }) => {
   ]);
   await page.goto('/admin?tab=users');
 
+  await page.getByRole('button', { name: /more actions|更多操作/i }).click();
   await page.getByRole('button', { name: /^delete$|^删除$/i }).click();
   await page.getByRole('button', { name: /^(ok|yes|确定|确 定)$/i }).click();
   await expect(page.getByText('delete@example.com', { exact: true })).toHaveCount(0);
@@ -746,6 +756,7 @@ test('users tab: reset password submits a temporary password', async ({ page }) 
   ]);
   await page.goto('/admin?tab=users');
 
+  await page.getByRole('button', { name: /more actions|更多操作/i }).click();
   await page.getByRole('button', { name: /reset password|重置密码/i }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel(/^temporary password$|^临时密码$/i).fill('Reset password 456!');
