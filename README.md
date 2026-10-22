@@ -44,8 +44,9 @@ OAuth and OIDC clients while adding first-class authorization boundaries for
 agents, machine identities, delegation chains, and MCP resources.
 
 > [!IMPORTANT]
-> Agent Auth 1.0 is the first stable release. Semantic Versioning covers the
-> HTTP API described by [`openapi/openapi.json`](openapi/openapi.json) and the
+> Agent Auth [`v1.1.0`](https://github.com/amliuyong/a-auth/releases/tag/v1.1.0)
+> is the current stable source release. Semantic Versioning covers the HTTP
+> API described by [`openapi/openapi.json`](openapi/openapi.json) and the
 > TypeScript and Python resource-server SDK APIs; deployment configuration and
 > persisted data formats are outside that guarantee. Review the
 > [conformance matrix](docs/CONFORMANCE.md), deployment design, and security
@@ -54,9 +55,9 @@ agents, machine identities, delegation chains, and MCP resources.
 
 ## Current Status
 
-- **Release** — [GitHub Releases](https://github.com/amliuyong/a-auth/releases)
-  lists published stable source versions. The
-  [v1.1.0 release notes](docs/releases/v1.1.0.md) describe this source revision.
+- **Release** — [`v1.1.0`](https://github.com/amliuyong/a-auth/releases/tag/v1.1.0)
+  is the current stable source release. See the
+  [release notes](docs/releases/v1.1.0.md) for its changes.
   Release assets are source archives; Rust crates remain unpublished.
   The resource-server SDKs are published separately as `agent_auth_rs` 1.0.2
   on [npm](https://www.npmjs.com/package/agent_auth_rs/v/1.0.2) and
@@ -274,6 +275,8 @@ Agent Auth 是一个面向 AI agent、workload 和 MCP Resource Server 的 OAuth
 经过了怎样的委托链、资源服务器如何独立验证权限”等 agent 授权问题，同时兼容
 传统 OAuth/OIDC 客户端。
 
+当前稳定源码版本为
+[`v1.1.0`](https://github.com/amliuyong/a-auth/releases/tag/v1.1.0)。
 项目采用 Rust 实现协议与策略核心，提供 AWS CDK 部署、React 管理界面以及
 TypeScript/Python Resource Server SDK。1.0 起按语义化版本对 HTTP API
 （`openapi/openapi.json`）与 TypeScript/Python Resource Server SDK 做兼容承诺，
