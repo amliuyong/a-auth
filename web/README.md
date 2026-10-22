@@ -35,6 +35,10 @@ npm run build      # tsc + vite build → dist/
 用户列表将邮箱与用户 ID 放在同一列。详情展示创建时间和聚合状态，其他账户操作
 位于每行的“更多操作”中；禁用和删除仍需要确认。
 
+Clients 和 Initial access 使用相同的搜索和列宽拖动交互，所有列（含操作列）随表格
+横向滚动。搜索分别保存在 `client_q`、`iat_q` 中；票据可按 ID、归属主体或权限范围
+搜索，签发后的秘密值仍只显示一次。
+
 ## 🔴 部署 gate / P0.5 待办
 
 1. **CloudFront history fallback**:SPA 部署到 S3+CloudFront 时,MUST 配 `errorResponses` 把
