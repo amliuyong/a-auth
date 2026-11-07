@@ -86,17 +86,17 @@ The `postgres` feature currently provides `PostgresStore` implementations for
 `FederationFlowStore`, `MagicLinkStore`, `WorkloadTrustStore`, `DomainMapStore`,
 `PasskeyChallengeStore`, `DeviceStore`, `AdminAuthStore`,
 `AttributeNamespaceStore`, `PasswordStore`, `SecurityEventStore`, and
-`FederationAttributeMappingsStore`.
+`FederationAttributeMappingsStore`, and `ScimGroupsStore`.
 `PostgresUsersStore` implements all twenty-five `UsersStore` methods with a
 required external HMAC authority key.
 `PostgresGraceStore` implements
 `GraceStore` with an explicit external encryption key ring or a delete-only
-capability. Twenty-seven embedded forward
+capability. Twenty-eight embedded forward
 migrations create their authority tables and credential-free client reclaim
 audit metadata.
 
-The current shared suite passes 97 cases: twenty-six contracts run through each of
-the memory, AWS, and PostgreSQL adapters, plus nineteen PostgreSQL-specific
+The current shared suite passes 103 cases: twenty-seven contracts run through each of
+the memory, AWS, and PostgreSQL adapters, plus twenty-two PostgreSQL-specific
 transaction/durability cases. AWS adapters run against a loopback DynamoDB
 emulator; PostgreSQL adapters run against PostgreSQL 16. This does not establish
 native AWS deployment acceptance.
@@ -199,6 +199,22 @@ ID, so another candidate cannot bypass its suppression.
 The governance writer, destructive-job authorization and production dispatch
 remain pending. Raw user lifecycle and attribute methods do not complete the
 required credential/session and namespace-authorized transactions.
+SCIM groups retain retired canonical IDs while releasing their active external
+alias, members and role mapping together. Group mutations share the user
+directory fence, including absent aliases and tenant-wide cleanup. A role is
+explicitly configured; a group name never grants authority. No-op mutations and
+mapping retries retain their version and timestamps. Membership batches check
+every next version before writing and commit in one transaction. An actual
+second-group update failure rolls back the complete batch and role authority.
+Private persistence codecs validate the physical identity, sorted unique
+members, mapping fields and retired state without making public group records
+serializable. Missing or inconsistent data and exhausted versions fail closed.
+The shared contract reproduced memory deletion and batch mutation before
+version-exhaustion errors; both now preserve the complete previous state.
+It also reproduced AWS empty-tenant cleanup deleting a named tenant's groups;
+cleanup now applies the existing exact tenant-key predicate.
+The authorized group/role, SSO configuration and user lifecycle transactions
+remain pending.
 Cross-table tests check that code/family creation updates the client authority
 revision atomically, that failed conditions roll back the new row, and that
 duplicate creation cannot resurrect consumed codes or revoked families.
@@ -237,9 +253,13 @@ hash/metadata while keeping the already-started user revocation fence.
 The grace contract also reproduced memory cleanup deleting another family
 whose name shared a prefix. Cleanup now compares the exact family identity.
 
-Current local validation passes 1,266 workspace library tests, including 682
-HTTP library tests with both `postgres` and `aws`, and 129 SCIM, Admin user,
-password/account/lifecycle and RS attribute/federation mapping HTTP regressions.
+Current local validation passes 1,268 workspace library tests, including 684
+HTTP library tests with both `postgres` and `aws`.
+The group increment passes 47 SCIM, Admin SSO and data-governance HTTP
+regressions, along with six focused group contract/fault cases.
+The user increment `70c592764cbdc90bf71fbfc4d14982bb0594ee36` passed 129
+SCIM, Admin user, password/account/lifecycle and RS attribute/federation mapping
+HTTP regressions and hosted CI.
 The preceding mapping increment passed 682 HTTP library tests with both
 `postgres` and `aws`, and 33 RS attribute/federation mapping HTTP regressions.
 The security-event increment `c4bf77de6b236754118e1a7f35c468d7f27a65f7`

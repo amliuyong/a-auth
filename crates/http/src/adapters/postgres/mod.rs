@@ -25,7 +25,9 @@ mod policy;
 mod rate_limits;
 mod refresh;
 mod replay;
+mod scim_groups;
 mod security_events;
+mod serialization;
 mod users;
 mod workload_trust;
 

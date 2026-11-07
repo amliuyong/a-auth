@@ -1,8 +1,10 @@
 use super::super::db_error;
 use crate::ports::{FederatedAttributeOwner, NamespaceAttrs, StoreError, UserRecord, UserStatus};
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 use sqlx::{postgres::PgRow, Row};
 use std::collections::BTreeMap;
+
+pub(super) use super::super::serialization::required_option;
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -42,15 +44,6 @@ struct StoredRecord {
     scim_display_name: Option<String>,
     attributes_generation: u64,
     attributes: BTreeMap<String, StoredNamespace>,
-}
-
-// A null value is valid; a missing persisted field is truncated authority.
-pub(super) fn required_option<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
-where
-    D: Deserializer<'de>,
-    T: Deserialize<'de>,
-{
-    Option::<T>::deserialize(deserializer)
 }
 
 fn invalid() -> StoreError {

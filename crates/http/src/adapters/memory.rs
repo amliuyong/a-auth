@@ -2379,17 +2379,18 @@ impl crate::ports::ScimGroupsStore for MemoryScimGroupsStore {
         if entry.deleted {
             return Ok(ScimGroupDeleteOutcome::Deleted);
         }
+        let next_version = entry
+            .record
+            .version
+            .checked_add(1)
+            .ok_or_else(|| StoreError::Permanent("SCIM Group version exhausted".into()))?;
         aliases.remove(&(tenant.to_string(), entry.record.external_id.clone()));
         entry.deleted = true;
         entry.role = None;
         entry.role_updated_at = None;
         entry.record.members.clear();
         entry.record.updated_at = now;
-        entry.record.version = entry
-            .record
-            .version
-            .checked_add(1)
-            .ok_or_else(|| StoreError::Permanent("SCIM Group version exhausted".into()))?;
+        entry.record.version = next_version;
         Ok(ScimGroupDeleteOutcome::Deleted)
     }
 
@@ -2507,21 +2508,28 @@ impl crate::ports::ScimGroupsStore for MemoryScimGroupsStore {
         now: i64,
     ) -> Result<usize, StoreError> {
         let mut groups = self.groups.lock().await;
-        let mut removed = 0;
-        for ((entry_tenant, _), entry) in groups.iter_mut() {
-            if entry_tenant != tenant || entry.deleted {
-                continue;
-            }
-            let before = entry.record.members.len();
+        let updates = groups
+            .iter()
+            .filter(|((entry_tenant, _), entry)| {
+                entry_tenant == tenant
+                    && !entry.deleted
+                    && entry.record.members.iter().any(|member| member == user_id)
+            })
+            .map(|(key, entry)| {
+                entry
+                    .record
+                    .version
+                    .checked_add(1)
+                    .map(|version| (key.clone(), version))
+                    .ok_or_else(|| StoreError::Permanent("SCIM Group version exhausted".into()))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let removed = updates.len();
+        for (key, version) in updates {
+            let entry = groups.get_mut(&key).expect("group map remains locked");
             entry.record.members.retain(|member| member != user_id);
-            if entry.record.members.len() != before {
-                entry.record.version =
-                    entry.record.version.checked_add(1).ok_or_else(|| {
-                        StoreError::Permanent("SCIM Group version exhausted".into())
-                    })?;
-                entry.record.updated_at = now;
-                removed += 1;
-            }
+            entry.record.version = version;
+            entry.record.updated_at = now;
         }
         Ok(removed)
     }
@@ -12651,6 +12659,110 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[tokio::test]
+    async fn scim_group_delete_exhaustion_preserves_alias_members_and_role() {
+        use crate::ports::{ScimGroupCreateInput, ScimGroupsStore, TenantRole};
+        let store = MemoryScimGroupsStore::default();
+        store
+            .create(
+                "tenant",
+                ScimGroupCreateInput {
+                    group_id: "group".into(),
+                    external_id: "external".into(),
+                    display_name: "Group".into(),
+                    members: vec!["member".into()],
+                    now: 100,
+                },
+            )
+            .await
+            .unwrap();
+        store
+            .set_role_mapping("tenant", "external", Some(TenantRole::Owner), 110)
+            .await
+            .unwrap();
+        store
+            .groups
+            .lock()
+            .await
+            .get_mut(&("tenant".into(), "group".into()))
+            .unwrap()
+            .record
+            .version = u64::MAX;
+        let before = store.get("tenant", "group").await.unwrap();
+        let mappings = store.list_role_mappings("tenant").await.unwrap();
+        assert!(matches!(
+            store.delete("tenant", "group", 120).await,
+            Err(StoreError::Permanent(_))
+        ));
+        assert_eq!(store.get("tenant", "group").await.unwrap(), before);
+        assert_eq!(
+            store
+                .get_by_external_id("tenant", "external")
+                .await
+                .unwrap(),
+            before
+        );
+        assert_eq!(store.list_role_mappings("tenant").await.unwrap(), mappings);
+        assert_eq!(
+            store
+                .mapped_role_for_member("tenant", "member")
+                .await
+                .unwrap()
+                .role,
+            Some(TenantRole::Owner)
+        );
+    }
+
+    #[tokio::test]
+    async fn scim_group_membership_exhaustion_preserves_the_complete_batch() {
+        use crate::ports::{ScimGroupCreateInput, ScimGroupsStore, TenantRole};
+        let store = MemoryScimGroupsStore::default();
+        for id in ["maximum", "ordinary"] {
+            store
+                .create(
+                    "tenant",
+                    ScimGroupCreateInput {
+                        group_id: id.into(),
+                        external_id: id.into(),
+                        display_name: id.into(),
+                        members: vec!["member".into()],
+                        now: 100,
+                    },
+                )
+                .await
+                .unwrap();
+            store
+                .set_role_mapping("tenant", id, Some(TenantRole::Owner), 110)
+                .await
+                .unwrap();
+        }
+        store
+            .groups
+            .lock()
+            .await
+            .get_mut(&("tenant".into(), "maximum".into()))
+            .unwrap()
+            .record
+            .version = u64::MAX;
+        let maximum = store.get("tenant", "maximum").await.unwrap();
+        let ordinary = store.get("tenant", "ordinary").await.unwrap();
+        assert!(matches!(
+            store.remove_member_from_all("tenant", "member", 120).await,
+            Err(StoreError::Permanent(_))
+        ));
+        assert_eq!(store.get("tenant", "maximum").await.unwrap(), maximum);
+        assert_eq!(store.get("tenant", "ordinary").await.unwrap(), ordinary);
+        assert_eq!(
+            store
+                .mapped_role_for_member("tenant", "member")
+                .await
+                .unwrap()
+                .mappings
+                .len(),
+            2
+        );
     }
 
     #[tokio::test]

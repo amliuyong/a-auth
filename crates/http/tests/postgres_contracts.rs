@@ -74,6 +74,12 @@ mod user_contracts;
 #[path = "postgres/users_faults.rs"]
 mod user_fault_contracts;
 
+#[path = "postgres/scim_groups.rs"]
+mod scim_group_contracts;
+
+#[path = "postgres/scim_groups_faults.rs"]
+mod scim_group_fault_contracts;
+
 #[cfg(feature = "aws")]
 #[path = "postgres/aws.rs"]
 mod aws_contract_database;
