@@ -93,6 +93,8 @@ impl DcrMode {
 #[derive(Clone)]
 pub enum SignerImpl {
     Memory(MemorySigner),
+    #[cfg(feature = "postgres")]
+    Mounted(crate::adapters::mounted_signer::MountedSigner),
     #[cfg(feature = "aws")]
     Kms(crate::adapters::aws::KmsSigner),
     /// SaaS has no deployment-wide signing authority. Every data-plane path
@@ -104,6 +106,8 @@ impl Signer for SignerImpl {
     async fn sign_es256(&self, input: &[u8]) -> Result<Vec<u8>, SignerError> {
         match self {
             SignerImpl::Memory(s) => s.sign_es256(input).await,
+            #[cfg(feature = "postgres")]
+            SignerImpl::Mounted(s) => s.sign_es256(input).await,
             #[cfg(feature = "aws")]
             SignerImpl::Kms(s) => {
                 let result = s.sign_es256(input).await;
@@ -120,6 +124,8 @@ impl Signer for SignerImpl {
     async fn public_jwks(&self) -> Result<Vec<EcJwk>, SignerError> {
         match self {
             SignerImpl::Memory(s) => s.public_jwks().await,
+            #[cfg(feature = "postgres")]
+            SignerImpl::Mounted(s) => s.public_jwks().await,
             #[cfg(feature = "aws")]
             SignerImpl::Kms(s) => {
                 let result = s.public_jwks().await;
@@ -136,6 +142,8 @@ impl Signer for SignerImpl {
     async fn active_kid(&self) -> Result<String, SignerError> {
         match self {
             SignerImpl::Memory(s) => s.active_kid().await,
+            #[cfg(feature = "postgres")]
+            SignerImpl::Mounted(s) => s.active_kid().await,
             #[cfg(feature = "aws")]
             SignerImpl::Kms(s) => {
                 let result = s.active_kid().await;
@@ -152,6 +160,8 @@ impl Signer for SignerImpl {
     async fn sign_rs256(&self, input: &[u8]) -> Result<(String, Vec<u8>), SignerError> {
         match self {
             SignerImpl::Memory(s) => s.sign_rs256(input).await,
+            #[cfg(feature = "postgres")]
+            SignerImpl::Mounted(s) => s.sign_rs256(input).await,
             #[cfg(feature = "aws")]
             SignerImpl::Kms(s) => {
                 let result = s.sign_rs256(input).await;
@@ -168,6 +178,8 @@ impl Signer for SignerImpl {
     async fn public_rsa_jwks(&self) -> Result<Vec<agent_auth_infra_core::RsaJwk>, SignerError> {
         match self {
             SignerImpl::Memory(s) => s.public_rsa_jwks().await,
+            #[cfg(feature = "postgres")]
+            SignerImpl::Mounted(s) => s.public_rsa_jwks().await,
             #[cfg(feature = "aws")]
             SignerImpl::Kms(s) => {
                 let result = s.public_rsa_jwks().await;
@@ -184,6 +196,8 @@ impl Signer for SignerImpl {
     async fn active_rsa_kid(&self) -> Result<String, SignerError> {
         match self {
             SignerImpl::Memory(s) => s.active_rsa_kid().await,
+            #[cfg(feature = "postgres")]
+            SignerImpl::Mounted(s) => s.active_rsa_kid().await,
             #[cfg(feature = "aws")]
             SignerImpl::Kms(s) => {
                 let result = s.active_rsa_kid().await;

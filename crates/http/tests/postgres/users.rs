@@ -553,7 +553,13 @@ async fn user_contract(store: impl UsersStore + Clone + 'static) {
     assert_eq!(total, 1);
     assert!(page.is_empty());
 
-    let racing_tenant = format!("{tenant}-scim-race");
+    for round in 0..8 {
+        shared_scim_alias_race(store.clone(), &format!("{tenant}-scim-race-{round}")).await;
+    }
+}
+
+async fn shared_scim_alias_race(store: impl UsersStore + Clone + 'static, tenant: &str) {
+    let racing_tenant = tenant.to_string();
     let name = format!("race@{tenant}.example.test");
     let barrier = Arc::new(Barrier::new(16));
     let mut tasks = Vec::new();

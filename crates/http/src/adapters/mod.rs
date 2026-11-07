@@ -6,6 +6,8 @@ pub mod memory_attribute_namespaces;
 pub mod memory_federation_attributes;
 #[cfg(feature = "postgres")]
 pub mod mounted_crypto;
+#[cfg(feature = "postgres")]
+pub mod mounted_signer;
 
 #[cfg(feature = "postgres")]
 pub mod postgres;

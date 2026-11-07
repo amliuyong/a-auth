@@ -88,6 +88,10 @@ jobs:
           fi
       - name: Run shared contracts against all three adapters
         run: bash scripts/test_postgres_contracts.sh
+      - name: Verify mounted EC and RSA signing and rotation
+        run: >-
+          cargo test -p agent-auth-http --no-default-features --features postgres
+          --test mounted_signer --locked
 
   rust-quality:
     name: Rust quality

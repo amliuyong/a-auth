@@ -1811,6 +1811,15 @@ impl crate::ports::UsersStore for DynamoUsersStore {
             if existing.as_ref().is_some_and(|record| {
                 record.scim_external_id.is_some() || record.scim_user_name.is_some()
             }) {
+                // Admission can commit after the atomic alias snapshot and before
+                // this email lookup. Resolve its durable create claim on the next
+                // iteration, including any pending initial lifecycle operation.
+                if existing.as_ref().is_some_and(|record| {
+                    record.scim_external_id.as_deref() == Some(input.external_id.as_str())
+                        && record.scim_user_name.as_deref() == Some(user_name.as_str())
+                }) {
+                    continue;
+                }
                 return Ok(ScimCreateOutcome::Conflict);
             }
             let canonical_id = existing

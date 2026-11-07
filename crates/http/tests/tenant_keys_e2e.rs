@@ -28,18 +28,10 @@ use tower::ServiceExt;
 fn memory_registry(
     service: &TenantKeyService,
 ) -> &agent_auth_http::tenant_keys::MemoryTenantKeyRegistry {
-    #[cfg(not(feature = "aws"))]
-    {
-        let TenantKeyRegistryImpl::Memory(registry) = service.registry();
-        registry
-    }
-    #[cfg(feature = "aws")]
-    {
-        match service.registry() {
-            TenantKeyRegistryImpl::Memory(registry) => registry,
-            TenantKeyRegistryImpl::Dynamo(_) => panic!("expected memory registry"),
-        }
-    }
+    let TenantKeyRegistryImpl::Memory(registry) = service.registry() else {
+        panic!("expected memory registry");
+    };
+    registry
 }
 
 async fn install_ready(service: &TenantKeyService, tenant: &str, seed: u8) {

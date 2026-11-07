@@ -44,7 +44,7 @@ tests do not establish cluster, deployment, or conformance acceptance.
 | Every single-tenant storage port | Port inventory, production wiring, durable contract and cross-port tests | IN_PROGRESS |
 | Conditional writes and transactions | Real PostgreSQL concurrency and failure-atomicity tests equivalent to existing memory/AWS tests | IN_PROGRESS |
 | Forward migrations, standard PostgreSQL | Versioned SQL, repeat/concurrent migration tests, PostgreSQL 16 run | IN_PROGRESS |
-| Secret/file signer and JWKS rotation | Independent ES256/RS256 verification across reload and retired-key removal | NOT_RUN |
+| Secret/file signer and JWKS rotation | Independent ES256/RS256 verification across reload and retired-key removal; installed replica rotation | IN_PROGRESS |
 | Server and background work | Probe/shutdown tests, worker redelivery/lease fencing, cluster execution | NOT_RUN |
 | Secret resolver, SMTP, optional archives | Adapter tests and installed deployment evidence | NOT_RUN |
 | Secure container and chart | Rendered manifests, authentication and reachability tests | NOT_RUN |
@@ -78,6 +78,13 @@ tests do not establish cluster, deployment, or conformance acceptance.
   in tracked evidence.
 
 ## Current implementation frontier
+
+`MountedSignerRing` loads immutable ES256/RS256 file generations and
+`TenantKeyService::mounted` resolves them per request with disabled SaaS
+registry/command interfaces. See [mounted signing keys](MOUNTED_SIGNER.md) for
+the manifest, permission and rotation contract. Local independent verification
+and invalid-reload tests do not establish production startup or cluster
+rotation acceptance; those remain pending.
 
 The `postgres` feature currently provides `PostgresStore` implementations for
 `ParStore`, `ReplayStore`, `InitialAccessTokenStore`, `ClientStore`, `CodeStore`,
