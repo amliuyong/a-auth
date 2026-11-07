@@ -41,6 +41,18 @@ mod federation_contracts;
 #[path = "postgres/migrations.rs"]
 mod migration_contracts;
 
+#[path = "postgres/domain_map.rs"]
+mod domain_map_contracts;
+
+#[path = "postgres/passkey_challenges.rs"]
+mod passkey_challenge_contracts;
+
+#[path = "postgres/device.rs"]
+mod device_contracts;
+
+#[path = "postgres/admin_auth.rs"]
+mod admin_auth_contracts;
+
 #[cfg(feature = "aws")]
 #[path = "postgres/aws.rs"]
 mod aws_contract_database;

@@ -5,14 +5,18 @@ use crate::ports::{ParRecord, ParStore, StoreError};
 use sqlx::{postgres::PgPoolOptions, PgPool, Row};
 use std::time::Duration;
 
+mod admin_auth;
 mod authz_sessions;
 mod clients;
 mod codes;
+mod device;
+mod domain_map;
 mod federation;
 mod grants;
 mod initial_access_tokens;
 mod jti;
 mod magic_links;
+mod passkey_challenges;
 mod policy;
 mod rate_limits;
 mod refresh;

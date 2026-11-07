@@ -83,11 +83,12 @@ The `postgres` feature currently provides `PostgresStore` implementations for
 `ParStore`, `ReplayStore`, `InitialAccessTokenStore`, `ClientStore`, `CodeStore`,
 `RefreshStore`, `GrantStore`, `PolicyVersionStore`, `PolicyArtifactStore`,
 `JtiStore`, `AuthzSessionStore`, `RateLimitStore`, `FederationConfigStore`,
-`FederationFlowStore`, `MagicLinkStore`, and `WorkloadTrustStore`. Sixteen embedded forward
+`FederationFlowStore`, `MagicLinkStore`, `WorkloadTrustStore`, `DomainMapStore`,
+`PasskeyChallengeStore`, `DeviceStore`, and `AdminAuthStore`. Twenty embedded forward
 migrations create their authority tables and credential-free client reclaim
 audit metadata.
 
-The current shared suite passes 53 cases: sixteen contracts run through each of
+The current shared suite passes 65 cases: twenty contracts run through each of
 the memory, AWS, and PostgreSQL adapters, plus five PostgreSQL-specific
 transaction/durability cases. AWS adapters run against a loopback DynamoDB
 emulator; PostgreSQL adapters run against PostgreSQL 16. This does not establish
@@ -100,6 +101,12 @@ session transitions and user binding, and token-bucket admission.
 Federation and magic-link contracts verify complete callback bindings,
 browser-bound one-time consumption, tenant-scoped configuration and cooldowns,
 subject cleanup, and the default empty self-hosted tenant.
+Domain registration admits one globally unique owner across tenants. Passkey
+challenges preserve ceremony/RP/origin binding and cannot be consumed by a
+foreign tenant. Device tests race sixteen consumers against sixteen decisions
+and check that each has one winner while preserving poll and credential
+metadata. Admin OIDC tests check configuration CAS, hashed flow/session
+create-once behavior, binding identity and tenant-scoped erasure.
 Cross-table tests check that code/family creation updates the client authority
 revision atomically, that failed conditions roll back the new row, and that
 duplicate creation cannot resurrect consumed codes or revoked families.
@@ -124,10 +131,16 @@ AWS federation configuration now encodes the empty self-hosted tenant with a
 reserved non-empty physical key; named-tenant keys and the logical tenant in
 configuration JSON remain unchanged. The same encoding covers authorized
 snapshot transactions and governance cleanup.
+Full matrix contention also reproduced duplicate federation/Admin flow
+consumption against the DynamoDB emulator. Both AWS deletions now require
+the row to exist and map conditional failure to a miss. Five additional rounds
+of both flow contracts passed; these observations do not establish a native
+AWS race. Memory domain records now normalize their stored domain, and memory
+Admin flow/session creation rejects overwriting existing hashed bindings.
 
 Current local validation also passes 1,057 workspace library tests, 680 HTTP
-library tests with both `postgres` and `aws`, and 73 federation, login, mapping,
-and governance regression tests. Three library tests explicitly require native
+library tests with both `postgres` and `aws`, and 64 BYOD, passkey, device,
+and Admin SSO regression tests. Three library tests explicitly require native
 AWS disposable tables and remain ignored/`NOT_RUN`. Development signing
 fixtures now share cached key material while keeping signing counters and
 fault injection independent between instances.
@@ -144,6 +157,11 @@ Without the AWS flag, the same runner executes the memory/PostgreSQL subset.
 Missing required database configuration or an unavailable database fails the
 run. The cold-start migration contract creates and removes its own temporary
 database, so the dedicated test role needs `CREATEDB` and schema DDL privileges.
+The runner defaults to two independent contracts at a time to fit a standard
+100-connection PostgreSQL server alongside the cold-start drill. Individual
+contracts retain their sixteen/thirty-two concurrent actors. `RUST_TEST_THREADS`
+can override that harness bound; increasing it requires a suitable database
+connection budget.
 AWS contract writes are restricted to loopback. The CI job uses
 digest-pinned PostgreSQL and DynamoDB emulator containers and runs the complete
 matrix.

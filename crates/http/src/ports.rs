@@ -3437,6 +3437,7 @@ pub struct CibaAuthRequest {
 }
 
 /// device 授权记录(spec 013;pk=device_code)。`user_code` 另有独立查找。
+#[cfg_attr(feature = "postgres", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeviceAuthGrant {
     pub device_code: String,

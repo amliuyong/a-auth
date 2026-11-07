@@ -4,7 +4,7 @@
 use aws_sdk_dynamodb::{
     types::{
         AttributeDefinition, BillingMode, GlobalSecondaryIndex, KeySchemaElement, KeyType,
-        ScalarAttributeType,
+        Projection, ProjectionType, ScalarAttributeType,
     },
     Client,
 };
@@ -15,6 +15,35 @@ pub async fn table(
     indexes: Vec<GlobalSecondaryIndex>,
 ) -> (Client, String) {
     table_with_range(primary_key, None, attributes, indexes).await
+}
+
+pub async fn table_with_string_index(
+    primary_key: &str,
+    index_name: &str,
+    index_attribute: &str,
+) -> (Client, String) {
+    let attribute = AttributeDefinition::builder()
+        .attribute_name(index_attribute)
+        .attribute_type(ScalarAttributeType::S)
+        .build()
+        .unwrap();
+    let index = GlobalSecondaryIndex::builder()
+        .index_name(index_name)
+        .key_schema(
+            KeySchemaElement::builder()
+                .attribute_name(index_attribute)
+                .key_type(KeyType::Hash)
+                .build()
+                .unwrap(),
+        )
+        .projection(
+            Projection::builder()
+                .projection_type(ProjectionType::All)
+                .build(),
+        )
+        .build()
+        .unwrap();
+    table(primary_key, vec![attribute], vec![index]).await
 }
 
 pub async fn table_with_range(

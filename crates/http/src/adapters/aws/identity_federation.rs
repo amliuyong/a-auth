@@ -683,10 +683,22 @@ impl crate::ports::AdminAuthStore for DynamoAdminAuthStore {
                 AdminAuthRecordKind::Flow,
             ))
             .key("key", AttributeValue::S(admin_flow_key(state_hash)))
+            .condition_expression("attribute_exists(#key)")
+            .expression_attribute_names("#key", "key")
             .return_values(aws_sdk_dynamodb::types::ReturnValue::AllOld)
             .send()
-            .await
-            .map_err(ddb_err)?;
+            .await;
+        let out = match out {
+            Ok(output) => output,
+            Err(error)
+                if error
+                    .as_service_error()
+                    .is_some_and(|service| service.is_conditional_check_failed_exception()) =>
+            {
+                return Ok(None);
+            }
+            Err(error) => return Err(ddb_err(error)),
+        };
         let Some(item) = out.attributes() else {
             return Ok(None);
         };
@@ -1494,10 +1506,22 @@ impl crate::ports::FederationFlowStore for DynamoFederationFlowStore {
             .delete_item()
             .table_name(&self.table)
             .key("state", AttributeValue::S(state.to_string()))
+            .condition_expression("attribute_exists(#state)")
+            .expression_attribute_names("#state", "state")
             .return_values(aws_sdk_dynamodb::types::ReturnValue::AllOld)
             .send()
-            .await
-            .map_err(ddb_err)?;
+            .await;
+        let out = match out {
+            Ok(output) => output,
+            Err(error)
+                if error
+                    .as_service_error()
+                    .is_some_and(|service| service.is_conditional_check_failed_exception()) =>
+            {
+                return Ok(None);
+            }
+            Err(error) => return Err(ddb_err(error)),
+        };
         let Some(item) = out.attributes() else {
             return Ok(None); // 不存在/已消费
         };

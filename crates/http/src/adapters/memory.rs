@@ -4,7 +4,7 @@
 //!   真机换 `adapters::aws::KmsSigner`(KMS Sign + der_to_jose)。
 //! - `MemoryCodeStore` / `MemoryClientStore`:`Mutex<HashMap>`,真机换 DynamoDB 适配器。
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{hash_map::Entry, BTreeMap, BTreeSet, HashMap};
 use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::sync::{Barrier, Mutex};
@@ -602,7 +602,7 @@ impl crate::ports::DomainMapStore for MemoryDomainMapStore {
     }
     async fn put_if_absent(
         &self,
-        binding: crate::ports::DomainBinding,
+        mut binding: crate::ports::DomainBinding,
     ) -> Result<bool, StoreError> {
         // conditional put:仅当 domain 未被任何租户登记(全局唯一,防跨租户抢注)。
         let mut m = self.map.lock().await;
@@ -610,6 +610,7 @@ impl crate::ports::DomainMapStore for MemoryDomainMapStore {
         if m.contains_key(&key) {
             return Ok(false); // 已被(他人)登记
         }
+        binding.domain = key.clone();
         m.insert(key, binding);
         Ok(true)
     }
@@ -3183,11 +3184,16 @@ impl crate::ports::AdminAuthStore for MemoryAdminAuthStore {
     }
 
     async fn put_flow(&self, flow: crate::ports::AdminOidcFlow) -> Result<(), StoreError> {
-        self.flows
-            .lock()
-            .await
-            .insert(flow.state_hash.clone(), flow);
-        Ok(())
+        let mut flows = self.flows.lock().await;
+        match flows.entry(flow.state_hash.clone()) {
+            Entry::Vacant(entry) => {
+                entry.insert(flow);
+                Ok(())
+            }
+            Entry::Occupied(_) => Err(StoreError::Permanent(
+                "Admin OIDC flow already exists".into(),
+            )),
+        }
     }
 
     async fn consume_flow(
@@ -3203,11 +3209,14 @@ impl crate::ports::AdminAuthStore for MemoryAdminAuthStore {
         &self,
         session: crate::ports::AdminSessionRecord,
     ) -> Result<(), StoreError> {
-        self.sessions
-            .lock()
-            .await
-            .insert(session.session_hash.clone(), session);
-        Ok(())
+        let mut sessions = self.sessions.lock().await;
+        match sessions.entry(session.session_hash.clone()) {
+            Entry::Vacant(entry) => {
+                entry.insert(session);
+                Ok(())
+            }
+            Entry::Occupied(_) => Err(StoreError::Permanent("Admin session already exists".into())),
+        }
     }
 
     async fn get_session(
