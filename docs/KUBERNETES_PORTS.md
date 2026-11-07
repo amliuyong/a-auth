@@ -12,9 +12,11 @@ must not become production fallback authority.
 
 ## Implemented PostgreSQL authority
 
-These twenty-two traits have PostgreSQL adapters. Shared contracts exercise the
+These twenty-three traits have PostgreSQL adapters. Shared contracts exercise the
 memory, actual AWS adapters against a loopback emulator, and PostgreSQL
 implementations. The delivery ledger records the candidate validation results.
+The AWS grace contract additionally uses a loopback KMS response fixture;
+it does not establish native KMS acceptance.
 
 | Trait | PostgreSQL authority and relevant conditions |
 | --- | --- |
@@ -40,6 +42,7 @@ implementations. The delivery ledger records the candidate validation results.
 | `AdminAuthStore` | Config revision CAS, create-once hashed flows/sessions, tenant cleanup transaction |
 | [`AttributeNamespaceStore`](../crates/http/src/attribute_namespace.rs) | Tenant-locked exact-audience claims, migration revision CAS, durable cancellation receipts and burned operation IDs |
 | `PasswordStore` | Separate validated PHC hashes, version CAS, temporary/pending predicates and exhaustion rejection |
+| `GraceStore` | Per-record encrypted responses, authenticated family/version/expiry, external key rotation and delete-only capability |
 
 Cross-port work remains necessary even when individual traits are implemented.
 Raw port CRUD must not replace an authorized transaction involving user,
@@ -47,14 +50,13 @@ credential, session, client, grant, or attribute authority.
 
 ## Remaining persistent authority
 
-The first ten traits below are in `ports.rs`; the last five are in their
+The first nine traits below are in `ports.rs`; the last five are in their
 linked modules. Optional protocol surfaces need either a complete production
 implementation or an explicit disabled capability with its existing
 fail-closed behavior. They must never silently select memory stores.
 
 | Trait | Required durable behavior |
 | --- | --- |
-| `GraceStore` | Encrypted response cache, family/version/fingerprint binding, revocation invalidation |
 | `PasskeyStore` | Credential uniqueness, signature-counter CAS, user/epoch/session authority |
 | `ScimGroupsStore` | Atomic group/membership and tenant-role mapping changes |
 | `GovernanceStore` | Legal holds, job ownership/checkpoints, suppression and retention evidence |
@@ -123,6 +125,10 @@ trait implementations, the review must cover:
   mutations preserve their existing cross-port authority transaction.
 - Secrets and private signing material come from mounted configuration;
   secret-bearing durable response/delivery state is encrypted.
+- Only the token runtime mounts grace encryption keys. Other paths receive
+  the delete-only grace capability; keys for other encryption purposes must
+  not grant grace decryption. Mounted private key roots stay separate from
+  dynamically referenced external client-secret roots.
 - Unsupported or excluded configuration fails at startup rather than
   advertising an unavailable capability.
 - Runtime and migration roles are distinct. Migration sessions close after

@@ -47,6 +47,7 @@ sha2 = { workspace = true }
 hmac = { workspace = true }
 # Opaque login-session management handles encrypt the cookie credential before exposure.
 aes-gcm = "0.10"
+zeroize = { workspace = true }
 # RS256 id_token 本地签名(MemorySigner;真机走 KMS RSA)+ KMS SPKI DER 解析出 n/e(spec 001 C2.7)。
 rsa = { version = "0.9", features = ["sha2"] }
 

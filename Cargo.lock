@@ -179,6 +179,7 @@ dependencies = [
  "utoipa",
  "utoipa-axum",
  "x509-cert",
+ "zeroize",
 ]
 
 [[package]]

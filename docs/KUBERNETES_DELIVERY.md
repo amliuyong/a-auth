@@ -85,15 +85,19 @@ The `postgres` feature currently provides `PostgresStore` implementations for
 `JtiStore`, `AuthzSessionStore`, `RateLimitStore`, `FederationConfigStore`,
 `FederationFlowStore`, `MagicLinkStore`, `WorkloadTrustStore`, `DomainMapStore`,
 `PasskeyChallengeStore`, `DeviceStore`, `AdminAuthStore`,
-`AttributeNamespaceStore`, and `PasswordStore`. Twenty-two embedded forward
+`AttributeNamespaceStore`, and `PasswordStore`. `PostgresGraceStore` implements
+`GraceStore` with an explicit external encryption key ring or a delete-only
+capability. Twenty-three embedded forward
 migrations create their authority tables and credential-free client reclaim
 audit metadata.
 
-The current shared suite passes 72 cases: twenty-two contracts run through each of
-the memory, AWS, and PostgreSQL adapters, plus six PostgreSQL-specific
+The current shared suite passes 79 cases: twenty-three contracts run through each of
+the memory, AWS, and PostgreSQL adapters, plus ten PostgreSQL-specific
 transaction/durability cases. AWS adapters run against a loopback DynamoDB
 emulator; PostgreSQL adapters run against PostgreSQL 16. This does not establish
 native AWS deployment acceptance.
+The grace contract's KMS responses come from a loopback fixture. This does not
+establish native KMS acceptance.
 The contracts include 16-way contention, tenant isolation, lease replacement
 fencing, refresh version CAS, revocation, and credential metadata CAS. They
 also check immutable policy artifacts, atomic policy-version increments,
@@ -123,6 +127,20 @@ table and retain the existing non-serializable credential wrapper. The
 PostgreSQL decoder validates the bounded PHC profile, and numeric versions
 preserve the complete `u64` range. Raw password CAS does not complete the
 remaining authorized user/password/session transaction work.
+Grace response tokens and matching metadata use per-record AES-256-GCM
+envelope encryption. Random data keys are wrapped by externally configured
+keys; only key IDs, wrapped keys, nonces and ciphertext enter PostgreSQL.
+Authentication binds the encryption format/purpose and family/version/expiry.
+Tests reject moved or modified envelopes, retain exact cached responses across
+separate pools, exercise mounted key overlap/retirement and check that a
+delete-only instance cannot read or write even an absent entry.
+The refresh finalization helper commits the owner/version-fenced increment and
+encrypted cache together. An actual second-write constraint failure rolls back
+the version and lease mutation; sixteen concurrent retries have one winner.
+The helper rejects a grace instance from another store pool. Production state
+dispatch has not selected this transaction yet.
+An expired real lease cannot be extended using a stale caller timestamp;
+finalization checks the clock after acquiring the family row lock.
 Cross-table tests check that code/family creation updates the client authority
 revision atomically, that failed conditions roll back the new row, and that
 duplicate creation cannot resurrect consumed codes or revoked families.
@@ -158,10 +176,14 @@ mutation before failure and unchecked AWS first-login arithmetic. All three
 adapters now reject exhausted writes without changing the credential. An HTTP
 regression checks that failed memory Admin reset staging retains the original
 hash/metadata while keeping the already-started user revocation fence.
+The grace contract also reproduced memory cleanup deleting another family
+whose name shared a prefix. Cleanup now compares the exact family identity.
 
-Current local validation also passes 680 HTTP library tests with both
-`postgres` and `aws`, and 76 password login, account credential, credential
-lifecycle and administrator-user regression tests. The preceding namespace
+Current local validation passes 680 HTTP library tests with both
+`postgres` and `aws`, and 114 code-flow/refresh/revocation HTTP regressions.
+The password increment `f1b8604343396c7223174742937414c08c97f04d` passed
+76 password login, account credential, credential lifecycle and
+administrator-user regression tests. The preceding namespace
 increment `28a3e0ed5e2edb70aeec2996f6b99fe5fb87d3ba` passed 1,057 workspace
 library tests and 33 RS attribute/federation mapping regression tests. Earlier
 increments passed 64 BYOD, passkey, device and Admin SSO regression tests.
@@ -199,9 +221,41 @@ An adapter dependency-tree check confirms that the `postgres` feature's normal
 dependencies exclude AWS SDK/config and Lambda. The production binary and
 runtime-egress checks remain pending.
 
+## External encryption key files
+
+The adapter API `EncryptionKeyring::from_file` reads one immutable snapshot
+from a regular JSON file, including a Kubernetes Secret projection symlink.
+The file must have no world access or group write permission; `0400`, `0440`
+and `0600` are supported. Input is bounded to 64 KiB. Duplicate/unknown fields,
+duplicate key IDs, missing active keys, invalid base64, non-32-byte keys and
+all-zero keys fail closed. Errors omit file contents and paths.
+
+```json
+{
+  "active_kid": "grace-v2",
+  "keys": [
+    {"kid": "grace-v1", "key_base64": "<base64 of 32 random bytes>"},
+    {"kid": "grace-v2", "key_base64": "<base64 of 32 new random bytes>"}
+  ]
+}
+```
+
+Every token replica needs the same readable key set. Prepublish the new key
+to all replicas before activating it, retain old keys while their encrypted
+records remain necessary, and retire them only after that retention window.
+Existing instances retain their loaded snapshot; replacing the mounted file
+does not silently reload them. A missing retired key produces an authentication
+error, never a plaintext or generated-key fallback.
+Grace keys belong only to the token runtime. Other runtime paths can construct
+`PostgresGraceStore::new_delete_only` for revocation cleanup. Keep keys used by
+other durable encrypted state separate, and keep all private startup key roots
+outside the dynamically resolved upstream client-secret root.
+These are implemented adapter capabilities. Production startup, mount
+isolation and cluster rotation acceptance remain pending.
+
 The production server does not select PostgreSQL yet. Remaining work includes
 every other self-hosted storage port, cross-port credential/user/session/grant
-transactions, encrypted refresh grace responses, state dispatch and startup,
+transactions, encrypted-grace transaction dispatch and startup,
 mounted signing keys, portable transports/notifications, workers, chart/image
 delivery, and all acceptance campaigns in the ledger above. Keep the PR in
 draft and the issue open until these requirements are implemented and verified.

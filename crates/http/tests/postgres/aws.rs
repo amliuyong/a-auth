@@ -52,6 +52,21 @@ pub async fn table_with_range(
     attributes: Vec<AttributeDefinition>,
     indexes: Vec<GlobalSecondaryIndex>,
 ) -> (Client, String) {
+    table_with_typed_range(
+        primary_key,
+        range_key.map(|key| (key, ScalarAttributeType::S)),
+        attributes,
+        indexes,
+    )
+    .await
+}
+
+pub async fn table_with_typed_range(
+    primary_key: &str,
+    range_key: Option<(&str, ScalarAttributeType)>,
+    attributes: Vec<AttributeDefinition>,
+    indexes: Vec<GlobalSecondaryIndex>,
+) -> (Client, String) {
     let endpoint = std::env::var("A_AUTH_TEST_DYNAMODB_ENDPOINT")
         .expect("AWS adapter contracts require A_AUTH_TEST_DYNAMODB_ENDPOINT");
     let parsed = url::Url::parse(&endpoint).unwrap();
@@ -81,11 +96,11 @@ pub async fn table_with_range(
         .key_type(KeyType::Hash)
         .build()
         .unwrap()];
-    if let Some(range) = range_key {
+    if let Some((range, kind)) = range_key {
         all_attributes.push(
             AttributeDefinition::builder()
                 .attribute_name(range)
-                .attribute_type(ScalarAttributeType::S)
+                .attribute_type(kind)
                 .build()
                 .unwrap(),
         );

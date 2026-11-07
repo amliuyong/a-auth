@@ -4001,8 +4001,10 @@ impl GraceStore for MemoryGraceStore {
             _ => {}
         }
         // 条件删:删该 family 所有版本的缓存项(C3.5)。
-        let prefix = format!("{family_id}.");
-        self.map.lock().await.retain(|k, _| !k.starts_with(&prefix));
+        self.map
+            .lock()
+            .await
+            .retain(|_, entry| entry.family_id != family_id);
         Ok(())
     }
 }

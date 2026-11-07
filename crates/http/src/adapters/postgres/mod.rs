@@ -3,7 +3,7 @@
 
 use crate::ports::{ParRecord, ParStore, StoreError};
 use sqlx::{postgres::PgPoolOptions, PgPool, Row};
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 mod admin_auth;
 mod attribute_namespaces;
@@ -13,6 +13,7 @@ mod codes;
 mod device;
 mod domain_map;
 mod federation;
+mod grace;
 mod grants;
 mod initial_access_tokens;
 mod jti;
@@ -26,6 +27,8 @@ mod replay;
 mod workload_trust;
 
 pub use codes::ExchangeFailureRequest;
+pub use grace::PostgresGraceStore;
+pub use refresh::RefreshRotationRequest;
 
 static MIGRATIONS: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
@@ -34,6 +37,7 @@ static MIGRATIONS: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 #[derive(Clone)]
 pub struct PostgresStore {
     pool: PgPool,
+    identity: Arc<()>,
 }
 
 impl PostgresStore {
@@ -73,7 +77,10 @@ impl PostgresStore {
                 "PostgreSQL 16 or later is required".into(),
             ));
         }
-        Ok(Self { pool })
+        Ok(Self {
+            pool,
+            identity: Arc::new(()),
+        })
     }
 
     /// Embedded, versioned forward migrations with database-wide locking and

@@ -59,6 +59,9 @@ mod attribute_namespace_contracts;
 #[path = "postgres/passwords.rs"]
 mod password_contracts;
 
+#[path = "postgres/grace.rs"]
+mod grace_contracts;
+
 #[cfg(feature = "aws")]
 #[path = "postgres/aws.rs"]
 mod aws_contract_database;

@@ -1,6 +1,93 @@
-use super::{db_error, PostgresStore};
-use crate::ports::{RefreshFamilyRecord, RefreshLeaseAcquire, RefreshStore, StoreError};
-use sqlx::{types::Json, Row};
+use super::{db_error, PostgresGraceStore, PostgresStore};
+use crate::ports::{
+    GraceCacheEntry, RefreshFamilyRecord, RefreshLeaseAcquire, RefreshStore, StoreError,
+};
+use sqlx::{types::Json, PgConnection, Row};
+
+/// The leased refresh version and its already-signed response commit together.
+pub struct RefreshRotationRequest<'a> {
+    pub tenant: &'a str,
+    pub family_id: &'a str,
+    pub expected_version: u64,
+    pub lease_owner: &'a str,
+    pub now: i64,
+    pub grace_entry: Option<GraceCacheEntry>,
+}
+
+async fn advance_version(
+    connection: &mut PgConnection,
+    request: &RefreshRotationRequest<'_>,
+) -> Result<bool, StoreError> {
+    let result = sqlx::query(
+        "UPDATE a_auth.refresh_families SET record = jsonb_set(record, '{current_version}', \
+         to_jsonb((record->>'current_version')::NUMERIC + 1)), \
+         lease_owner = NULL, lease_until = NULL, lease_version = NULL \
+         WHERE tenant = $1 AND family_id = $2 AND record->>'current_version' = $3 \
+         AND lease_version = $3::TEXT::NUMERIC AND lease_owner = $4 AND lease_until > $5 \
+         AND NOT (record->>'revoked')::BOOLEAN \
+         AND (record->>'current_version')::NUMERIC < 18446744073709551615",
+    )
+    .bind(request.tenant)
+    .bind(request.family_id)
+    .bind(request.expected_version.to_string())
+    .bind(request.lease_owner)
+    .bind(request.now)
+    .execute(connection)
+    .await
+    .map_err(db_error)?;
+    Ok(result.rows_affected() == 1)
+}
+
+impl PostgresStore {
+    pub async fn finalize_refresh_rotation(
+        &self,
+        grace: Option<&PostgresGraceStore>,
+        mut request: RefreshRotationRequest<'_>,
+    ) -> Result<bool, StoreError> {
+        if grace.is_some() != request.grace_entry.is_some()
+            || grace.is_some_and(|grace| !grace.belongs_to(self))
+        {
+            return Err(StoreError::Permanent(
+                "Refresh finalization requires matching store and grace configuration".into(),
+            ));
+        }
+        if request.grace_entry.as_ref().is_some_and(|entry| {
+            entry.family_id != request.family_id || entry.version != request.expected_version
+        }) {
+            return Err(StoreError::Permanent(
+                "Refresh grace response does not match the leased version".into(),
+            ));
+        }
+        let prepared = match (grace, request.grace_entry.take()) {
+            (Some(grace), Some(entry)) => Some(grace.prepare(entry)?),
+            _ => None,
+        };
+        let mut transaction = self.pool.begin().await.map_err(db_error)?;
+        let exists: Option<String> = sqlx::query_scalar(
+            "SELECT family_id FROM a_auth.refresh_families \
+             WHERE tenant = $1 AND family_id = $2 FOR UPDATE",
+        )
+        .bind(request.tenant)
+        .bind(request.family_id)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(db_error)?;
+        if exists.is_none() {
+            return Ok(false);
+        }
+        // Check the real commit clock after acquiring the authority lock. A
+        // delayed request cannot reuse its earlier timestamp to extend a lease.
+        request.now = request.now.max(crate::current_unix_secs());
+        if !advance_version(&mut transaction, &request).await? {
+            return Ok(false);
+        }
+        if let Some(prepared) = prepared {
+            PostgresGraceStore::persist(&mut transaction, &prepared).await?;
+        }
+        transaction.commit().await.map_err(db_error)?;
+        Ok(true)
+    }
+}
 
 impl RefreshStore for PostgresStore {
     async fn create(&self, tenant: &str, record: RefreshFamilyRecord) -> Result<(), StoreError> {
@@ -113,24 +200,19 @@ impl RefreshStore for PostgresStore {
         lease_owner: &str,
         now: i64,
     ) -> Result<bool, StoreError> {
-        let result = sqlx::query(
-            "UPDATE a_auth.refresh_families SET record = jsonb_set(record, '{current_version}', \
-             to_jsonb((record->>'current_version')::NUMERIC + 1)), \
-             lease_owner = NULL, lease_until = NULL, lease_version = NULL \
-             WHERE tenant = $1 AND family_id = $2 AND record->>'current_version' = $3 \
-             AND lease_version = $3::TEXT::NUMERIC AND lease_owner = $4 AND lease_until > $5 \
-             AND NOT (record->>'revoked')::BOOLEAN \
-             AND (record->>'current_version')::NUMERIC < 18446744073709551615",
+        let mut connection = self.pool.acquire().await.map_err(db_error)?;
+        advance_version(
+            &mut connection,
+            &RefreshRotationRequest {
+                tenant,
+                family_id,
+                expected_version,
+                lease_owner,
+                now,
+                grace_entry: None,
+            },
         )
-        .bind(tenant)
-        .bind(family_id)
-        .bind(expected_version.to_string())
-        .bind(lease_owner)
-        .bind(now)
-        .execute(&self.pool)
         .await
-        .map_err(db_error)?;
-        Ok(result.rows_affected() == 1)
     }
 
     async fn release_lease(
