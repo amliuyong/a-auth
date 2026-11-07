@@ -2657,14 +2657,15 @@ impl MemoryPasswordStore {
         let mut passwords = self.map.lock().await;
         let version = match (passwords.get_mut(&key), expected_version) {
             (Some(credential), Some(expected)) if credential.version == expected => {
+                let next_version = credential
+                    .version
+                    .checked_add(1)
+                    .ok_or_else(|| StoreError::Permanent("password version overflow".into()))?;
                 credential.password_hash = new_hash;
                 credential.must_change = true;
                 credential.revocation_pending = true;
                 credential.credential_change_id = Some(owner.operation_id.to_string());
-                credential.version = credential
-                    .version
-                    .checked_add(1)
-                    .ok_or_else(|| StoreError::Permanent("password version overflow".into()))?;
+                credential.version = next_version;
                 credential.updated_at = updated_at;
                 credential.version
             }
@@ -2796,10 +2797,14 @@ impl crate::ports::PasswordStore for MemoryPasswordStore {
                     && !credential.revocation_pending
                     && credential.version == expected_version =>
             {
+                let next_version = credential
+                    .version
+                    .checked_add(1)
+                    .ok_or_else(|| StoreError::Permanent("password version overflow".into()))?;
                 credential.password_hash = new_hash;
                 credential.must_change = false;
                 credential.credential_change_id = None;
-                credential.version += 1;
+                credential.version = next_version;
                 credential.updated_at = updated_at;
                 Ok(true)
             }
@@ -2819,14 +2824,15 @@ impl crate::ports::PasswordStore for MemoryPasswordStore {
         let key = (tenant.to_string(), user_id.to_string());
         let version = match (map.get_mut(&key), expected_version) {
             (Some(credential), Some(expected)) if credential.version == expected => {
+                let next_version = credential
+                    .version
+                    .checked_add(1)
+                    .ok_or_else(|| StoreError::Permanent("password version overflow".into()))?;
                 credential.password_hash = new_hash;
                 credential.must_change = true;
                 credential.revocation_pending = true;
                 credential.credential_change_id = None;
-                credential.version = credential
-                    .version
-                    .checked_add(1)
-                    .ok_or_else(|| StoreError::Permanent("password version overflow".into()))?;
+                credential.version = next_version;
                 credential.updated_at = updated_at;
                 credential.version
             }

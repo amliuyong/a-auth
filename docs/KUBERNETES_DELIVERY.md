@@ -84,12 +84,12 @@ The `postgres` feature currently provides `PostgresStore` implementations for
 `RefreshStore`, `GrantStore`, `PolicyVersionStore`, `PolicyArtifactStore`,
 `JtiStore`, `AuthzSessionStore`, `RateLimitStore`, `FederationConfigStore`,
 `FederationFlowStore`, `MagicLinkStore`, `WorkloadTrustStore`, `DomainMapStore`,
-`PasskeyChallengeStore`, `DeviceStore`, `AdminAuthStore`, and
-`AttributeNamespaceStore`. Twenty-one embedded forward
+`PasskeyChallengeStore`, `DeviceStore`, `AdminAuthStore`,
+`AttributeNamespaceStore`, and `PasswordStore`. Twenty-two embedded forward
 migrations create their authority tables and credential-free client reclaim
 audit metadata.
 
-The current shared suite passes 69 cases: twenty-one contracts run through each of
+The current shared suite passes 72 cases: twenty-two contracts run through each of
 the memory, AWS, and PostgreSQL adapters, plus six PostgreSQL-specific
 transaction/durability cases. AWS adapters run against a loopback DynamoDB
 emulator; PostgreSQL adapters run against PostgreSQL 16. This does not establish
@@ -116,6 +116,13 @@ escaped JSON as text so valid operation IDs containing U+0000 round-trip.
 Missing or malformed snapshot fields fail closed; fault injection verifies
 that a truncated snapshot cannot become unbound authorization.
 Memory and PostgreSQL share the extracted namespace transition rules.
+Password contracts check create-once provisioning, sixteen concurrent
+temporary-password changes/resets, owner-marker round trips, completion of
+pending revocation and version-conditional cleanup. Hashes live in their own
+table and retain the existing non-serializable credential wrapper. The
+PostgreSQL decoder validates the bounded PHC profile, and numeric versions
+preserve the complete `u64` range. Raw password CAS does not complete the
+remaining authorized user/password/session transaction work.
 Cross-table tests check that code/family creation updates the client authority
 revision atomically, that failed conditions roll back the new row, and that
 duplicate creation cannot resurrect consumed codes or revoked families.
@@ -146,12 +153,20 @@ the row to exist and map conditional failure to a miss. Five additional rounds
 of both flow contracts passed; these observations do not establish a native
 AWS race. Memory domain records now normalize their stored domain, and memory
 Admin flow/session creation rejects overwriting existing hashed bindings.
+Password version-exhaustion tests also reproduced existing memory hash
+mutation before failure and unchecked AWS first-login arithmetic. All three
+adapters now reject exhausted writes without changing the credential. An HTTP
+regression checks that failed memory Admin reset staging retains the original
+hash/metadata while keeping the already-started user revocation fence.
 
-Current local validation also passes 1,057 workspace library tests, 680 HTTP
-library tests with both `postgres` and `aws`, and 33 RS attribute and federation
-mapping regression tests. Earlier increments passed 64 BYOD, passkey, device,
-and Admin SSO regression tests. Three library tests explicitly require native
-AWS disposable tables and remain ignored/`NOT_RUN`. Development signing
+Current local validation also passes 680 HTTP library tests with both
+`postgres` and `aws`, and 76 password login, account credential, credential
+lifecycle and administrator-user regression tests. The preceding namespace
+increment `28a3e0ed5e2edb70aeec2996f6b99fe5fb87d3ba` passed 1,057 workspace
+library tests and 33 RS attribute/federation mapping regression tests. Earlier
+increments passed 64 BYOD, passkey, device and Admin SSO regression tests.
+Three library tests explicitly require native AWS disposable tables and remain
+ignored/`NOT_RUN`. Development signing
 fixtures now share cached key material while keeping signing counters and
 fault injection independent between instances.
 

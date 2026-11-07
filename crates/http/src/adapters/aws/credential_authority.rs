@@ -4587,6 +4587,9 @@ impl crate::ports::PasswordStore for DynamoPasswordStore {
         expected_version: u64,
         updated_at: i64,
     ) -> Result<bool, StoreError> {
+        let next_version = expected_version
+            .checked_add(1)
+            .ok_or_else(|| StoreError::Permanent("password version overflow".into()))?;
         let result = self
             .db
             .update_item()
@@ -4606,7 +4609,7 @@ impl crate::ports::PasswordStore for DynamoPasswordStore {
             .expression_attribute_values(":false", AttributeValue::Bool(false))
             .expression_attribute_values(
                 ":next",
-                AttributeValue::N((expected_version + 1).to_string()),
+                AttributeValue::N(next_version.to_string()),
             )
             .expression_attribute_values(":now", AttributeValue::N(updated_at.to_string()))
             .expression_attribute_values(

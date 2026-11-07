@@ -12,7 +12,7 @@ must not become production fallback authority.
 
 ## Implemented PostgreSQL authority
 
-These twenty-one traits have PostgreSQL adapters. Shared contracts exercise the
+These twenty-two traits have PostgreSQL adapters. Shared contracts exercise the
 memory, actual AWS adapters against a loopback emulator, and PostgreSQL
 implementations. The delivery ledger records the candidate validation results.
 
@@ -39,6 +39,7 @@ implementations. The delivery ledger records the candidate validation results.
 | `DeviceStore` | Tenant-scoped user-code lookup, field CAS for polling/decision/consumption |
 | `AdminAuthStore` | Config revision CAS, create-once hashed flows/sessions, tenant cleanup transaction |
 | [`AttributeNamespaceStore`](../crates/http/src/attribute_namespace.rs) | Tenant-locked exact-audience claims, migration revision CAS, durable cancellation receipts and burned operation IDs |
+| `PasswordStore` | Separate validated PHC hashes, version CAS, temporary/pending predicates and exhaustion rejection |
 
 Cross-port work remains necessary even when individual traits are implemented.
 Raw port CRUD must not replace an authorized transaction involving user,
@@ -46,7 +47,7 @@ credential, session, client, grant, or attribute authority.
 
 ## Remaining persistent authority
 
-The first eleven traits below are in `ports.rs`; the last five are in their
+The first ten traits below are in `ports.rs`; the last five are in their
 linked modules. Optional protocol surfaces need either a complete production
 implementation or an explicit disabled capability with its existing
 fail-closed behavior. They must never silently select memory stores.
@@ -58,7 +59,6 @@ fail-closed behavior. They must never silently select memory stores.
 | `ScimGroupsStore` | Atomic group/membership and tenant-role mapping changes |
 | `GovernanceStore` | Legal holds, job ownership/checkpoints, suppression and retention evidence |
 | `UsersStore` | Canonical identity, SCIM aliases, lifecycle/credential fences and attributes |
-| `PasswordStore` | Secret hash isolation, version CAS, operation-owned reset |
 | `InvitationStore` | Verifier-only persistence, idempotent issue and atomic onboarding/session commit |
 | `SessionStore` | User generation, actor authority, atomic user-wide revocation |
 | `RecoveryStore` | Code HMACs, bounded failures, exact-operation success receipt and credential/session transaction |
