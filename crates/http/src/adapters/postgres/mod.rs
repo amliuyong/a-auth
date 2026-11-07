@@ -8,13 +8,16 @@ use std::time::Duration;
 mod authz_sessions;
 mod clients;
 mod codes;
+mod federation;
 mod grants;
 mod initial_access_tokens;
 mod jti;
+mod magic_links;
 mod policy;
 mod rate_limits;
 mod refresh;
 mod replay;
+mod workload_trust;
 
 pub use codes::ExchangeFailureRequest;
 
@@ -70,8 +73,21 @@ impl PostgresStore {
     /// Embedded, versioned forward migrations with database-wide locking and
     /// checksum verification. A failed migration never marks its version applied.
     pub async fn migrate(&self) -> Result<(), StoreError> {
-        MIGRATIONS
-            .run(&self.pool)
+        // DDL startup needs a longer budget than an ordinary authority write.
+        // Close this session so neither relaxed timeouts nor SQLx's advisory
+        // lock on an early error/cancellation can return to the runtime pool.
+        // Keep the pool permit until close completes to preserve its bound.
+        let mut connection = self.pool.acquire().await.map_err(db_error)?;
+        connection.close_on_drop();
+        sqlx::query(
+            "SELECT set_config('statement_timeout', '120s', false), \
+             set_config('lock_timeout', '60s', false)",
+        )
+        .execute(&mut *connection)
+        .await
+        .map_err(db_error)?;
+        let result = MIGRATIONS
+            .run_direct(&mut *connection)
             .await
             .map_err(|error| match error {
                 sqlx::migrate::MigrateError::Execute(error)
@@ -79,7 +95,9 @@ impl PostgresStore {
                 _ => {
                     StoreError::Permanent("PostgreSQL migration version or checksum failed".into())
                 }
-            })
+            });
+        let close = connection.close().await.map_err(db_error);
+        result.and(close)
     }
 }
 

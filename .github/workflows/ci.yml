@@ -488,6 +488,7 @@ jobs:
     if: ${{ always() }}
     needs:
       - markdownlint
+      - postgres-contracts
       - rust-quality
       - rust-tests
       - conformance-exact

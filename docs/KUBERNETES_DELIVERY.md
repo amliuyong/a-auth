@@ -3,6 +3,8 @@
 This is the implementation and acceptance ledger for
 [issue #142](https://github.com/amliuyong/a-auth/issues/142). It does not
 declare the Kubernetes deployment ready for production.
+The [port inventory](KUBERNETES_PORTS.md) accounts for all 57 public capability
+traits and distinguishes authority, transports, and excluded SaaS/Region paths.
 
 ## Required outcome
 
@@ -65,6 +67,10 @@ tests do not establish cluster, deployment, or conformance acceptance.
   across unlocked database operations.
 - Require explicit migration execution. Embed migrations in the binary and use
   the migration framework's database lock and checksum validation.
+- Migration sessions use a 60-second lock and 120-second statement budget and
+  close after success, failure, or cancellation while retaining the pool
+  permit. Runtime connections keep their 5-second lock and 15-second statement
+  budgets.
 - Retain consumed/revoked authority for the validity window; expiry is checked
   by the application, and garbage collection never determines token validity.
 - Never put private signing keys or resolved external secrets into PostgreSQL.
@@ -76,12 +82,13 @@ tests do not establish cluster, deployment, or conformance acceptance.
 The `postgres` feature currently provides `PostgresStore` implementations for
 `ParStore`, `ReplayStore`, `InitialAccessTokenStore`, `ClientStore`, `CodeStore`,
 `RefreshStore`, `GrantStore`, `PolicyVersionStore`, `PolicyArtifactStore`,
-`JtiStore`, `AuthzSessionStore`, and `RateLimitStore`. Twelve embedded forward
+`JtiStore`, `AuthzSessionStore`, `RateLimitStore`, `FederationConfigStore`,
+`FederationFlowStore`, `MagicLinkStore`, and `WorkloadTrustStore`. Sixteen embedded forward
 migrations create their authority tables and credential-free client reclaim
 audit metadata.
 
-The current shared suite passes 40 cases: twelve contracts run through each of
-the memory, AWS, and PostgreSQL adapters, plus four PostgreSQL-specific
+The current shared suite passes 53 cases: sixteen contracts run through each of
+the memory, AWS, and PostgreSQL adapters, plus five PostgreSQL-specific
 transaction/durability cases. AWS adapters run against a loopback DynamoDB
 emulator; PostgreSQL adapters run against PostgreSQL 16. This does not establish
 native AWS deployment acceptance.
@@ -90,6 +97,9 @@ fencing, refresh version CAS, revocation, and credential metadata CAS. They
 also check immutable policy artifacts, atomic policy-version increments,
 immutable delegated JTI authority and monotonic revocation, authorization
 session transitions and user binding, and token-bucket admission.
+Federation and magic-link contracts verify complete callback bindings,
+browser-bound one-time consumption, tenant-scoped configuration and cooldowns,
+subject cleanup, and the default empty self-hosted tenant.
 Cross-table tests check that code/family creation updates the client authority
 revision atomically, that failed conditions roll back the new row, and that
 duplicate creation cannot resurrect consumed codes or revoked families.
@@ -99,6 +109,10 @@ proves rollback; stale caller timestamps cannot bypass commit-time expiry.
 Separate-pool replay contention and pool reconnect tests check database
 coordination and persistence. These are port tests; they do not prove HTTP
 multi-replica behavior or a backup/restore drill.
+A separate cold-start case creates a fresh database and runs twelve competing
+migrators after a held advisory lock is released. It also checks that a
+one-connection pool retains its migration permit, normal writes keep their
+shorter timeout, and checksum failure cannot leak a lock into another pool.
 
 The shared contracts also exposed existing adapter gaps. AWS Grant CAS now
 rejects revoked authority even when supplied its current revision. Memory and
@@ -106,10 +120,14 @@ AWS policy artifacts reject conflicting writes to an existing version while
 allowing identical retries. AWS JTI erasure includes delegated authority, and
 PAR consumption uses a conditional deletion. Five additional runs of the PAR
 concurrency case passed after this change.
+AWS federation configuration now encodes the empty self-hosted tenant with a
+reserved non-empty physical key; named-tenant keys and the logical tenant in
+configuration JSON remain unchanged. The same encoding covers authorized
+snapshot transactions and governance cleanup.
 
 Current local validation also passes 1,057 workspace library tests, 680 HTTP
-library tests with both `postgres` and `aws`, and 140 authorization, refresh,
-and workload regression tests. Three library tests explicitly require native
+library tests with both `postgres` and `aws`, and 73 federation, login, mapping,
+and governance regression tests. Three library tests explicitly require native
 AWS disposable tables and remain ignored/`NOT_RUN`. Development signing
 fixtures now share cached key material while keeping signing counters and
 fault injection independent between instances.
@@ -124,9 +142,16 @@ A_AUTH_TEST_AWS_ADAPTERS=1 bash scripts/test_postgres_contracts.sh
 
 Without the AWS flag, the same runner executes the memory/PostgreSQL subset.
 Missing required database configuration or an unavailable database fails the
-run. AWS contract writes are restricted to loopback. The CI job uses
+run. The cold-start migration contract creates and removes its own temporary
+database, so the dedicated test role needs `CREATEDB` and schema DDL privileges.
+AWS contract writes are restricted to loopback. The CI job uses
 digest-pinned PostgreSQL and DynamoDB emulator containers and runs the complete
 matrix.
+The protected `Required CI` policy includes the shared-contract job. A
+regression test checks that its policy covers every declared CI check.
+Exact conformance selectors follow the existing workflow policy: skipped on
+pull requests, required on pushes and manual dispatch. Their skipped result
+does not establish Kubernetes conformance acceptance.
 An adapter dependency-tree check confirms that the `postgres` feature's normal
 dependencies exclude AWS SDK/config and Lambda. The production binary and
 runtime-egress checks remain pending.

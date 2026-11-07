@@ -35,6 +35,12 @@ mod exchange_failure_contracts;
 #[path = "postgres/rate_limits.rs"]
 mod rate_limit_contracts;
 
+#[path = "postgres/federation.rs"]
+mod federation_contracts;
+
+#[path = "postgres/migrations.rs"]
+mod migration_contracts;
+
 #[cfg(feature = "aws")]
 #[path = "postgres/aws.rs"]
 mod aws_contract_database;

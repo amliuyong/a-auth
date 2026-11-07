@@ -1107,6 +1107,7 @@ pub struct UpstreamTokenSet {
 /// ②**下游续跑**(F1:AS 作 RP 的唯一目的是替某下游 client 完成登录):`original_authz_request` —— 用户最初
 ///   那笔下游 `/authorize` 的参数原样保存,callback 成功后据此续跑、向**原 client** 发本 AS code。
 /// 缺 ② = "登录成功却回不到调用方"的死流(F1 Blocker)。
+#[cfg_attr(feature = "postgres", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FederationFlowState {
     /// flow key = `state`(不可预测;callback 精确等 + 一次性消费 → 防 CSRF/固定/重放)。
@@ -3082,6 +3083,7 @@ pub trait RecoveryStore: Send + Sync {
 }
 
 /// magic-link 待兑现记录(link_id → canonical user + email + session nonce 绑定 + 一次性状态)。
+#[cfg_attr(feature = "postgres", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MagicLinkRecord {
     pub link_id: String,

@@ -159,6 +159,17 @@ impl DynamoFederationConfigStore {
         }
     }
 
+    /// DynamoDB keys cannot be empty. The separator is forbidden in logical
+    /// tenant IDs, so this self-hosted key cannot collide with a named tenant.
+    /// Non-empty tenant keys and the logical tenant inside JSON stay unchanged.
+    pub(super) fn physical_tenant_id(tenant_id: &str) -> &str {
+        if tenant_id.is_empty() {
+            "\u{1f}self-hosted"
+        } else {
+            tenant_id
+        }
+    }
+
     fn key(
         tenant_id: &str,
         upstream_idp_id: &str,
@@ -166,7 +177,7 @@ impl DynamoFederationConfigStore {
         HashMap::from([
             (
                 "tenant_id".to_string(),
-                AttributeValue::S(tenant_id.to_string()),
+                AttributeValue::S(Self::physical_tenant_id(tenant_id).to_string()),
             ),
             (
                 "upstream_idp_id".to_string(),
@@ -185,20 +196,12 @@ impl DynamoFederationConfigStore {
     fn item(
         config: &agent_auth_authn::federation::FederationConfig,
     ) -> Result<HashMap<String, AttributeValue>, StoreError> {
-        Ok(HashMap::from([
-            (
-                "tenant_id".to_string(),
-                AttributeValue::S(config.tenant_id.clone()),
-            ),
-            (
-                "upstream_idp_id".to_string(),
-                AttributeValue::S(config.upstream_idp_id.clone()),
-            ),
-            (
-                "config_json".to_string(),
-                AttributeValue::S(Self::config_json(config)?),
-            ),
-        ]))
+        let mut item = Self::key(&config.tenant_id, &config.upstream_idp_id);
+        item.insert(
+            "config_json".into(),
+            AttributeValue::S(Self::config_json(config)?),
+        );
+        Ok(item)
     }
 
     pub(crate) fn snapshot_condition(
@@ -313,11 +316,7 @@ impl crate::ports::FederationConfigStore for DynamoFederationConfigStore {
             .db
             .get_item()
             .table_name(&self.table)
-            .key("tenant_id", AttributeValue::S(tenant_id.to_string()))
-            .key(
-                "upstream_idp_id",
-                AttributeValue::S(upstream_idp_id.to_string()),
-            )
+            .set_key(Some(Self::key(tenant_id, upstream_idp_id)))
             .consistent_read(true)
             .send()
             .await
@@ -346,7 +345,10 @@ impl crate::ports::FederationConfigStore for DynamoFederationConfigStore {
                 .query()
                 .table_name(&self.table)
                 .key_condition_expression("tenant_id = :t")
-                .expression_attribute_values(":t", AttributeValue::S(tenant_id.to_string()))
+                .expression_attribute_values(
+                    ":t",
+                    AttributeValue::S(Self::physical_tenant_id(tenant_id).to_string()),
+                )
                 .set_exclusive_start_key(last_key.clone())
                 .send()
                 .await
@@ -386,11 +388,7 @@ impl crate::ports::FederationConfigStore for DynamoFederationConfigStore {
         self.db
             .delete_item()
             .table_name(&self.table)
-            .key("tenant_id", AttributeValue::S(tenant_id.to_string()))
-            .key(
-                "upstream_idp_id",
-                AttributeValue::S(upstream_idp_id.to_string()),
-            )
+            .set_key(Some(Self::key(tenant_id, upstream_idp_id)))
             .send()
             .await
             .map_err(ddb_err)?;
@@ -406,7 +404,10 @@ impl crate::ports::FederationConfigStore for DynamoFederationConfigStore {
                 .query()
                 .table_name(&self.table)
                 .key_condition_expression("tenant_id = :tenant")
-                .expression_attribute_values(":tenant", AttributeValue::S(tenant_id.to_string()))
+                .expression_attribute_values(
+                    ":tenant",
+                    AttributeValue::S(Self::physical_tenant_id(tenant_id).to_string()),
+                )
                 .projection_expression("tenant_id, upstream_idp_id")
                 .consistent_read(true)
                 .set_exclusive_start_key(last_key.clone())
@@ -422,7 +423,10 @@ impl crate::ports::FederationConfigStore for DynamoFederationConfigStore {
                 self.db
                     .delete_item()
                     .table_name(&self.table)
-                    .key("tenant_id", AttributeValue::S(tenant_id.to_string()))
+                    .key(
+                        "tenant_id",
+                        AttributeValue::S(Self::physical_tenant_id(tenant_id).to_string()),
+                    )
                     .key("upstream_idp_id", upstream_idp_id)
                     .send()
                     .await

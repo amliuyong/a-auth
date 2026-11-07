@@ -1602,6 +1602,7 @@ impl DynamoFederationConfigStore {
         now: i64,
         tenant_id: &str,
     ) -> Result<usize, StoreError> {
+        let physical_tenant = Self::physical_tenant_id(tenant_id);
         governance_delete_matching_fenced(
             &self.db,
             &self.table,
@@ -1612,8 +1613,10 @@ impl DynamoFederationConfigStore {
             fence,
             now,
             |item| {
-                Ok((s(item.get("tenant_id")).as_deref() == Some(tenant_id))
-                    .then(|| s(item.get("upstream_idp_id")).unwrap_or_default()))
+                Ok(
+                    (s(item.get("tenant_id")).as_deref() == Some(physical_tenant))
+                        .then(|| s(item.get("upstream_idp_id")).unwrap_or_default()),
+                )
             },
         )
         .await
@@ -1624,8 +1627,9 @@ impl DynamoFederationConfigStore {
         &self,
         tenant_id: &str,
     ) -> Result<usize, StoreError> {
+        let physical_tenant = Self::physical_tenant_id(tenant_id);
         governance_count_matching(&self.db, &self.table, |item| {
-            s(item.get("tenant_id")).as_deref() == Some(tenant_id)
+            s(item.get("tenant_id")).as_deref() == Some(physical_tenant)
         })
         .await
     }
