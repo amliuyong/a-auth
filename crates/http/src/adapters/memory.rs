@@ -5031,13 +5031,19 @@ impl SessionStore for MemorySessionStore {
             ));
         }
         let mut state = self.state.lock().await;
+        let session_key = (tenant.to_string(), s.session_id.clone());
+        if state.sessions.contains_key(&session_key) {
+            return Err(StoreError::Permanent(
+                "login session identity is already bound".into(),
+            ));
+        }
         let generation = state
             .generations
             .get(&(tenant.to_string(), s.user_id.clone()))
             .copied()
             .unwrap_or(0);
         state.sessions.insert(
-            (tenant.to_string(), s.session_id.clone()),
+            session_key,
             MemoryStoredSession {
                 record: s,
                 generation,

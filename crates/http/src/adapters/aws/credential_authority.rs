@@ -1668,14 +1668,16 @@ impl DynamoSessionStore {
         user_id: &str,
         actor_session_id: &str,
         generation: u64,
+        invocation: &[u8; 32],
     ) -> String {
         let mut digest = Sha256::new();
-        digest.update(b"credential-session-fence:v1");
+        digest.update(b"credential-session-fence:v2");
         for value in [tenant, user_id, actor_session_id] {
             digest.update((value.len() as u64).to_be_bytes());
             digest.update(value.as_bytes());
         }
         digest.update(generation.to_be_bytes());
+        digest.update(invocation);
         base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&digest.finalize()[..27])
     }
 
@@ -2380,10 +2382,18 @@ impl SessionStore for DynamoSessionStore {
         let actor_key = tpk(tenant, actor_session_id);
         let physical_user_id = tpk(tenant, user_id);
         let generation_key = Self::generation_key(tenant, user_id);
+        // Recover a lost response only for this invocation. Independent callers
+        // must not adopt another caller's successful credential-mutation fence.
+        let invocation: [u8; 32] = rand::random();
         for attempt in 0..TRANSACTION_RETRY_ATTEMPTS {
             let generation = self.current_generation(tenant, user_id).await?;
-            let fence_id =
-                Self::credential_session_fence_id(tenant, user_id, actor_session_id, generation);
+            let fence_id = Self::credential_session_fence_id(
+                tenant,
+                user_id,
+                actor_session_id,
+                generation,
+                &invocation,
+            );
             if !self
                 .is_authoritative_session(tenant, user_id, actor_session_id, generation)
                 .await?
@@ -2473,30 +2483,58 @@ impl SessionStore for DynamoSessionStore {
         session_id: &str,
         now: i64,
     ) -> Result<bool, StoreError> {
-        let result = self
-            .db
-            .update_item()
+        use aws_sdk_dynamodb::types::{ConditionCheck, TransactWriteItem, Update};
+
+        let Some(stored) = self.get_stored(tenant, session_id).await? else {
+            return Ok(false);
+        };
+        let generation = self
+            .current_generation(tenant, &stored.record.user_id)
+            .await?;
+        if stored.generation != generation || now < stored.record.last_used_at {
+            return Ok(false);
+        }
+        let generation_check = ConditionCheck::builder()
+            .table_name(&self.table)
+            .key(
+                "session_id",
+                AttributeValue::S(Self::generation_key(tenant, &stored.record.user_id)),
+            )
+            .condition_expression(Self::generation_marker_condition(generation))
+            .expression_attribute_names("#generation", "generation")
+            .expression_attribute_values(":expected", AttributeValue::N(generation.to_string()))
+            .build()
+            .map_err(|_| {
+                StoreError::Permanent("Build login session observation fence failed".into())
+            })?;
+        let update = Update::builder()
             .table_name(&self.table)
             .key("session_id", AttributeValue::S(tpk(tenant, session_id)))
             .update_expression("SET last_used_at = :now")
-            .condition_expression(
-                "attribute_exists(session_id) AND \
-                 (attribute_not_exists(last_used_at) OR last_used_at <= :now)",
+            .condition_expression(format!(
+                "{} AND (attribute_not_exists(last_used_at) OR last_used_at <= :now)",
+                Self::authoritative_session_condition(generation),
+            ))
+            .expression_attribute_values(
+                ":u",
+                AttributeValue::S(tpk(tenant, &stored.record.user_id)),
             )
+            .expression_attribute_values(":expected", AttributeValue::N(generation.to_string()))
             .expression_attribute_values(":now", AttributeValue::N(now.to_string()))
-            .send()
-            .await;
-        match result {
-            Ok(_) => Ok(true),
-            Err(error)
-                if error
-                    .code()
-                    .is_some_and(|code| code.contains("ConditionalCheckFailed")) =>
-            {
-                Ok(false)
-            }
-            Err(error) => Err(ddb_err(error)),
-        }
+            .build()
+            .map_err(|_| {
+                StoreError::Permanent("Build login session observation update failed".into())
+            })?;
+        let request = self
+            .db
+            .transact_write_items()
+            .transact_items(
+                TransactWriteItem::builder()
+                    .condition_check(generation_check)
+                    .build(),
+            )
+            .transact_items(TransactWriteItem::builder().update(update).build());
+        send_idempotent_transaction(request).await
     }
     async fn delete_by_user(&self, tenant: &str, user_id: &str) -> Result<usize, StoreError> {
         // Query tenant-qualified user_id GSI first, then delete after pagination so

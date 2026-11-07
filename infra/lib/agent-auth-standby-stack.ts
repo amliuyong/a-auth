@@ -802,6 +802,12 @@ export class AgentAuthStandbyStack extends Stack {
       }
       runtime.addToRolePolicy(
         new iam.PolicyStatement({
+          actions: ['dynamodb:TransactGetItems'],
+          resources: [authority.users.tableArn],
+        }),
+      );
+      runtime.addToRolePolicy(
+        new iam.PolicyStatement({
           actions: ['dynamodb:GetItem', 'dynamodb:Query'],
           resources: [authority.governanceSuppression.tableArn],
         }),

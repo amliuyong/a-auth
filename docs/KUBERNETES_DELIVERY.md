@@ -86,17 +86,17 @@ The `postgres` feature currently provides `PostgresStore` implementations for
 `FederationFlowStore`, `MagicLinkStore`, `WorkloadTrustStore`, `DomainMapStore`,
 `PasskeyChallengeStore`, `DeviceStore`, `AdminAuthStore`,
 `AttributeNamespaceStore`, `PasswordStore`, `SecurityEventStore`, and
-`FederationAttributeMappingsStore`, and `ScimGroupsStore`.
+`FederationAttributeMappingsStore`, `ScimGroupsStore`, and `SessionStore`.
 `PostgresUsersStore` implements all twenty-five `UsersStore` methods with a
 required external HMAC authority key.
 `PostgresGraceStore` implements
 `GraceStore` with an explicit external encryption key ring or a delete-only
-capability. Twenty-eight embedded forward
+capability. Twenty-nine embedded forward
 migrations create their authority tables and credential-free client reclaim
 audit metadata.
 
-The current shared suite passes 103 cases: twenty-seven contracts run through each of
-the memory, AWS, and PostgreSQL adapters, plus twenty-two PostgreSQL-specific
+The current shared suite passes 110 cases: twenty-eight contracts run through each of
+the memory, AWS, and PostgreSQL adapters, plus twenty-six PostgreSQL-specific
 transaction/durability cases. AWS adapters run against a loopback DynamoDB
 emulator; PostgreSQL adapters run against PostgreSQL 16. This does not establish
 native AWS deployment acceptance.
@@ -215,6 +215,31 @@ It also reproduced AWS empty-tenant cleanup deleting a named tenant's groups;
 cleanup now applies the existing exact tenant-key predicate.
 The authorized group/role, SSO configuration and user lifecycle transactions
 remain pending.
+Login sessions capture a durable user session generation. Reads and listings
+use one statement snapshot to compare the captured generation with current
+authority; expiry remains an application decision at the existing port seam.
+Actor-owned deletion, retaining one session and consuming an actor for user-wide
+revocation lock the directory, generation and relevant session rows. Generation
+advancement and the retained-session update or actor deletion commit together.
+Actual second-write failures preserve every previous session's authority.
+Creation rejects overwriting a captured session ID. Observations never recreate
+missing or generation-revoked sessions, and epoch cleanup preserves its exact boundary.
+Private codecs require the complete record and compare its physical identity,
+epoch, generation, expiry and observation timestamp; NUL identifiers and the
+complete `u64` range round-trip.
+The shared contract reproduced memory overwriting a captured ID, AWS independent
+concurrent calls adopting the same successful revocation receipt, and AWS
+observations updating a generation-revoked session. Memory rejects the existing
+ID; AWS uses a separate invocation nonce while retaining one stable retry token
+and fences observations with the generation in a transaction.
+The complete matrix also reproduced a false AWS SCIM alias conflict when two
+independent strong reads straddled one atomic create. A deterministic regression
+captures that mixed snapshot. Alias classification now reads both rows in one
+DynamoDB transaction with bounded retry for transaction contention. Primary and
+standby HTTP runtime policies grant transaction reads on the exact user table;
+the configuration tests inspect each role's inline and managed policies.
+The authorized user/password/recovery/session transactions and production
+dispatch remain pending.
 Cross-table tests check that code/family creation updates the client authority
 revision atomically, that failed conditions roll back the new row, and that
 duplicate creation cannot resurrect consumed codes or revoked families.
@@ -253,10 +278,17 @@ hash/metadata while keeping the already-started user revocation fence.
 The grace contract also reproduced memory cleanup deleting another family
 whose name shared a prefix. Cleanup now compares the exact family identity.
 
-Current local validation passes 1,268 workspace library tests, including 684
+Current local validation passes 1,269 workspace library tests, including 685
 HTTP library tests with both `postgres` and `aws`.
-The group increment passes 47 SCIM, Admin SSO and data-governance HTTP
+The group increment `34050c9670abf64d610fad85e41aa8a9baac47ae` passed
+47 SCIM, Admin SSO and data-governance HTTP
 regressions, along with six focused group contract/fault cases.
+The session increment passes 118 HTTP regressions for login sessions, accounts,
+credentials, passwords, recovery, invitations and SCIM.
+It also passes seven focused session contract/fault cases,
+five additional AWS-emulator SCIM contention rounds and all 277 infra tests.
+Two effective-policy regressions cover transaction reads on primary and standby
+user tables, including CDK's managed-policy overflow.
 The user increment `70c592764cbdc90bf71fbfc4d14982bb0594ee36` passed 129
 SCIM, Admin user, password/account/lifecycle and RS attribute/federation mapping
 HTTP regressions and hosted CI.

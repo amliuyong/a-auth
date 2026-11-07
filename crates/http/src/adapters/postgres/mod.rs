@@ -28,6 +28,7 @@ mod replay;
 mod scim_groups;
 mod security_events;
 mod serialization;
+mod sessions;
 mod users;
 mod workload_trust;
 
