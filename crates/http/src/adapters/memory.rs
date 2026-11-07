@@ -100,14 +100,17 @@ impl MemorySigner {
         }
     }
 
-    /// 开发默认种子(仅本地;真机绝不用固定种子)。**缓存单例**:RSA-2048 keygen 慢,固定种子的
-    /// dev signer 全进程复用一把(避免每个 `AppState::dev()`/每条测试都重算 RSA key,DX 提速)。
+    /// 开发默认种子(仅本地;真机绝不用固定种子)。缓存密钥以避免重复 RSA-2048 keygen,
+    /// 每个实例独立维护故障注入和签名计数；同一实例的 clone 仍共享这些状态。
     pub fn dev() -> Self {
         use std::sync::OnceLock;
         static DEV_SIGNER: OnceLock<MemorySigner> = OnceLock::new();
-        DEV_SIGNER
+        let mut signer = DEV_SIGNER
             .get_or_init(|| Self::from_seed([7u8; 32]))
-            .clone()
+            .clone();
+        signer.fail_next_es256 = Arc::new(AtomicU8::new(0));
+        signer.es256_sign_count = Arc::new(AtomicUsize::new(0));
+        signer
     }
 
     /// Test-only fault injection for the next ES256 signing call.
@@ -4871,10 +4874,16 @@ impl crate::ports::PolicyArtifactStore for MemoryPolicyArtifactStore {
                 "injected policy artifact persistence failure".into(),
             ));
         }
-        self.map
-            .lock()
-            .await
-            .insert((tenant.to_string(), version), (text, digest));
+        let mut map = self.map.lock().await;
+        let key = (tenant.to_string(), version);
+        match map.get(&key) {
+            Some(existing) if existing != &(text.clone(), digest.clone()) => {
+                return Err(StoreError::Permanent("policy artifact is immutable".into()));
+            }
+            Some(_) => return Ok(()),
+            None => {}
+        }
+        map.insert(key, (text, digest));
         Ok(())
     }
     async fn get(
@@ -8945,6 +8954,34 @@ impl GovernanceStore for MemoryGovernanceStore {
 mod tests {
     use super::*;
     use crate::ports::{CibaAuthRequest, CibaStore, DeviceAuthGrant, DeviceStore};
+
+    #[tokio::test]
+    async fn dev_signer_keeps_faults_and_counts_within_one_fixture() {
+        let first = MemorySigner::dev();
+        let second = MemorySigner::dev();
+        assert_eq!(
+            first.public_jwks().await.unwrap(),
+            second.public_jwks().await.unwrap(),
+            "cached development key material remains stable"
+        );
+        let second_before = second.es256_sign_count();
+        first.sign_es256(b"header.payload").await.unwrap();
+        assert_eq!(
+            second.es256_sign_count(),
+            second_before,
+            "another fixture must not change this fixture's signing evidence"
+        );
+        first.fail_next_es256(true);
+        second.sign_es256(b"header.payload").await.unwrap();
+        assert!(
+            matches!(
+                first.clone().sign_es256(b"header.payload").await,
+                Err(SignerError::Transient(_))
+            ),
+            "a clone within the same fixture must retain its pending fault"
+        );
+        first.sign_es256(b"header.payload").await.unwrap();
+    }
 
     #[tokio::test]
     async fn ciba_and_device_poll_claims_are_atomic() {

@@ -49,7 +49,7 @@ tests do not establish cluster, deployment, or conformance acceptance.
 | kind + in-cluster PostgreSQL | Installed chart and all required protocol flows including enterprise IdP | NOT_RUN |
 | EKS + external RDS PostgreSQL | Installed chart and all required protocol flows including enterprise IdP | NOT_RUN |
 | Existing conformance gates | Exact-candidate Kubernetes run and comparison with AWS self-hosted results | NOT_RUN |
-| memory/AWS/PostgreSQL contracts | Shared contracts across three adapters plus equivalent atomicity/idempotency coverage | NOT_RUN |
+| memory/AWS/PostgreSQL contracts | Shared contracts across three adapters plus equivalent atomicity/idempotency coverage | IN_PROGRESS |
 | Multi-replica code/refresh/replay/IAT | Concurrent requests to distinct replicas with exactly one successful effect | NOT_RUN |
 | AWS-free dependency tree/runtime | Production feature dependency tree and runtime egress evidence | NOT_RUN |
 | Backup/restore revocation safety | Recovery drill with grants, refresh families, replay history, and documented remediation | NOT_RUN |
@@ -75,38 +75,61 @@ tests do not establish cluster, deployment, or conformance acceptance.
 
 The `postgres` feature currently provides `PostgresStore` implementations for
 `ParStore`, `ReplayStore`, `InitialAccessTokenStore`, `ClientStore`, `CodeStore`,
-and `RefreshStore`. Six embedded forward migrations create their authority
-tables and credential-free client reclaim audit metadata.
+`RefreshStore`, `GrantStore`, `PolicyVersionStore`, `PolicyArtifactStore`,
+`JtiStore`, `AuthzSessionStore`, and `RateLimitStore`. Twelve embedded forward
+migrations create their authority tables and credential-free client reclaim
+audit metadata.
 
-Real PostgreSQL 16 tests currently pass 15 cases: six contracts shared with the
-memory adapter, plus three PostgreSQL-specific transaction/durability cases.
+The current shared suite passes 40 cases: twelve contracts run through each of
+the memory, AWS, and PostgreSQL adapters, plus four PostgreSQL-specific
+transaction/durability cases. AWS adapters run against a loopback DynamoDB
+emulator; PostgreSQL adapters run against PostgreSQL 16. This does not establish
+native AWS deployment acceptance.
 The contracts include 16-way contention, tenant isolation, lease replacement
-fencing, refresh version CAS, revocation, and credential metadata CAS.
+fencing, refresh version CAS, revocation, and credential metadata CAS. They
+also check immutable policy artifacts, atomic policy-version increments,
+immutable delegated JTI authority and monotonic revocation, authorization
+session transitions and user binding, and token-bucket admission.
 Cross-table tests check that code/family creation updates the client authority
 revision atomically, that failed conditions roll back the new row, and that
 duplicate creation cannot resurrect consumed codes or revoked families.
+The failed-exchange transaction consumes the authorization code and transitions
+its bound session together. An injected failure in the second table write
+proves rollback; stale caller timestamps cannot bypass commit-time expiry.
 Separate-pool replay contention and pool reconnect tests check database
 coordination and persistence. These are port tests; they do not prove HTTP
 multi-replica behavior or a backup/restore drill.
 
-To run these tests, set `A_AUTH_TEST_DATABASE_URL` to a dedicated PostgreSQL
-16+ test database and run:
+The shared contracts also exposed existing adapter gaps. AWS Grant CAS now
+rejects revoked authority even when supplied its current revision. Memory and
+AWS policy artifacts reject conflicting writes to an existing version while
+allowing identical retries. AWS JTI erasure includes delegated authority, and
+PAR consumption uses a conditional deletion. Five additional runs of the PAR
+concurrency case passed after this change.
+
+Current local validation also passes 1,057 workspace library tests, 680 HTTP
+library tests with both `postgres` and `aws`, and 140 authorization, refresh,
+and workload regression tests. Three library tests explicitly require native
+AWS disposable tables and remain ignored/`NOT_RUN`. Development signing
+fixtures now share cached key material while keeping signing counters and
+fault injection independent between instances.
+
+To run the complete matrix, set `A_AUTH_TEST_DATABASE_URL` to a dedicated
+PostgreSQL 16+ test database and `A_AUTH_TEST_DYNAMODB_ENDPOINT` to a loopback
+DynamoDB emulator, then run:
 
 ```bash
-bash scripts/test_postgres_contracts.sh
+A_AUTH_TEST_AWS_ADAPTERS=1 bash scripts/test_postgres_contracts.sh
 ```
 
-The test runner fails if the database is unavailable or the variable is absent.
-The CI job uses a digest-pinned PostgreSQL container and runs the same contracts.
+Without the AWS flag, the same runner executes the memory/PostgreSQL subset.
+Missing required database configuration or an unavailable database fails the
+run. AWS contract writes are restricted to loopback. The CI job uses
+digest-pinned PostgreSQL and DynamoDB emulator containers and runs the complete
+matrix.
 An adapter dependency-tree check confirms that the `postgres` feature's normal
 dependencies exclude AWS SDK/config and Lambda. The production binary and
 runtime-egress checks remain pending.
-
-Local foundation validation also passed all 1,056 workspace library tests,
-PostgreSQL-feature Clippy for all targets, Rust formatting, Markdown lint,
-and the workflow-security tests. Existing Clippy warnings remain outside the
-added PostgreSQL files. These checks do not replace the AWS or Kubernetes
-conformance gates.
 
 The production server does not select PostgreSQL yet. Remaining work includes
 every other self-hosted storage port, cross-port credential/user/session/grant

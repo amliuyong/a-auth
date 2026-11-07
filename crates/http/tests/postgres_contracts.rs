@@ -17,6 +17,32 @@ use agent_auth_http::{
 use std::sync::Arc;
 use tokio::sync::Barrier;
 
+#[path = "postgres/authorization.rs"]
+mod authorization_contracts;
+
+#[path = "postgres/policy_artifacts.rs"]
+mod policy_artifact_contracts;
+
+#[path = "postgres/jti.rs"]
+mod jti_contracts;
+
+#[path = "postgres/authz_sessions.rs"]
+mod authz_session_contracts;
+
+#[path = "postgres/exchange_failure.rs"]
+mod exchange_failure_contracts;
+
+#[path = "postgres/rate_limits.rs"]
+mod rate_limit_contracts;
+
+#[cfg(feature = "aws")]
+#[path = "postgres/aws.rs"]
+mod aws_contract_database;
+
+#[cfg(feature = "aws")]
+#[path = "postgres/foundation_aws.rs"]
+mod foundation_aws_contracts;
+
 async fn database() -> PostgresStore {
     let url = std::env::var("A_AUTH_TEST_DATABASE_URL")
         .expect("A_AUTH_TEST_DATABASE_URL must point to a dedicated test PostgreSQL database");

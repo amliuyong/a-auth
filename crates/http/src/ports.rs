@@ -1445,6 +1445,7 @@ pub trait PolicyArtifactStore: Send + Sync {
 /// **绝不解 pairwise `sub`**,HMAC 单向)。`family_id` 是 Grant 前身指针(解 M3 同-RS-多-Grant 消歧);
 /// family 创建失败的极少数 token 无 family_id(消歧退化到按目标 resource 唯一命中)。
 /// ⚠️ **按 tenant 分区**(评审:SaaS 跨租户主体泄露闸,对齐 C10.19);短命 TTL ≥ token TTL。
+#[cfg_attr(feature = "postgres", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JtiRecord {
     pub jti: String,
@@ -3283,6 +3284,7 @@ pub struct RateLimitDecision {
 
 /// 授权会话记录(spec 004)。**与 magic-link 登录 `SessionRecord` 是两个独立概念**:
 /// 本记录追踪一次 authorize 流从发起到 complete 的生命周期。存独立表/PK 前缀。
+#[cfg_attr(feature = "postgres", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuthzSessionRecord {
     /// 授权会话 id(查询用;高熵不透明串)。

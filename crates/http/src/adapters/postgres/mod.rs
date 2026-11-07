@@ -5,11 +5,18 @@ use crate::ports::{ParRecord, ParStore, StoreError};
 use sqlx::{postgres::PgPoolOptions, PgPool, Row};
 use std::time::Duration;
 
+mod authz_sessions;
 mod clients;
 mod codes;
+mod grants;
 mod initial_access_tokens;
+mod jti;
+mod policy;
+mod rate_limits;
 mod refresh;
 mod replay;
+
+pub use codes::ExchangeFailureRequest;
 
 static MIGRATIONS: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 

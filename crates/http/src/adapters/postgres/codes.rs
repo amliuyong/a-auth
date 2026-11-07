@@ -1,6 +1,101 @@
 use super::{db_error, PostgresStore};
-use crate::ports::{CodeRecord, CodeStore, LeaseAcquire, StoreError};
+use crate::ports::{AuthzSessionRecord, CodeRecord, CodeStore, LeaseAcquire, StoreError};
 use sqlx::{types::Json, Row};
+
+/// Identity and fencing snapshot for one failed authorization-code exchange.
+pub struct ExchangeFailureRequest<'a> {
+    pub tenant: &'a str,
+    pub code: &'a str,
+    pub client_id: &'a str,
+    pub expires_at: i64,
+    pub now: i64,
+    pub lease_owner: &'a str,
+    pub authz_session_id: Option<&'a str>,
+    pub last_error: String,
+}
+
+impl PostgresStore {
+    /// Consume the code and make its bound session terminal in one transaction.
+    /// No projection or network operation is included in the authority commit.
+    pub async fn finalize_exchange_failure(
+        &self,
+        request: ExchangeFailureRequest<'_>,
+    ) -> Result<Option<AuthzSessionRecord>, StoreError> {
+        let mut transaction = self.pool.begin().await.map_err(db_error)?;
+        let row = sqlx::query(
+            "SELECT record, consumed, lease_owner FROM a_auth.codes \
+             WHERE tenant = $1 AND code = $2 FOR UPDATE",
+        )
+        .bind(request.tenant)
+        .bind(request.code)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(db_error)?;
+        let Some(row) = row else {
+            return Err(StoreError::Transient(
+                "authorization code is unavailable".into(),
+            ));
+        };
+        let Json(code): Json<CodeRecord> = row.try_get("record").map_err(db_error)?;
+        if row.try_get::<bool, _>("consumed").map_err(db_error)?
+            || row
+                .try_get::<Option<String>, _>("lease_owner")
+                .map_err(db_error)?
+                .as_deref()
+                != Some(request.lease_owner)
+            || code.client_id != request.client_id
+            || code.expires_at != request.expires_at
+            || code.expires_at <= request.now
+            || code.authz_session_id.as_deref() != request.authz_session_id
+        {
+            return Err(StoreError::Transient(
+                "authorization code identity or lease ownership changed".into(),
+            ));
+        }
+        let current = if let Some(session_id) = request.authz_session_id {
+            let current = Self::lock_authz_session(&mut transaction, request.tenant, session_id)
+                .await?
+                .ok_or_else(|| {
+                    StoreError::Transient("authorization session is unavailable".into())
+                })?;
+            Some(current)
+        } else {
+            None
+        };
+        let commit_now = request.now.max(crate::current_unix_secs());
+        if code.expires_at <= commit_now
+            || current.as_ref().is_some_and(|session| {
+                session.expires_at <= commit_now || session.client_id != code.client_id
+            })
+        {
+            return Err(StoreError::Transient(
+                "authorization code or session expired or changed".into(),
+            ));
+        }
+        let next = current
+            .map(|current| {
+                crate::authz_session::prepare_exchange_failure_transition(
+                    current,
+                    request.last_error,
+                )
+            })
+            .transpose()?;
+        sqlx::query(
+            "UPDATE a_auth.codes SET consumed = TRUE, lease_owner = NULL, lease_until = NULL, \
+             issued_grant_id = NULL WHERE tenant = $1 AND code = $2",
+        )
+        .bind(request.tenant)
+        .bind(request.code)
+        .execute(&mut *transaction)
+        .await
+        .map_err(db_error)?;
+        if let Some(next) = &next {
+            Self::persist_authz_session(&mut transaction, request.tenant, next).await?;
+        }
+        transaction.commit().await.map_err(db_error)?;
+        Ok(next)
+    }
+}
 
 impl CodeStore for PostgresStore {
     async fn put(&self, tenant: &str, record: CodeRecord) -> Result<(), StoreError> {
