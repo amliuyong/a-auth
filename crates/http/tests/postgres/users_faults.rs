@@ -467,8 +467,8 @@ async fn postgres_empty_tenant_admission_waits_for_logical_suppression_fence() {
          (tenant, target_class, digest, epoch, record) VALUES ($1, 'user', $2, 1, $3)",
     )
     .bind(b"default".as_slice())
-    .bind(digest)
-    .bind(sqlx::types::Json(record))
+    .bind(digest.as_bytes())
+    .bind(serde_json::to_string(&record).unwrap())
     .execute(&mut *writer)
     .await
     .unwrap();
@@ -521,8 +521,8 @@ async fn postgres_scim_adoption_checks_the_selected_canonical_identity_suppressi
          (tenant, target_class, digest, epoch, record) VALUES ($1, 'user', $2, 1, $3)",
     )
     .bind(tenant.as_bytes())
-    .bind(digest)
-    .bind(sqlx::types::Json(record))
+    .bind(digest.as_bytes())
+    .bind(serde_json::to_string(&record).unwrap())
     .execute(&pool)
     .await
     .unwrap();

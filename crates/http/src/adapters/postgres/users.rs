@@ -889,7 +889,7 @@ impl PostgresUsersStore {
                  WHERE tenant = $1 AND target_class = 'user' AND digest = $2)",
             )
             .bind(tenant.as_bytes())
-            .bind(digest)
+            .bind(digest.as_bytes())
             .fetch_one(&mut **transaction)
             .await
             .map_err(db_error)?;

@@ -114,6 +114,12 @@ mod outbox_contracts;
 #[path = "postgres/outbox_faults.rs"]
 mod outbox_fault_contracts;
 
+#[path = "postgres/governance.rs"]
+mod governance_contracts;
+
+#[path = "postgres/governance_faults.rs"]
+mod governance_fault_contracts;
+
 #[cfg(feature = "aws")]
 #[path = "postgres/aws.rs"]
 mod aws_contract_database;

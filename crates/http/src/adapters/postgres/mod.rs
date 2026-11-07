@@ -14,6 +14,7 @@ mod device;
 mod domain_map;
 mod federation;
 mod federation_mappings;
+mod governance;
 mod grace;
 mod grants;
 mod initial_access_tokens;
@@ -36,6 +37,7 @@ mod users;
 mod workload_trust;
 
 pub use codes::ExchangeFailureRequest;
+pub use governance::PostgresGovernanceStore;
 pub use grace::PostgresGraceStore;
 pub use outbox::PostgresMessageOutbox;
 pub use refresh::RefreshRotationRequest;

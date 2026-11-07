@@ -92,16 +92,18 @@ The `postgres` feature currently provides `PostgresStore` implementations for
 configured user authority as `PostgresUsersStore`.
 `PostgresMessageOutbox` implements `MessageOutbox` with explicitly configured
 external encryption keys or a delete-only capability.
+`PostgresGovernanceStore` implements all thirty-one `GovernanceStore` methods
+using tenant-locked durable control snapshots and permanent suppression rows.
 `PostgresUsersStore` implements all twenty-five `UsersStore` methods with a
 required external HMAC authority key.
 `PostgresGraceStore` implements
 `GraceStore` with an explicit external encryption key ring or a delete-only
-capability. Thirty-three embedded forward
+capability. Thirty-four embedded forward
 migrations create their authority tables and credential-free client reclaim
 audit metadata.
 
-The current shared suite contains 139 cases: thirty-two contracts run through each of
-the memory, AWS, and PostgreSQL adapters, plus forty PostgreSQL-specific
+The current shared suite contains 148 cases: thirty-three contracts run through each of
+the memory, AWS, and PostgreSQL adapters, plus forty-six PostgreSQL-specific
 transaction/durability cases and three AWS recovery interleaving/compatibility
 cases. AWS adapters run against a loopback DynamoDB
 emulator; PostgreSQL adapters run against PostgreSQL 16. This does not establish
@@ -202,8 +204,9 @@ A reproduced race initially admitted an empty-tenant user before a suppression
 writer committed; the shared fence now prevents that admission.
 SCIM adoption checks the selected canonical identity as well as the proposed
 ID, so another candidate cannot bypass its suppression.
-The governance writer, destructive-job authorization and production dispatch
-remain pending. Raw user lifecycle and attribute methods do not complete the
+The governance writer now publishes suppression under that same fence.
+Destructive-job authorization and production dispatch remain pending.
+Raw user lifecycle and attribute methods do not complete the
 required credential/session and namespace-authorized transactions.
 SCIM groups retain retired canonical IDs while releasing their active external
 alias, members and role mapping together. Group mutations share the user
@@ -315,6 +318,31 @@ The explicit observation writer and test notification fixture do not establish
 SMTP delivery. Production SMTP, durable delivery state/leases, recovery
 notification handling, governance-authorized erasure and worker acceptance remain
 required.
+Governance transitions share the extracted domain rules with memory.
+PostgreSQL locks the same tenant directory as identity admission before reading
+or changing policy, job, lease, permit, continuation or external-action authority.
+Changed control snapshots commit with a bounded generation; read-only queries
+do not create authority. Job completion and its immutable evidence commit
+together. Permanent suppression records live separately from the mutable
+control snapshot and participate in the same admission fence.
+Sixteen contenders share one lease, policy revision or continuation-token effect;
+separate pools also coordinate without process-local authority.
+Private complete snapshots reject missing, duplicate, unknown or rebound fields,
+invalid evidence hashes and inconsistent permit aggregates without overwrite.
+The forward suppression migration preserves existing rows while admitting
+NUL-bearing keys and escaped records, full `u64` epochs and `i64` times.
+SQL fault injection rolls back completion, evidence and initial directory
+admission. Exhausted gate and snapshot generations retain the previous permit
+set and count, including expired-permit pruning.
+Shared tests reproduced memory retaining partial permit changes on errors and
+AWS allowing an observed expired export to reappear after clock rollback.
+Memory commits successful cloned transitions; AWS conditionally deletes expired
+export authority while preserving a concurrently recreated live export.
+All three stores reject an external action whose resource fingerprint does not
+match its reference, following a reproduced memory/AWS contract failure.
+The control snapshot rewrites tenant state on mutation; this does not establish
+performance acceptance. Governance-authorized data-plane transactions, production
+dispatch, durable queues and native worker acceptance remain required.
 Cross-table tests check that code/family creation updates the client authority
 revision atomically, that failed conditions roll back the new row, and that
 duplicate creation cannot resurrect consumed codes or revoked families.
@@ -353,7 +381,7 @@ hash/metadata while keeping the already-started user revocation fence.
 The grace contract also reproduced memory cleanup deleting another family
 whose name shared a prefix. Cleanup now compares the exact family identity.
 
-Current local validation passes 1,269 workspace library tests, including 685
+Current local validation passes 1,272 workspace library tests, including 688
 HTTP library tests with both `postgres` and `aws`.
 The recovery increment passes ten focused contract, rollback, codec and real
 loopback DynamoDB interleaving/compatibility cases and 118 account, credential,

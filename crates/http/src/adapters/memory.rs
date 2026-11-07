@@ -4,6 +4,8 @@
 //!   真机换 `adapters::aws::KmsSigner`(KMS Sign + der_to_jose)。
 //! - `MemoryCodeStore` / `MemoryClientStore`:`Mutex<HashMap>`,真机换 DynamoDB 适配器。
 
+pub(crate) use super::governance_state::MEMORY_GOVERNANCE_DESTRUCTIVE_FENCE_CONFLICT;
+use super::governance_state::{governance_destructive_fence_matches, GovernanceState};
 use std::collections::{hash_map::Entry, BTreeMap, BTreeSet, HashMap};
 use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -1167,7 +1169,7 @@ impl MemoryUsersStore {
         &self,
         tenant: &str,
         aliases: &[(crate::governance::GovernanceAliasKind, &str)],
-    ) -> Result<Option<tokio::sync::OwnedMutexGuard<MemoryGovernanceState>>, StoreError> {
+    ) -> Result<Option<tokio::sync::OwnedMutexGuard<GovernanceState>>, StoreError> {
         let (Some(governance), Some(hmac_key)) =
             (&self.governance_suppression, &self.governance_hmac_key)
         else {
@@ -7518,324 +7520,41 @@ fn inventory_count(
     Ok(())
 }
 
-#[derive(Default)]
-struct MemoryGovernanceState {
-    policies: BTreeMap<String, crate::governance::GovernancePolicyRecord>,
-    manifests: BTreeMap<(String, String), crate::governance::GovernanceExportManifest>,
-    jobs: BTreeMap<(String, String), crate::governance::GovernanceJobRecord>,
-    job_leases: BTreeMap<(String, String), crate::governance::GovernanceJobLeaseRecord>,
-    mutation_gates: BTreeMap<String, crate::governance::TenantMutationGateRecord>,
-    mutation_permits: BTreeMap<(String, String), crate::governance::TenantMutationPermit>,
-    continuations: BTreeMap<(String, String), crate::governance::GovernanceContinuationRecord>,
-    continuation_jtis: BTreeSet<(String, String, String)>,
-    evidence: BTreeMap<(String, String, u64), crate::governance::GovernanceEvidenceRecord>,
-    tenant_lifecycles: BTreeMap<String, crate::governance::TenantLifecycleRecord>,
-    external_actions:
-        BTreeMap<(String, String, String), crate::governance::GovernanceExternalActionRecord>,
-    suppressions: BTreeSet<(String, String, String, u64)>,
-    #[cfg(test)]
-    fail_next_job_update: bool,
-}
-
-pub(crate) const MEMORY_GOVERNANCE_DESTRUCTIVE_FENCE_CONFLICT: &str =
-    "governance destructive fence conflict";
-
-fn prune_expired_mutation_permits(
-    state: &mut MemoryGovernanceState,
-    tenant_id: &str,
-    now: i64,
-) -> Result<u64, StoreError> {
-    let before = state.mutation_permits.len();
-    state
-        .mutation_permits
-        .retain(|(tenant, _), permit| tenant != tenant_id || permit.deadline > now);
-    let removed = before.saturating_sub(state.mutation_permits.len());
-    let active = state
-        .mutation_permits
-        .keys()
-        .filter(|(tenant, _)| tenant == tenant_id)
-        .count();
-    let active = u64::try_from(active)
-        .map_err(|_| StoreError::Permanent("tenant mutation permit count exceeds u64".into()))?;
-    if let Some(gate) = state.mutation_gates.get_mut(tenant_id) {
-        if gate.active_permits != active {
-            gate.active_permits = active;
-            gate.revision = gate.revision.checked_add(1).ok_or_else(|| {
-                StoreError::Permanent("tenant mutation gate revision exhausted".into())
-            })?;
-            gate.updated_at = now;
-        } else if removed > 0 {
-            return Err(StoreError::Permanent(
-                "tenant mutation gate count did not include expired permits".into(),
-            ));
-        }
-    } else if active > 0 {
-        return Err(StoreError::Permanent(
-            "tenant mutation permits exist without their gate".into(),
-        ));
-    }
-    Ok(active)
-}
-
 /// Holds the in-memory governance authority lock across one destructive
 /// data-plane mutation. Its contents are intentionally not exposed.
 pub(crate) struct MemoryGovernanceDestructiveGuard {
-    _authority: tokio::sync::OwnedMutexGuard<MemoryGovernanceState>,
-}
-
-fn governance_destructive_fence_matches(
-    state: &MemoryGovernanceState,
-    tenant_id: &str,
-    fence: &crate::governance::GovernanceDestructiveFence,
-    now: i64,
-) -> bool {
-    use crate::governance::{GovernanceJobState, LegalHoldState, TenantLifecycleState};
-
-    let policy_matches = match state.policies.get(tenant_id) {
-        Some(policy) => {
-            fence.policy_revision != 0
-                && policy.tenant_id == tenant_id
-                && policy.revision == fence.policy_revision
-                && policy.legal_hold == LegalHoldState::Disabled
-        }
-        None => fence.policy_revision == 0,
-    };
-    let job_matches = state
-        .jobs
-        .get(&(tenant_id.to_string(), fence.job_id.clone()))
-        .is_some_and(|job| {
-            job.tenant_id == tenant_id
-                && job.job_id == fence.job_id
-                && job.revision == fence.job_revision
-                && job.policy_revision == fence.policy_revision
-                && job.tenant_revision == fence.tenant_revision
-                && matches!(
-                    job.state,
-                    GovernanceJobState::Queued
-                        | GovernanceJobState::Running
-                        | GovernanceJobState::Retryable
-                )
-                && fence
-                    .target_epoch
-                    .is_none_or(|target_epoch| target_epoch == job.target_epoch)
-        });
-    let lease_matches = state
-        .job_leases
-        .get(&(tenant_id.to_string(), fence.job_id.clone()))
-        .is_some_and(|lease| {
-            lease.tenant_id == tenant_id
-                && lease.job_id == fence.job_id
-                && lease.job_revision == fence.job_revision
-                && lease.policy_revision == fence.policy_revision
-                && lease.tenant_revision == fence.tenant_revision
-                && lease.token_digest == fence.lease_token_digest
-                && lease.deadline == fence.lease_deadline
-                && lease.deadline > now
-        });
-    let lifecycle_matches = match state.tenant_lifecycles.get(tenant_id) {
-        Some(lifecycle) if fence.tenant_revision == 0 => {
-            lifecycle.tenant_id == tenant_id && lifecycle.state == TenantLifecycleState::Active
-        }
-        None if fence.tenant_revision == 0 => true,
-        Some(lifecycle) => {
-            lifecycle.tenant_id == tenant_id
-                && lifecycle.state == TenantLifecycleState::Offboarding
-                && lifecycle.revision == fence.tenant_revision
-        }
-        None => false,
-    };
-
-    policy_matches && job_matches && lease_matches && lifecycle_matches
-}
-
-fn governance_external_fence_matches(
-    state: &MemoryGovernanceState,
-    tenant_id: &str,
-    fence: &crate::governance::GovernanceExternalActionFence,
-    now: i64,
-) -> bool {
-    let policy = state
-        .policies
-        .get(tenant_id)
-        .cloned()
-        .unwrap_or_else(|| crate::governance::GovernancePolicyRecord::default_for(tenant_id));
-    let job = state
-        .jobs
-        .get(&(tenant_id.to_string(), fence.job_id.clone()));
-    let lease = state
-        .job_leases
-        .get(&(tenant_id.to_string(), fence.job_id.clone()));
-    let lifecycle = state.tenant_lifecycles.get(tenant_id);
-    policy.revision == fence.policy_revision
-        && !policy.held()
-        && job.is_some_and(|job| {
-            job.revision == fence.job_revision
-                && job.policy_revision == fence.policy_revision
-                && job.tenant_revision == fence.tenant_revision
-                && job.kind == crate::governance::GovernanceJobKind::TenantOffboarding
-                && matches!(
-                    job.state,
-                    crate::governance::GovernanceJobState::Running
-                        | crate::governance::GovernanceJobState::Retryable
-                )
-        })
-        && lease.is_some_and(|lease| {
-            lease.job_revision == fence.job_revision
-                && lease.policy_revision == fence.policy_revision
-                && lease.tenant_revision == fence.tenant_revision
-                && lease.token_digest == fence.lease_token_digest
-                && lease.deadline == fence.lease_deadline
-                && lease.deadline > now
-        })
-        && lifecycle.is_some_and(|lifecycle| {
-            lifecycle.state == crate::governance::TenantLifecycleState::Offboarding
-                && lifecycle.revision == fence.tenant_revision
-        })
-}
-
-fn governance_job_authority_conflict(
-    state: &MemoryGovernanceState,
-    tenant_id: &str,
-    job_id: &str,
-    expected_job_revision: u64,
-) -> Option<crate::governance::GovernanceJobLeaseConflict> {
-    use crate::governance::{GovernanceJobLeaseConflict, GovernanceJobState};
-
-    let Some(job) = state.jobs.get(&(tenant_id.to_string(), job_id.to_string())) else {
-        return Some(GovernanceJobLeaseConflict::Job);
-    };
-    let policy = state
-        .policies
-        .get(tenant_id)
-        .cloned()
-        .unwrap_or_else(|| crate::governance::GovernancePolicyRecord::default_for(tenant_id));
-    if policy.revision != job.policy_revision || policy.held() {
-        return Some(GovernanceJobLeaseConflict::Policy);
-    }
-    if job.revision != expected_job_revision
-        || !matches!(
-            job.state,
-            GovernanceJobState::Queued
-                | GovernanceJobState::Running
-                | GovernanceJobState::Retryable
-        )
-    {
-        return Some(GovernanceJobLeaseConflict::Job);
-    }
-    let lifecycle_conflict = match state.tenant_lifecycles.get(tenant_id) {
-        Some(lifecycle) if job.tenant_revision == 0 => {
-            lifecycle.state != crate::governance::TenantLifecycleState::Active
-        }
-        None if job.tenant_revision == 0 => false,
-        Some(lifecycle) => {
-            lifecycle.state != crate::governance::TenantLifecycleState::Offboarding
-                || lifecycle.revision != job.tenant_revision
-        }
-        None => true,
-    };
-    if lifecycle_conflict {
-        return Some(GovernanceJobLeaseConflict::TenantLifecycle);
-    }
-    None
-}
-
-fn governance_external_reconcile_fence_matches(
-    state: &MemoryGovernanceState,
-    tenant_id: &str,
-    fence: &crate::governance::GovernanceExternalActionReconcileFence,
-) -> bool {
-    let job = state
-        .jobs
-        .get(&(tenant_id.to_string(), fence.job_id.clone()));
-    let lifecycle = state.tenant_lifecycles.get(tenant_id);
-    job.is_some_and(|job| {
-        job.tenant_revision == fence.tenant_revision
-            && job.kind == crate::governance::GovernanceJobKind::TenantOffboarding
-    }) && lifecycle.is_some_and(|lifecycle| {
-        lifecycle.state == crate::governance::TenantLifecycleState::Offboarding
-            && lifecycle.revision == fence.tenant_revision
-    })
-}
-
-fn same_external_action_identity(
-    left: &crate::governance::GovernanceExternalActionRecord,
-    right: &crate::governance::GovernanceExternalActionRecord,
-) -> bool {
-    left.action_id == right.action_id
-        && left.tenant_id == right.tenant_id
-        && left.job_id == right.job_id
-        && left.kind == right.kind
-        && left.resource_ref == right.resource_ref
-        && left.resource_fingerprint == right.resource_fingerprint
-        && left.ownership == right.ownership
-}
-
-fn valid_external_dispatch_transition(
-    current: &crate::governance::GovernanceExternalActionRecord,
-    next: &crate::governance::GovernanceExternalActionRecord,
-) -> bool {
-    use crate::governance::{GovernanceExternalActionState, GovernanceResourceOwnership};
-
-    let claimed = matches!(
-        (current.state, next.state),
-        (
-            GovernanceExternalActionState::Prepared
-                | GovernanceExternalActionState::ClaimTombstoned,
-            GovernanceExternalActionState::Claimed
-        )
-    ) && next.claim_token_digest.is_some()
-        && next.claim_deadline.is_some()
-        && next.committed_at.is_none()
-        && next.verified_at.is_none()
-        && (current.state != GovernanceExternalActionState::ClaimTombstoned
-            || current.claim_token_digest != next.claim_token_digest);
-    let external_verified = current.ownership == GovernanceResourceOwnership::External
-        && current.state == GovernanceExternalActionState::OperatorPending
-        && next.state == GovernanceExternalActionState::Verified
-        && current.claim_token_digest.is_none()
-        && next.claim_token_digest.is_none()
-        && next.claim_deadline.is_none()
-        && next.committed_at.is_none()
-        && next.verified_at.is_some()
-        && next.retention_until.is_none();
-    claimed || external_verified
-}
-
-fn valid_external_reconcile_transition(
-    current: &crate::governance::GovernanceExternalActionRecord,
-    next: &crate::governance::GovernanceExternalActionRecord,
-) -> bool {
-    use crate::governance::GovernanceExternalActionState;
-
-    matches!(
-        (current.state, next.state),
-        (
-            GovernanceExternalActionState::Claimed,
-            GovernanceExternalActionState::ClaimTombstoned
-                | GovernanceExternalActionState::ExternalPreparationDispatched
-                | GovernanceExternalActionState::ExternallyCommitted
-                | GovernanceExternalActionState::Verified
-        ) | (
-            GovernanceExternalActionState::ExternalPreparationDispatched,
-            GovernanceExternalActionState::ClaimTombstoned
-                | GovernanceExternalActionState::ExternallyCommitted
-                | GovernanceExternalActionState::Verified
-        ) | (
-            GovernanceExternalActionState::ExternallyCommitted,
-            GovernanceExternalActionState::Verified
-        )
-    ) && current.claim_token_digest.is_some()
-        && current.claim_token_digest == next.claim_token_digest
-        && current.claim_deadline == next.claim_deadline
+    _authority: tokio::sync::OwnedMutexGuard<GovernanceState>,
 }
 
 /// Deterministic local implementation of the durable governance authority.
 #[derive(Clone, Default)]
 pub struct MemoryGovernanceStore {
-    state: Arc<Mutex<MemoryGovernanceState>>,
+    state: Arc<Mutex<GovernanceState>>,
 }
 
 impl MemoryGovernanceStore {
+    async fn with_state<T>(
+        &self,
+        operation: impl FnOnce(&mut GovernanceState) -> Result<T, StoreError>,
+    ) -> Result<T, StoreError> {
+        let mut current = self.state.lock().await;
+        let mut next = current.clone();
+        match operation(&mut next) {
+            Ok(result) => {
+                *current = next;
+                Ok(result)
+            }
+            Err(error) => {
+                // Test fault consumption is independent of authority rollback.
+                #[cfg(test)]
+                {
+                    current.fail_next_job_update = next.fail_next_job_update;
+                }
+                Err(error)
+            }
+        }
+    }
+
     pub(crate) async fn acquire_destructive_guard(
         &self,
         tenant_id: &str,
@@ -7867,60 +7586,8 @@ impl GovernanceStore for MemoryGovernanceStore {
         permit: crate::governance::TenantMutationPermit,
         now: i64,
     ) -> Result<crate::governance::TenantMutationPermitAcquireOutcome, StoreError> {
-        use crate::governance::{
-            TenantLifecycleState, TenantMutationGateRecord, TenantMutationGateState,
-            TenantMutationPermitAcquireOutcome,
-        };
-
-        if permit.tenant_id.is_empty()
-            || permit.permit_id.is_empty()
-            || permit.permit_id.len() > 128
-            || permit.deadline <= now
-        {
-            return Err(StoreError::Permanent(
-                "invalid tenant mutation permit".into(),
-            ));
-        }
-        let mut state = self.state.lock().await;
-        prune_expired_mutation_permits(&mut state, &permit.tenant_id, now)?;
-        let lifecycle_revision = state
-            .tenant_lifecycles
-            .get(&permit.tenant_id)
-            .filter(|record| record.state == TenantLifecycleState::Offboarding)
-            .map(|record| record.revision);
-        if lifecycle_revision.is_some()
-            || state
-                .mutation_gates
-                .get(&permit.tenant_id)
-                .is_some_and(|gate| gate.state == TenantMutationGateState::Frozen)
-        {
-            return Ok(TenantMutationPermitAcquireOutcome::Frozen { lifecycle_revision });
-        }
-        let key = (permit.tenant_id.clone(), permit.permit_id.clone());
-        if state.mutation_permits.contains_key(&key) {
-            return Err(StoreError::Transient(
-                "tenant mutation permit identifier collided; retry".into(),
-            ));
-        }
-        state.mutation_permits.insert(key, permit.clone());
-        let gate = state
-            .mutation_gates
-            .entry(permit.tenant_id.clone())
-            .or_insert(TenantMutationGateRecord {
-                tenant_id: permit.tenant_id.clone(),
-                state: TenantMutationGateState::Active,
-                active_permits: 0,
-                revision: 0,
-                updated_at: now,
-            });
-        gate.active_permits = gate.active_permits.checked_add(1).ok_or_else(|| {
-            StoreError::Permanent("tenant mutation permit count exhausted".into())
-        })?;
-        gate.revision = gate.revision.checked_add(1).ok_or_else(|| {
-            StoreError::Permanent("tenant mutation gate revision exhausted".into())
-        })?;
-        gate.updated_at = now;
-        Ok(TenantMutationPermitAcquireOutcome::Acquired(permit))
+        self.with_state(move |state| state.acquire_tenant_mutation_permit(permit, now))
+            .await
     }
 
     async fn renew_tenant_mutation_permit(
@@ -7929,23 +7596,8 @@ impl GovernanceStore for MemoryGovernanceStore {
         now: i64,
         deadline: i64,
     ) -> Result<bool, StoreError> {
-        if deadline <= now || deadline <= permit.deadline {
-            return Err(StoreError::Permanent(
-                "invalid tenant mutation permit renewal".into(),
-            ));
-        }
-        let mut state = self.state.lock().await;
-        let Some(current) = state
-            .mutation_permits
-            .get_mut(&(permit.tenant_id.clone(), permit.permit_id.clone()))
-        else {
-            return Ok(false);
-        };
-        if current.deadline != permit.deadline || current.deadline <= now {
-            return Ok(false);
-        }
-        current.deadline = deadline;
-        Ok(true)
+        self.with_state(move |state| state.renew_tenant_mutation_permit(permit, now, deadline))
+            .await
     }
 
     async fn release_tenant_mutation_permit(
@@ -7953,84 +7605,33 @@ impl GovernanceStore for MemoryGovernanceStore {
         permit: crate::governance::TenantMutationPermit,
         now: i64,
     ) -> Result<bool, StoreError> {
-        let mut state = self.state.lock().await;
-        let key = (permit.tenant_id.clone(), permit.permit_id.clone());
-        if state
-            .mutation_permits
-            .get(&key)
-            .is_none_or(|current| current.deadline != permit.deadline)
-        {
-            return Ok(false);
-        }
-        let gate = state
-            .mutation_gates
-            .get_mut(&permit.tenant_id)
-            .ok_or_else(|| {
-                StoreError::Permanent("tenant mutation permit has no aggregate gate".into())
-            })?;
-        if gate.state != crate::governance::TenantMutationGateState::Active
-            || gate.active_permits == 0
-        {
-            return Err(StoreError::Permanent(
-                "tenant mutation gate count is inconsistent".into(),
-            ));
-        }
-        gate.active_permits -= 1;
-        gate.revision = gate.revision.checked_add(1).ok_or_else(|| {
-            StoreError::Permanent("tenant mutation gate revision exhausted".into())
-        })?;
-        gate.updated_at = now;
-        state.mutation_permits.remove(&key);
-        Ok(true)
+        self.with_state(move |state| state.release_tenant_mutation_permit(permit, now))
+            .await
     }
 
     async fn get_policy(
         &self,
         tenant_id: &str,
     ) -> Result<Option<crate::governance::GovernancePolicyRecord>, StoreError> {
-        Ok(self.state.lock().await.policies.get(tenant_id).cloned())
+        self.with_state(move |state| state.get_policy(tenant_id))
+            .await
     }
 
     async fn put_policy(
         &self,
-        mut record: crate::governance::GovernancePolicyRecord,
+        record: crate::governance::GovernancePolicyRecord,
         expected_revision: u64,
     ) -> Result<crate::governance::GovernancePolicyPutOutcome, StoreError> {
-        let mut state = self.state.lock().await;
-        let current = state
-            .policies
-            .get(&record.tenant_id)
-            .cloned()
-            .unwrap_or_else(|| {
-                crate::governance::GovernancePolicyRecord::default_for(&record.tenant_id)
-            });
-        if current.revision != expected_revision {
-            return Ok(crate::governance::GovernancePolicyPutOutcome::Conflict(
-                current,
-            ));
-        }
-        record.revision = expected_revision
-            .checked_add(1)
-            .ok_or_else(|| StoreError::Permanent("governance policy revision exhausted".into()))?;
-        state
-            .policies
-            .insert(record.tenant_id.clone(), record.clone());
-        Ok(crate::governance::GovernancePolicyPutOutcome::Stored(
-            record,
-        ))
+        self.with_state(move |state| state.put_policy(record, expected_revision))
+            .await
     }
 
     async fn put_export_manifest(
         &self,
         manifest: crate::governance::GovernanceExportManifest,
     ) -> Result<bool, StoreError> {
-        let key = (manifest.tenant_id.clone(), manifest.export_id.clone());
-        let mut state = self.state.lock().await;
-        if state.manifests.contains_key(&key) {
-            return Ok(false);
-        }
-        state.manifests.insert(key, manifest);
-        Ok(true)
+        self.with_state(move |state| state.put_export_manifest(manifest))
+            .await
     }
 
     async fn get_export_manifest(
@@ -8039,252 +7640,20 @@ impl GovernanceStore for MemoryGovernanceStore {
         export_id: &str,
         now: i64,
     ) -> Result<Option<crate::governance::GovernanceExportManifest>, StoreError> {
-        let key = (tenant_id.to_string(), export_id.to_string());
-        let mut state = self.state.lock().await;
-        let manifest = state.manifests.get(&key).cloned();
-        if manifest
-            .as_ref()
-            .is_some_and(|manifest| manifest.expires_at <= now)
-        {
-            state.manifests.remove(&key);
-            return Ok(None);
-        }
-        Ok(manifest)
+        self.with_state(move |state| state.get_export_manifest(tenant_id, export_id, now))
+            .await
     }
 
     async fn start_or_resume_job(
         &self,
-        mut job: crate::governance::GovernanceJobRecord,
+        job: crate::governance::GovernanceJobRecord,
         expected_policy_revision: u64,
         freeze_tenant: bool,
     ) -> Result<crate::governance::GovernanceJobStartOutcome, StoreError> {
-        let mut state = self.state.lock().await;
-        let policy = state
-            .policies
-            .get(&job.tenant_id)
-            .cloned()
-            .unwrap_or_else(|| {
-                crate::governance::GovernancePolicyRecord::default_for(&job.tenant_id)
-            });
-        if policy.revision != expected_policy_revision {
-            return Ok(crate::governance::GovernanceJobStartOutcome::PolicyConflict(policy));
-        }
-        let key = (job.tenant_id.clone(), job.job_id.clone());
-        if let Some(mut existing) = state.jobs.get(&key).cloned() {
-            let lifecycle = state.tenant_lifecycles.get(&job.tenant_id).cloned();
-            if job.tenant_revision == 0 {
-                if let Some(lifecycle) = lifecycle.filter(|lifecycle| {
-                    lifecycle.state == crate::governance::TenantLifecycleState::Offboarding
-                }) {
-                    return Ok(crate::governance::GovernanceJobStartOutcome::TenantFrozen {
-                        lifecycle_revision: lifecycle.revision,
-                    });
-                }
-            } else {
-                if lifecycle.as_ref().is_none_or(|lifecycle| {
-                    lifecycle.state != crate::governance::TenantLifecycleState::Offboarding
-                        || lifecycle.revision != job.tenant_revision
-                }) {
-                    return Err(StoreError::Permanent(
-                        "offboarding child job has no matching tenant lifecycle".into(),
-                    ));
-                }
-                if existing.tenant_revision == 0
-                    && !matches!(
-                        existing.state,
-                        crate::governance::GovernanceJobState::RetentionPending
-                            | crate::governance::GovernanceJobState::Completed
-                    )
-                {
-                    if existing.kind != job.kind
-                        || existing.target_id != job.target_id
-                        || existing.target_epoch != job.target_epoch
-                    {
-                        return Err(StoreError::Permanent(
-                            "offboarding child job identity mismatch".into(),
-                        ));
-                    }
-                    existing.tenant_revision = job.tenant_revision;
-                    existing.policy_revision = policy.revision;
-                    if existing.state == crate::governance::GovernanceJobState::BlockedLegalHold {
-                        existing.state = crate::governance::GovernanceJobState::Queued;
-                    }
-                    existing.revision = existing.revision.checked_add(1).ok_or_else(|| {
-                        StoreError::Permanent("governance job revision exhausted".into())
-                    })?;
-                    existing.updated_at = job.updated_at;
-                    state.jobs.insert(key, existing.clone());
-                    return Ok(crate::governance::GovernanceJobStartOutcome::Existing(
-                        existing,
-                    ));
-                }
-                if existing.tenant_revision != 0 && existing.tenant_revision != job.tenant_revision
-                {
-                    return Err(StoreError::Permanent(
-                        "offboarding child job tenant lifecycle mismatch".into(),
-                    ));
-                }
-            }
-            if existing.state != crate::governance::GovernanceJobState::BlockedLegalHold
-                || policy.held()
-            {
-                return Ok(crate::governance::GovernanceJobStartOutcome::Existing(
-                    existing,
-                ));
-            }
-            existing.state = crate::governance::GovernanceJobState::Queued;
-            existing.policy_revision = policy.revision;
-            existing.revision = existing
-                .revision
-                .checked_add(1)
-                .ok_or_else(|| StoreError::Permanent("governance job revision exhausted".into()))?;
-            existing.updated_at = job.updated_at;
-            if freeze_tenant {
-                let active =
-                    prune_expired_mutation_permits(&mut state, &job.tenant_id, job.updated_at)?;
-                if active > 0 {
-                    return Ok(
-                        crate::governance::GovernanceJobStartOutcome::MutationConflict {
-                            active_permits: active,
-                        },
-                    );
-                }
-                let revision = match state.tenant_lifecycles.get(&job.tenant_id) {
-                    Some(record)
-                        if record.state == crate::governance::TenantLifecycleState::Offboarding =>
-                    {
-                        record.revision
-                    }
-                    Some(record) => record.revision.checked_add(1).ok_or_else(|| {
-                        StoreError::Permanent("tenant lifecycle revision exhausted".into())
-                    })?,
-                    None => 1,
-                };
-                state.tenant_lifecycles.insert(
-                    job.tenant_id.clone(),
-                    crate::governance::TenantLifecycleRecord {
-                        tenant_id: job.tenant_id.clone(),
-                        state: crate::governance::TenantLifecycleState::Offboarding,
-                        revision,
-                        updated_at: job.updated_at,
-                    },
-                );
-                existing.tenant_revision = revision;
-                let continuation =
-                    crate::governance::GovernanceContinuationRecord::for_offboarding_job(&existing)
-                        .map_err(StoreError::Permanent)?;
-                if state.continuations.get(&key).is_some_and(|current| {
-                    current.tenant_id != continuation.tenant_id
-                        || current.job_id != continuation.job_id
-                        || current.tenant_revision != continuation.tenant_revision
-                }) {
-                    return Err(StoreError::Permanent(
-                        "offboarding continuation identity mismatch".into(),
-                    ));
-                }
-                state
-                    .continuations
-                    .entry(key.clone())
-                    .or_insert(continuation);
-                let gate = state.mutation_gates.entry(job.tenant_id.clone()).or_insert(
-                    crate::governance::TenantMutationGateRecord {
-                        tenant_id: job.tenant_id.clone(),
-                        state: crate::governance::TenantMutationGateState::Active,
-                        active_permits: 0,
-                        revision: 0,
-                        updated_at: job.updated_at,
-                    },
-                );
-                gate.state = crate::governance::TenantMutationGateState::Frozen;
-                gate.revision = gate.revision.checked_add(1).ok_or_else(|| {
-                    StoreError::Permanent("tenant mutation gate revision exhausted".into())
-                })?;
-                gate.updated_at = job.updated_at;
-            }
-            state.jobs.insert(key, existing.clone());
-            return Ok(crate::governance::GovernanceJobStartOutcome::Existing(
-                existing,
-            ));
-        }
-
-        if !freeze_tenant {
-            if job.tenant_revision == 0 {
-                if let Some(lifecycle) =
-                    state
-                        .tenant_lifecycles
-                        .get(&job.tenant_id)
-                        .filter(|lifecycle| {
-                            lifecycle.state == crate::governance::TenantLifecycleState::Offboarding
-                        })
-                {
-                    return Ok(crate::governance::GovernanceJobStartOutcome::TenantFrozen {
-                        lifecycle_revision: lifecycle.revision,
-                    });
-                }
-            } else if state
-                .tenant_lifecycles
-                .get(&job.tenant_id)
-                .is_none_or(|lifecycle| {
-                    lifecycle.state != crate::governance::TenantLifecycleState::Offboarding
-                        || lifecycle.revision != job.tenant_revision
-                })
-            {
-                return Err(StoreError::Permanent(
-                    "offboarding child job has no matching tenant lifecycle".into(),
-                ));
-            }
-        }
-        if policy.held() {
-            job.state = crate::governance::GovernanceJobState::BlockedLegalHold;
-        } else if freeze_tenant {
-            let active =
-                prune_expired_mutation_permits(&mut state, &job.tenant_id, job.updated_at)?;
-            if active > 0 {
-                return Ok(
-                    crate::governance::GovernanceJobStartOutcome::MutationConflict {
-                        active_permits: active,
-                    },
-                );
-            }
-            let current_revision = state
-                .tenant_lifecycles
-                .get(&job.tenant_id)
-                .map_or(0, |record| record.revision);
-            let revision = current_revision.checked_add(1).ok_or_else(|| {
-                StoreError::Permanent("tenant lifecycle revision exhausted".into())
-            })?;
-            state.tenant_lifecycles.insert(
-                job.tenant_id.clone(),
-                crate::governance::TenantLifecycleRecord {
-                    tenant_id: job.tenant_id.clone(),
-                    state: crate::governance::TenantLifecycleState::Offboarding,
-                    revision,
-                    updated_at: job.updated_at,
-                },
-            );
-            job.tenant_revision = revision;
-            let continuation =
-                crate::governance::GovernanceContinuationRecord::for_offboarding_job(&job)
-                    .map_err(StoreError::Permanent)?;
-            state.continuations.insert(key.clone(), continuation);
-            let gate = state.mutation_gates.entry(job.tenant_id.clone()).or_insert(
-                crate::governance::TenantMutationGateRecord {
-                    tenant_id: job.tenant_id.clone(),
-                    state: crate::governance::TenantMutationGateState::Active,
-                    active_permits: 0,
-                    revision: 0,
-                    updated_at: job.updated_at,
-                },
-            );
-            gate.state = crate::governance::TenantMutationGateState::Frozen;
-            gate.revision = gate.revision.checked_add(1).ok_or_else(|| {
-                StoreError::Permanent("tenant mutation gate revision exhausted".into())
-            })?;
-            gate.updated_at = job.updated_at;
-        }
-        job.policy_revision = policy.revision;
-        state.jobs.insert(key, job.clone());
-        Ok(crate::governance::GovernanceJobStartOutcome::Stored(job))
+        self.with_state(move |state| {
+            state.start_or_resume_job(job, expected_policy_revision, freeze_tenant)
+        })
+        .await
     }
 
     async fn get_job(
@@ -8292,27 +7661,16 @@ impl GovernanceStore for MemoryGovernanceStore {
         tenant_id: &str,
         job_id: &str,
     ) -> Result<Option<crate::governance::GovernanceJobRecord>, StoreError> {
-        Ok(self
-            .state
-            .lock()
+        self.with_state(move |state| state.get_job(tenant_id, job_id))
             .await
-            .jobs
-            .get(&(tenant_id.to_string(), job_id.to_string()))
-            .cloned())
     }
 
     async fn list_jobs(
         &self,
         tenant_id: &str,
     ) -> Result<Vec<crate::governance::GovernanceJobRecord>, StoreError> {
-        Ok(self
-            .state
-            .lock()
+        self.with_state(move |state| state.list_jobs(tenant_id))
             .await
-            .jobs
-            .iter()
-            .filter_map(|((tenant, _), record)| (tenant == tenant_id).then_some(record.clone()))
-            .collect())
     }
 
     async fn get_continuation(
@@ -8320,46 +7678,17 @@ impl GovernanceStore for MemoryGovernanceStore {
         tenant_id: &str,
         job_id: &str,
     ) -> Result<Option<crate::governance::GovernanceContinuationRecord>, StoreError> {
-        Ok(self
-            .state
-            .lock()
+        self.with_state(move |state| state.get_continuation(tenant_id, job_id))
             .await
-            .continuations
-            .get(&(tenant_id.to_string(), job_id.to_string()))
-            .cloned())
     }
 
     async fn update_continuation(
         &self,
-        mut record: crate::governance::GovernanceContinuationRecord,
+        record: crate::governance::GovernanceContinuationRecord,
         expected_revision: u64,
     ) -> Result<crate::governance::GovernanceContinuationUpdateOutcome, StoreError> {
-        use crate::governance::GovernanceContinuationUpdateOutcome;
-
-        let key = (record.tenant_id.clone(), record.job_id.clone());
-        let mut state = self.state.lock().await;
-        let current =
-            state.continuations.get(&key).cloned().ok_or_else(|| {
-                StoreError::Permanent("governance continuation disappeared".into())
-            })?;
-        if current.revision != expected_revision {
-            return Ok(GovernanceContinuationUpdateOutcome::Conflict(current));
-        }
-        if current.tenant_id != record.tenant_id
-            || current.job_id != record.job_id
-            || current.tenant_revision != record.tenant_revision
-            || record.resume_revision < current.resume_revision
-            || record.read_revision < current.read_revision
-        {
-            return Err(StoreError::Permanent(
-                "governance continuation identity or revision regressed".into(),
-            ));
-        }
-        record.revision = expected_revision.checked_add(1).ok_or_else(|| {
-            StoreError::Permanent("governance continuation revision exhausted".into())
-        })?;
-        state.continuations.insert(key, record.clone());
-        Ok(GovernanceContinuationUpdateOutcome::Stored(record))
+        self.with_state(move |state| state.update_continuation(record, expected_revision))
+            .await
     }
 
     async fn consume_continuation_resume(
@@ -8370,127 +7699,46 @@ impl GovernanceStore for MemoryGovernanceStore {
         expected_resume_revision: u64,
         _expires_at: i64,
     ) -> Result<bool, StoreError> {
-        if jti_digest.is_empty() {
-            return Err(StoreError::Permanent(
-                "governance continuation JTI digest is empty".into(),
-            ));
-        }
-        let mut state = self.state.lock().await;
-        let continuation = state
-            .continuations
-            .get(&(tenant_id.to_string(), job_id.to_string()))
-            .ok_or_else(|| StoreError::Permanent("governance continuation disappeared".into()))?;
-        if !continuation.resume_enabled || continuation.resume_revision != expected_resume_revision
-        {
-            return Ok(false);
-        }
-        Ok(state.continuation_jtis.insert((
-            tenant_id.to_string(),
-            job_id.to_string(),
-            jti_digest.to_string(),
-        )))
+        self.with_state(move |state| {
+            state.consume_continuation_resume(
+                tenant_id,
+                job_id,
+                jti_digest,
+                expected_resume_revision,
+                _expires_at,
+            )
+        })
+        .await
     }
 
     async fn update_job(
         &self,
-        mut job: crate::governance::GovernanceJobRecord,
+        job: crate::governance::GovernanceJobRecord,
         expected_revision: u64,
         expected_policy_revision: u64,
     ) -> Result<crate::governance::GovernanceJobUpdateOutcome, StoreError> {
-        use crate::governance::GovernanceJobUpdateOutcome;
-
-        let mut state = self.state.lock().await;
-        #[cfg(test)]
-        if std::mem::take(&mut state.fail_next_job_update) {
-            return Err(StoreError::Transient(
-                "injected governance job checkpoint failure".into(),
-            ));
-        }
-        let policy = state
-            .policies
-            .get(&job.tenant_id)
-            .cloned()
-            .unwrap_or_else(|| {
-                crate::governance::GovernancePolicyRecord::default_for(&job.tenant_id)
-            });
-        if policy.revision != expected_policy_revision {
-            return Ok(GovernanceJobUpdateOutcome::PolicyConflict(policy));
-        }
-        let key = (job.tenant_id.clone(), job.job_id.clone());
-        let current = state.jobs.get(&key).cloned().ok_or_else(|| {
-            StoreError::Permanent("governance job disappeared during update".into())
-        })?;
-        if current.revision != expected_revision {
-            return Ok(GovernanceJobUpdateOutcome::Conflict(current));
-        }
-        job.revision = expected_revision
-            .checked_add(1)
-            .ok_or_else(|| StoreError::Permanent("governance job revision exhausted".into()))?;
-        job.policy_revision = policy.revision;
-        state.jobs.insert(key, job.clone());
-        Ok(GovernanceJobUpdateOutcome::Stored(job))
+        self.with_state(move |state| {
+            state.update_job(job, expected_revision, expected_policy_revision)
+        })
+        .await
     }
 
     async fn complete_job_with_evidence(
         &self,
-        mut job: crate::governance::GovernanceJobRecord,
+        job: crate::governance::GovernanceJobRecord,
         evidence: crate::governance::GovernanceEvidenceRecord,
         expected_revision: u64,
         expected_policy_revision: u64,
     ) -> Result<crate::governance::GovernanceJobUpdateOutcome, StoreError> {
-        use crate::governance::GovernanceJobUpdateOutcome;
-
-        if !evidence.verifies_completion_of(&job) || job.revision != expected_revision {
-            return Err(StoreError::Permanent(
-                "invalid governance job completion evidence".into(),
-            ));
-        }
-        let mut state = self.state.lock().await;
-        #[cfg(test)]
-        if std::mem::take(&mut state.fail_next_job_update) {
-            return Err(StoreError::Transient(
-                "injected governance job checkpoint failure".into(),
-            ));
-        }
-        let policy = state
-            .policies
-            .get(&job.tenant_id)
-            .cloned()
-            .unwrap_or_else(|| {
-                crate::governance::GovernancePolicyRecord::default_for(&job.tenant_id)
-            });
-        if policy.revision != expected_policy_revision {
-            return Ok(GovernanceJobUpdateOutcome::PolicyConflict(policy));
-        }
-        if evidence.payload.legal_hold != policy.legal_hold {
-            return Err(StoreError::Permanent(
-                "governance completion evidence policy mismatch".into(),
-            ));
-        }
-        let job_key = (job.tenant_id.clone(), job.job_id.clone());
-        let current = state.jobs.get(&job_key).cloned().ok_or_else(|| {
-            StoreError::Permanent("governance job disappeared during completion".into())
-        })?;
-        if current.revision != expected_revision {
-            return Ok(GovernanceJobUpdateOutcome::Conflict(current));
-        }
-        let evidence_key = (
-            evidence.payload.tenant_id.clone(),
-            evidence.payload.job_id.clone(),
-            evidence.payload.evidence_revision,
-        );
-        if state.evidence.contains_key(&evidence_key) {
-            return Err(StoreError::Permanent(
-                "governance completion evidence revision already exists".into(),
-            ));
-        }
-        job.revision = expected_revision
-            .checked_add(1)
-            .ok_or_else(|| StoreError::Permanent("governance job revision exhausted".into()))?;
-        job.policy_revision = policy.revision;
-        state.jobs.insert(job_key, job.clone());
-        state.evidence.insert(evidence_key, evidence);
-        Ok(GovernanceJobUpdateOutcome::Stored(job))
+        self.with_state(move |state| {
+            state.complete_job_with_evidence(
+                job,
+                evidence,
+                expected_revision,
+                expected_policy_revision,
+            )
+        })
+        .await
     }
 
     async fn claim_job_lease(
@@ -8502,45 +7750,17 @@ impl GovernanceStore for MemoryGovernanceStore {
         now: i64,
         deadline: i64,
     ) -> Result<crate::governance::GovernanceJobLeaseOutcome, StoreError> {
-        use crate::governance::{GovernanceJobLeaseConflict, GovernanceJobLeaseOutcome};
-
-        if token_digest.is_empty() || token_digest.len() > 128 || deadline <= now {
-            return Err(StoreError::Permanent(
-                "invalid governance job lease claim".into(),
-            ));
-        }
-        let mut state = self.state.lock().await;
-        if let Some(conflict) =
-            governance_job_authority_conflict(&state, tenant_id, job_id, expected_job_revision)
-        {
-            return Ok(GovernanceJobLeaseOutcome::Conflict(conflict));
-        }
-        let key = (tenant_id.to_string(), job_id.to_string());
-        if state
-            .job_leases
-            .get(&key)
-            .is_some_and(|lease| lease.deadline > now)
-        {
-            return Ok(GovernanceJobLeaseOutcome::Conflict(
-                GovernanceJobLeaseConflict::Lease,
-            ));
-        }
-        let job = state
-            .jobs
-            .get(&key)
-            .expect("authority check proved the governance job exists");
-        let lease = crate::governance::GovernanceJobLeaseRecord {
-            tenant_id: tenant_id.to_string(),
-            job_id: job_id.to_string(),
-            job_revision: expected_job_revision,
-            policy_revision: job.policy_revision,
-            tenant_revision: job.tenant_revision,
-            token_digest: token_digest.to_string(),
-            acquired_at: now,
-            deadline,
-        };
-        state.job_leases.insert(key, lease.clone());
-        Ok(GovernanceJobLeaseOutcome::Acquired(lease))
+        self.with_state(move |state| {
+            state.claim_job_lease(
+                tenant_id,
+                job_id,
+                expected_job_revision,
+                token_digest,
+                now,
+                deadline,
+            )
+        })
+        .await
     }
 
     async fn renew_job_lease(
@@ -8550,39 +7770,8 @@ impl GovernanceStore for MemoryGovernanceStore {
         now: i64,
         deadline: i64,
     ) -> Result<crate::governance::GovernanceJobLeaseOutcome, StoreError> {
-        use crate::governance::{GovernanceJobLeaseConflict, GovernanceJobLeaseOutcome};
-
-        if deadline <= now || deadline <= fence.lease_deadline {
-            return Err(StoreError::Permanent(
-                "invalid governance job lease renewal".into(),
-            ));
-        }
-        let mut state = self.state.lock().await;
-        if let Some(conflict) =
-            governance_job_authority_conflict(&state, tenant_id, &fence.job_id, fence.job_revision)
-        {
-            return Ok(GovernanceJobLeaseOutcome::Conflict(conflict));
-        }
-        let key = (tenant_id.to_string(), fence.job_id.clone());
-        let Some(current) = state.job_leases.get(&key) else {
-            return Ok(GovernanceJobLeaseOutcome::Conflict(
-                GovernanceJobLeaseConflict::Lease,
-            ));
-        };
-        if current.token_digest != fence.lease_token_digest
-            || current.deadline != fence.lease_deadline
-            || current.deadline <= now
-            || current.policy_revision != fence.policy_revision
-            || current.tenant_revision != fence.tenant_revision
-        {
-            return Ok(GovernanceJobLeaseOutcome::Conflict(
-                GovernanceJobLeaseConflict::Lease,
-            ));
-        }
-        let mut renewed = current.clone();
-        renewed.deadline = deadline;
-        state.job_leases.insert(key, renewed.clone());
-        Ok(GovernanceJobLeaseOutcome::Renewed(renewed))
+        self.with_state(move |state| state.renew_job_lease(tenant_id, fence, now, deadline))
+            .await
     }
 
     async fn release_job_lease(
@@ -8590,27 +7779,8 @@ impl GovernanceStore for MemoryGovernanceStore {
         tenant_id: &str,
         fence: crate::governance::GovernanceDestructiveFence,
     ) -> Result<crate::governance::GovernanceJobLeaseOutcome, StoreError> {
-        use crate::governance::{GovernanceJobLeaseConflict, GovernanceJobLeaseOutcome};
-
-        let mut state = self.state.lock().await;
-        let key = (tenant_id.to_string(), fence.job_id);
-        let Some(current) = state.job_leases.get(&key) else {
-            return Ok(GovernanceJobLeaseOutcome::Conflict(
-                GovernanceJobLeaseConflict::Lease,
-            ));
-        };
-        if current.job_revision != fence.job_revision
-            || current.policy_revision != fence.policy_revision
-            || current.tenant_revision != fence.tenant_revision
-            || current.token_digest != fence.lease_token_digest
-            || current.deadline != fence.lease_deadline
-        {
-            return Ok(GovernanceJobLeaseOutcome::Conflict(
-                GovernanceJobLeaseConflict::Lease,
-            ));
-        }
-        state.job_leases.remove(&key);
-        Ok(GovernanceJobLeaseOutcome::Released)
+        self.with_state(move |state| state.release_job_lease(tenant_id, fence))
+            .await
     }
 
     async fn tenant_has_active_job_leases(
@@ -8618,23 +7788,16 @@ impl GovernanceStore for MemoryGovernanceStore {
         tenant_id: &str,
         now: i64,
     ) -> Result<bool, StoreError> {
-        let state = self.state.lock().await;
-        Ok(state.job_leases.iter().any(|((tenant, _), lease)| {
-            tenant == tenant_id && lease.tenant_id == tenant_id && lease.deadline > now
-        }))
+        self.with_state(move |state| state.tenant_has_active_job_leases(tenant_id, now))
+            .await
     }
 
     async fn get_tenant_lifecycle(
         &self,
         tenant_id: &str,
     ) -> Result<Option<crate::governance::TenantLifecycleRecord>, StoreError> {
-        Ok(self
-            .state
-            .lock()
+        self.with_state(move |state| state.get_tenant_lifecycle(tenant_id))
             .await
-            .tenant_lifecycles
-            .get(tenant_id)
-            .cloned())
     }
 
     async fn prepare_external_action(
@@ -8642,41 +7805,8 @@ impl GovernanceStore for MemoryGovernanceStore {
         record: crate::governance::GovernanceExternalActionRecord,
         fence: crate::governance::GovernanceExternalActionFence,
     ) -> Result<crate::governance::GovernanceExternalActionPutOutcome, StoreError> {
-        use crate::governance::GovernanceExternalActionPutOutcome;
-
-        if record.tenant_id.is_empty()
-            || record.job_id != fence.job_id
-            || record.action_id.is_empty()
-            || record.resource_ref.is_empty()
-            || record.resource_fingerprint.is_empty()
-            || record.revision != 1
-        {
-            return Err(StoreError::Permanent(
-                "invalid governance external action".into(),
-            ));
-        }
-        let mut state = self.state.lock().await;
-        if !governance_external_fence_matches(&state, &record.tenant_id, &fence, record.updated_at)
-        {
-            return Ok(GovernanceExternalActionPutOutcome::FenceConflict);
-        }
-        let key = (
-            record.tenant_id.clone(),
-            record.job_id.clone(),
-            record.action_id.clone(),
-        );
-        if let Some(existing) = state.external_actions.get(&key) {
-            if !same_external_action_identity(existing, &record) {
-                return Err(StoreError::Permanent(
-                    "governance external action identity changed".into(),
-                ));
-            }
-            return Ok(GovernanceExternalActionPutOutcome::Existing(
-                existing.clone(),
-            ));
-        }
-        state.external_actions.insert(key, record.clone());
-        Ok(GovernanceExternalActionPutOutcome::Stored(record))
+        self.with_state(move |state| state.prepare_external_action(record, fence))
+            .await
     }
 
     async fn get_external_action(
@@ -8685,17 +7815,8 @@ impl GovernanceStore for MemoryGovernanceStore {
         job_id: &str,
         action_id: &str,
     ) -> Result<Option<crate::governance::GovernanceExternalActionRecord>, StoreError> {
-        Ok(self
-            .state
-            .lock()
+        self.with_state(move |state| state.get_external_action(tenant_id, job_id, action_id))
             .await
-            .external_actions
-            .get(&(
-                tenant_id.to_string(),
-                job_id.to_string(),
-                action_id.to_string(),
-            ))
-            .cloned())
     }
 
     async fn list_external_actions(
@@ -8703,149 +7824,46 @@ impl GovernanceStore for MemoryGovernanceStore {
         tenant_id: &str,
         job_id: &str,
     ) -> Result<Vec<crate::governance::GovernanceExternalActionRecord>, StoreError> {
-        Ok(self
-            .state
-            .lock()
+        self.with_state(move |state| state.list_external_actions(tenant_id, job_id))
             .await
-            .external_actions
-            .iter()
-            .filter_map(|((tenant, job, _), record)| {
-                (tenant == tenant_id && job == job_id).then_some(record.clone())
-            })
-            .collect())
     }
 
     async fn list_tenant_external_actions(
         &self,
         tenant_id: &str,
     ) -> Result<Vec<crate::governance::GovernanceExternalActionRecord>, StoreError> {
-        Ok(self
-            .state
-            .lock()
+        self.with_state(move |state| state.list_tenant_external_actions(tenant_id))
             .await
-            .external_actions
-            .iter()
-            .filter_map(|((tenant, _, _), record)| (tenant == tenant_id).then_some(record.clone()))
-            .collect())
     }
 
     async fn update_external_action(
         &self,
-        mut record: crate::governance::GovernanceExternalActionRecord,
+        record: crate::governance::GovernanceExternalActionRecord,
         expected_revision: u64,
         fence: crate::governance::GovernanceExternalActionFence,
     ) -> Result<crate::governance::GovernanceExternalActionUpdateOutcome, StoreError> {
-        use crate::governance::GovernanceExternalActionUpdateOutcome;
-
-        if record.job_id != fence.job_id {
-            return Err(StoreError::Permanent(
-                "governance external action job mismatch".into(),
-            ));
-        }
-        let mut state = self.state.lock().await;
-        if !governance_external_fence_matches(&state, &record.tenant_id, &fence, record.updated_at)
-        {
-            return Ok(GovernanceExternalActionUpdateOutcome::FenceConflict);
-        }
-        let key = (
-            record.tenant_id.clone(),
-            record.job_id.clone(),
-            record.action_id.clone(),
-        );
-        let current = state.external_actions.get(&key).cloned().ok_or_else(|| {
-            StoreError::Permanent("governance external action disappeared".into())
-        })?;
-        if !same_external_action_identity(&current, &record) {
-            return Err(StoreError::Permanent(
-                "governance external action identity changed".into(),
-            ));
-        }
-        if current.revision != expected_revision {
-            return Ok(GovernanceExternalActionUpdateOutcome::Conflict(current));
-        }
-        if !valid_external_dispatch_transition(&current, &record) {
-            return Err(StoreError::Permanent(
-                "invalid governance external action dispatch transition".into(),
-            ));
-        }
-        record.revision = expected_revision.checked_add(1).ok_or_else(|| {
-            StoreError::Permanent("governance external action revision exhausted".into())
-        })?;
-        state.external_actions.insert(key, record.clone());
-        Ok(GovernanceExternalActionUpdateOutcome::Stored(record))
+        self.with_state(move |state| state.update_external_action(record, expected_revision, fence))
+            .await
     }
 
     async fn reconcile_external_action(
         &self,
-        mut record: crate::governance::GovernanceExternalActionRecord,
+        record: crate::governance::GovernanceExternalActionRecord,
         expected_revision: u64,
         fence: crate::governance::GovernanceExternalActionReconcileFence,
     ) -> Result<crate::governance::GovernanceExternalActionUpdateOutcome, StoreError> {
-        use crate::governance::GovernanceExternalActionUpdateOutcome;
-
-        if record.job_id != fence.job_id {
-            return Err(StoreError::Permanent(
-                "governance external action reconciliation job mismatch".into(),
-            ));
-        }
-        let mut state = self.state.lock().await;
-        if !governance_external_reconcile_fence_matches(&state, &record.tenant_id, &fence) {
-            return Ok(GovernanceExternalActionUpdateOutcome::FenceConflict);
-        }
-        let key = (
-            record.tenant_id.clone(),
-            record.job_id.clone(),
-            record.action_id.clone(),
-        );
-        let current = state.external_actions.get(&key).cloned().ok_or_else(|| {
-            StoreError::Permanent("governance external action disappeared".into())
-        })?;
-        if !same_external_action_identity(&current, &record) {
-            return Err(StoreError::Permanent(
-                "governance external action identity changed".into(),
-            ));
-        }
-        if current.revision != expected_revision {
-            return Ok(GovernanceExternalActionUpdateOutcome::Conflict(current));
-        }
-        if current.claim_token_digest.as_deref() != Some(fence.claim_token_digest.as_str())
-            || !valid_external_reconcile_transition(&current, &record)
-        {
-            return Err(StoreError::Permanent(
-                "invalid governance external action reconciliation transition".into(),
-            ));
-        }
-        record.revision = expected_revision.checked_add(1).ok_or_else(|| {
-            StoreError::Permanent("governance external action revision exhausted".into())
-        })?;
-        state.external_actions.insert(key, record.clone());
-        Ok(GovernanceExternalActionUpdateOutcome::Stored(record))
+        self.with_state(move |state| {
+            state.reconcile_external_action(record, expected_revision, fence)
+        })
+        .await
     }
 
     async fn put_evidence(
         &self,
         record: crate::governance::GovernanceEvidenceRecord,
     ) -> Result<crate::governance::GovernanceEvidencePutOutcome, StoreError> {
-        use crate::governance::GovernanceEvidencePutOutcome;
-
-        if !record.verify_hash()
-            || record.payload.tenant_id.is_empty()
-            || record.payload.job_id.is_empty()
-            || record.payload.evidence_revision == 0
-        {
-            return Err(StoreError::Permanent("invalid governance evidence".into()));
-        }
-        let key = (
-            record.payload.tenant_id.clone(),
-            record.payload.job_id.clone(),
-            record.payload.evidence_revision,
-        );
-        let mut state = self.state.lock().await;
-        if let Some(existing) = state.evidence.get(&key) {
-            return Ok(GovernanceEvidencePutOutcome::Existing(existing.clone()));
-        }
-        state.evidence.insert(key, record.clone());
-        Ok(GovernanceEvidencePutOutcome::Stored(record))
+        self.with_state(move |state| state.put_evidence(record))
+            .await
     }
 
     async fn latest_evidence(
@@ -8853,16 +7871,8 @@ impl GovernanceStore for MemoryGovernanceStore {
         tenant_id: &str,
         job_id: &str,
     ) -> Result<Option<crate::governance::GovernanceEvidenceRecord>, StoreError> {
-        Ok(self
-            .state
-            .lock()
+        self.with_state(move |state| state.latest_evidence(tenant_id, job_id))
             .await
-            .evidence
-            .iter()
-            .rev()
-            .find_map(|((tenant, job, _), record)| {
-                (tenant == tenant_id && job == job_id).then_some(record.clone())
-            }))
     }
 
     async fn put_suppression(
@@ -8871,24 +7881,8 @@ impl GovernanceStore for MemoryGovernanceStore {
         fence: crate::governance::GovernanceDestructiveFence,
         now: i64,
     ) -> Result<bool, StoreError> {
-        let expected_epoch = fence.target_epoch.unwrap_or(fence.tenant_revision);
-        if expected_epoch == 0 || record.target_epoch != expected_epoch {
-            return Err(StoreError::Permanent(
-                "suppression record does not match its destructive fence".into(),
-            ));
-        }
-        let mut state = self.state.lock().await;
-        if !governance_destructive_fence_matches(&state, &record.tenant_id, &fence, now) {
-            return Err(StoreError::Transient(
-                MEMORY_GOVERNANCE_DESTRUCTIVE_FENCE_CONFLICT.into(),
-            ));
-        }
-        Ok(state.suppressions.insert((
-            record.tenant_id,
-            record.target_class,
-            record.digest,
-            record.target_epoch,
-        )))
+        self.with_state(move |state| state.put_suppression(record, fence, now))
+            .await
     }
 
     async fn is_suppressed(
@@ -8897,15 +7891,8 @@ impl GovernanceStore for MemoryGovernanceStore {
         target_class: &str,
         digest: &str,
     ) -> Result<bool, StoreError> {
-        Ok(self
-            .state
-            .lock()
+        self.with_state(move |state| state.is_suppressed(tenant_id, target_class, digest))
             .await
-            .suppressions
-            .iter()
-            .any(|(tenant, class, stored_digest, _)| {
-                tenant == tenant_id && class == target_class && stored_digest == digest
-            }))
     }
 
     async fn latest_suppression_epoch(
@@ -8914,17 +7901,10 @@ impl GovernanceStore for MemoryGovernanceStore {
         target_class: &str,
         digest: &str,
     ) -> Result<Option<u64>, StoreError> {
-        Ok(self
-            .state
-            .lock()
-            .await
-            .suppressions
-            .iter()
-            .filter_map(|(tenant, class, stored_digest, epoch)| {
-                (tenant == tenant_id && class == target_class && stored_digest == digest)
-                    .then_some(*epoch)
-            })
-            .max())
+        self.with_state(move |state| {
+            state.latest_suppression_epoch(tenant_id, target_class, digest)
+        })
+        .await
     }
 }
 
@@ -13925,5 +12905,104 @@ mod tests {
             "now 越 expires → false"
         );
         assert!(!cs.has_unexpired_by_client("", "other", 1000).await.unwrap());
+    }
+}
+
+#[cfg(test)]
+mod governance_rollback_tests {
+    use super::*;
+    use crate::governance::{
+        TenantMutationGateRecord, TenantMutationGateState, TenantMutationPermit,
+    };
+
+    async fn fixture(active: u64, deadline: Option<i64>) -> MemoryGovernanceStore {
+        let store = MemoryGovernanceStore::default();
+        let mut state = store.state.lock().await;
+        state.mutation_gates.insert(
+            "tenant".into(),
+            TenantMutationGateRecord {
+                tenant_id: "tenant".into(),
+                state: TenantMutationGateState::Active,
+                active_permits: active,
+                revision: u64::MAX,
+                updated_at: 50,
+            },
+        );
+        if let Some(deadline) = deadline {
+            state.mutation_permits.insert(
+                ("tenant".into(), "writer".into()),
+                TenantMutationPermit {
+                    tenant_id: "tenant".into(),
+                    permit_id: "writer".into(),
+                    deadline,
+                },
+            );
+        }
+        drop(state);
+        store
+    }
+
+    #[tokio::test]
+    async fn governance_exhausted_acquisition_preserves_permit_and_aggregate() {
+        let store = fixture(0, None).await;
+        let result = store
+            .acquire_tenant_mutation_permit(
+                TenantMutationPermit {
+                    tenant_id: "tenant".into(),
+                    permit_id: "new".into(),
+                    deadline: 200,
+                },
+                100,
+            )
+            .await;
+        assert!(matches!(result, Err(StoreError::Permanent(_))));
+        let state = store.state.lock().await;
+        assert!(state.mutation_permits.is_empty());
+        assert_eq!(state.mutation_gates["tenant"].active_permits, 0);
+        assert_eq!(state.mutation_gates["tenant"].updated_at, 50);
+    }
+
+    #[tokio::test]
+    async fn governance_exhausted_release_preserves_permit_and_aggregate() {
+        let store = fixture(1, Some(200)).await;
+        let result = store
+            .release_tenant_mutation_permit(
+                TenantMutationPermit {
+                    tenant_id: "tenant".into(),
+                    permit_id: "writer".into(),
+                    deadline: 200,
+                },
+                100,
+            )
+            .await;
+        assert!(matches!(result, Err(StoreError::Permanent(_))));
+        let state = store.state.lock().await;
+        assert_eq!(state.mutation_permits.len(), 1);
+        assert_eq!(state.mutation_gates["tenant"].active_permits, 1);
+        assert_eq!(state.mutation_gates["tenant"].updated_at, 50);
+    }
+
+    #[tokio::test]
+    async fn governance_exhausted_pruning_preserves_permit_and_aggregate() {
+        let store = fixture(1, Some(99)).await;
+        let result = store
+            .acquire_tenant_mutation_permit(
+                TenantMutationPermit {
+                    tenant_id: "tenant".into(),
+                    permit_id: "new".into(),
+                    deadline: 200,
+                },
+                100,
+            )
+            .await;
+        assert!(matches!(result, Err(StoreError::Permanent(_))));
+        let state = store.state.lock().await;
+        assert_eq!(state.mutation_permits.len(), 1);
+        assert_eq!(
+            state.mutation_permits[&("tenant".into(), "writer".into())].deadline,
+            99
+        );
+        assert_eq!(state.mutation_gates["tenant"].active_permits, 1);
+        assert_eq!(state.mutation_gates["tenant"].updated_at, 50);
     }
 }
