@@ -86,9 +86,11 @@ libc = { version = "0.2", optional = true }
 [features]
 default = []
 lambda = ["dep:lambda_http", "dep:lambda_runtime"]
-aws = ["dep:aws-config", "dep:aws-sdk-kms", "dep:aws-sdk-lambda", "dep:aws-sdk-resourcegroupstagging", "dep:aws-sdk-dynamodb", "dep:aws-sdk-backup", "dep:aws-sdk-cloudwatchlogs", "dep:aws-sdk-s3", "dep:aws-sdk-sqs", "dep:aws-sdk-secretsmanager", "dep:aws-sdk-eventbridge", "dep:reqwest"]
-transport-test = ["aws", "dep:rcgen", "dep:tokio-rustls"]
-postgres = ["dep:sqlx", "dep:libc"]
+aws = ["dep:aws-config", "dep:aws-sdk-kms", "dep:aws-sdk-lambda", "dep:aws-sdk-resourcegroupstagging", "dep:aws-sdk-dynamodb", "dep:aws-sdk-backup", "dep:aws-sdk-cloudwatchlogs", "dep:aws-sdk-s3", "dep:aws-sdk-sqs", "dep:aws-sdk-secretsmanager", "dep:aws-sdk-eventbridge", "portable-http"]
+portable-http = ["dep:reqwest"]
+portable-transport-test = ["portable-http", "dep:rcgen", "dep:tokio-rustls"]
+transport-test = ["aws", "portable-transport-test"]
+postgres = ["dep:sqlx", "dep:libc", "portable-http"]
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

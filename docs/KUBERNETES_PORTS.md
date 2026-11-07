@@ -87,18 +87,18 @@ capability decision and reject unsupported payment settings at startup.
 | Trait | Portable requirement |
 | --- | --- |
 | `Signer` | Mounted ES256/RS256 private keys, request-coherent key snapshot and overlapping JWKS rotation |
-| `JwksFetcher` | Bounded TLS fetch/cache, existing trust and SSRF restrictions |
-| `OidcMetadataFetcher` | Bounded TLS metadata fetch and cache |
+| `JwksFetcher` | Shared [portable HTTP](PORTABLE_HTTP.md) TLS fetch/cache and existing trust/SSRF restrictions; production wiring pending |
+| `OidcMetadataFetcher` | Shared portable bounded TLS metadata fetch; production wiring pending |
 | `StsCaller` | Explicitly disabled in the AWS-free profile; retain the existing optional AWS path |
 | `SecretResolver` | [`FileSecretResolver`](MOUNTED_SECRETS.md) with explicit reference bindings and confined mounted-file reads; production wiring and installed proof pending |
-| `UpstreamTokenExchanger` | Portable TLS exchange, registered endpoint trust and secret reference resolution |
+| `UpstreamTokenExchanger` | Shared portable TLS exchange with registered endpoint trust; production secret/transport composition pending |
 | `GovernanceJobQueue` | PostgreSQL durable wake-ups, `SKIP LOCKED` claim, lease fencing and retry |
 | `Notifier` | SMTP delivery with durable/idempotent recovery notification handling |
 | `AuthzEventSink` | Explicit projection configuration; authority commit independent of projection failure |
-| `CibaCallbackDelivery` | Portable bounded callback HTTP with the existing destination and credential checks |
+| `CibaCallbackDelivery` | Shared portable bounded callback HTTP with existing destination/credential checks; production wiring pending |
 | [`ArchiveDeliverySink`](../crates/http/src/security_event_archive.rs) | Optional S3-compatible archive or explicit archive disablement |
-| [`CimdHttpClient`](../crates/http/src/cimd.rs) | Existing metadata allowlist, DNS/IP pinning, size/timeout and SSRF protections |
-| [`SsfPushClient`](../crates/http/src/ssf_worker.rs) | Bounded authenticated push, generation/lease fencing and retry |
+| [`CimdHttpClient`](../crates/http/src/cimd.rs) | Shared portable transport with existing metadata allowlist, DNS/IP pinning, size/timeout and SSRF protections |
+| [`SsfPushClient`](../crates/http/src/ssf_worker.rs) | Shared portable bounded push; production worker generation/lease fencing and retry remain required |
 | [`SsfSignerResolver`](../crates/http/src/ssf_worker.rs) | Resolve the configured mounted signer for each delivery snapshot |
 | [`SecurityEventFallback`](../crates/http/src/security_event.rs) | PostgreSQL durable fallback ingestion with batch outcomes |
 | [`GovernanceResourceBackend`](../crates/http/src/governance_resources.rs) | Explicit resource ownership and retention handling; operator-owned mounted resources remain external |

@@ -1216,15 +1216,15 @@ impl crate::ports::GraceStore for GraceStoreImpl {
 #[derive(Clone)]
 pub enum JwksFetcherImpl {
     Memory(crate::adapters::memory::MemoryJwksFetcher),
-    #[cfg(feature = "aws")]
-    Http(crate::adapters::aws::HttpJwksFetcher),
+    #[cfg(feature = "portable-http")]
+    Http(crate::adapters::http_transport::HttpJwksFetcher),
 }
 
 impl crate::ports::JwksFetcher for JwksFetcherImpl {
     async fn fetch(&self, jwks_uri: &str) -> Result<Vec<crate::ports::PlatformJwk>, StoreError> {
         match self {
             JwksFetcherImpl::Memory(s) => s.fetch(jwks_uri).await,
-            #[cfg(feature = "aws")]
+            #[cfg(feature = "portable-http")]
             JwksFetcherImpl::Http(s) => s.fetch(jwks_uri).await,
         }
     }
@@ -1234,7 +1234,7 @@ impl crate::ports::JwksFetcher for JwksFetcherImpl {
     ) -> Result<Vec<crate::ports::PlatformJwk>, StoreError> {
         match self {
             JwksFetcherImpl::Memory(s) => s.fetch_fresh(jwks_uri).await,
-            #[cfg(feature = "aws")]
+            #[cfg(feature = "portable-http")]
             JwksFetcherImpl::Http(s) => s.fetch_fresh(jwks_uri).await,
         }
     }
@@ -1243,15 +1243,15 @@ impl crate::ports::JwksFetcher for JwksFetcherImpl {
 #[derive(Clone)]
 pub enum OidcMetadataFetcherImpl {
     Memory(crate::adapters::memory::MemoryOidcMetadataFetcher),
-    #[cfg(feature = "aws")]
-    Http(crate::adapters::aws::HttpOidcMetadataFetcher),
+    #[cfg(feature = "portable-http")]
+    Http(crate::adapters::http_transport::HttpOidcMetadataFetcher),
 }
 
 impl crate::ports::OidcMetadataFetcher for OidcMetadataFetcherImpl {
     async fn fetch(&self, url: &str) -> Result<crate::ports::OidcMetadata, StoreError> {
         match self {
             Self::Memory(fetcher) => fetcher.fetch(url).await,
-            #[cfg(feature = "aws")]
+            #[cfg(feature = "portable-http")]
             Self::Http(fetcher) => fetcher.fetch(url).await,
         }
     }
@@ -1281,8 +1281,8 @@ impl crate::ports::StsCaller for StsCallerImpl {
 #[derive(Clone)]
 pub enum UpstreamTokenExchangerImpl {
     Memory(crate::adapters::memory::MemoryUpstreamTokenExchanger),
-    #[cfg(feature = "aws")]
-    Http(crate::adapters::aws::HttpUpstreamTokenExchanger),
+    #[cfg(feature = "portable-http")]
+    Http(crate::adapters::http_transport::HttpUpstreamTokenExchanger),
 }
 
 impl crate::ports::UpstreamTokenExchanger for UpstreamTokenExchangerImpl {
@@ -1292,7 +1292,7 @@ impl crate::ports::UpstreamTokenExchanger for UpstreamTokenExchangerImpl {
     ) -> Result<Option<crate::ports::UpstreamTokenSet>, StoreError> {
         match self {
             UpstreamTokenExchangerImpl::Memory(s) => s.exchange_code(req).await,
-            #[cfg(feature = "aws")]
+            #[cfg(feature = "portable-http")]
             UpstreamTokenExchangerImpl::Http(s) => s.exchange_code(req).await,
         }
     }
@@ -4955,8 +4955,8 @@ pub enum NotifierImpl {
 /// CIBA ping/push 回调投递枚举分发(spec 013 §4)。dev/测试 = Memory mock;真机 = reqwest(SSRF 复校+固定 IP)。
 pub enum CibaCallbackDeliveryImpl {
     Memory(crate::adapters::memory::MemoryCibaCallbackDelivery),
-    #[cfg(feature = "aws")]
-    Http(crate::adapters::aws::HttpCibaCallbackDelivery),
+    #[cfg(feature = "portable-http")]
+    Http(crate::adapters::http_transport::HttpCibaCallbackDelivery),
 }
 
 impl crate::ports::CibaCallbackDelivery for CibaCallbackDeliveryImpl {
@@ -4966,7 +4966,7 @@ impl crate::ports::CibaCallbackDelivery for CibaCallbackDeliveryImpl {
     ) -> crate::ports::CibaDeliveryOutcome {
         match self {
             CibaCallbackDeliveryImpl::Memory(d) => d.deliver(req).await,
-            #[cfg(feature = "aws")]
+            #[cfg(feature = "portable-http")]
             CibaCallbackDeliveryImpl::Http(d) => d.deliver(req).await,
         }
     }
@@ -9553,7 +9553,7 @@ impl AppState {
     ) {
         match self.jwks_fetcher.as_ref() {
             JwksFetcherImpl::Memory(m) => m.set(jwks_uri, keys).await,
-            #[cfg(feature = "aws")]
+            #[cfg(feature = "portable-http")]
             _ => {}
         }
     }
@@ -9566,7 +9566,7 @@ impl AppState {
     ) {
         match self.jwks_fetcher.as_ref() {
             JwksFetcherImpl::Memory(m) => m.set_fresh(jwks_uri, keys).await,
-            #[cfg(feature = "aws")]
+            #[cfg(feature = "portable-http")]
             _ => {}
         }
     }
@@ -9575,7 +9575,7 @@ impl AppState {
     pub async fn jwks_fetcher_fresh_calls(&self, jwks_uri: &str) -> Option<usize> {
         match self.jwks_fetcher.as_ref() {
             JwksFetcherImpl::Memory(m) => Some(m.fresh_calls(jwks_uri).await),
-            #[cfg(feature = "aws")]
+            #[cfg(feature = "portable-http")]
             _ => None,
         }
     }
@@ -9584,7 +9584,7 @@ impl AppState {
     pub async fn jwks_fetcher_calls(&self, jwks_uri: &str) -> Option<usize> {
         match self.jwks_fetcher.as_ref() {
             JwksFetcherImpl::Memory(m) => Some(m.fetch_calls(jwks_uri).await),
-            #[cfg(feature = "aws")]
+            #[cfg(feature = "portable-http")]
             _ => None,
         }
     }
@@ -9593,7 +9593,7 @@ impl AppState {
     pub async fn upstream_exchanger_seed(&self, code: &str, set: crate::ports::UpstreamTokenSet) {
         match self.upstream_token_exchanger.as_ref() {
             UpstreamTokenExchangerImpl::Memory(m) => m.seed(code, set).await,
-            #[cfg(feature = "aws")]
+            #[cfg(feature = "portable-http")]
             _ => {}
         }
     }
@@ -9604,7 +9604,7 @@ impl AppState {
     ) -> Vec<crate::adapters::memory::MemoryUpstreamTokenExchange> {
         match self.upstream_token_exchanger.as_ref() {
             UpstreamTokenExchangerImpl::Memory(m) => m.requests().await,
-            #[cfg(feature = "aws")]
+            #[cfg(feature = "portable-http")]
             _ => Vec::new(),
         }
     }

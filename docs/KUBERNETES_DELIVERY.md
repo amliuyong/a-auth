@@ -87,6 +87,12 @@ secrets](MOUNTED_SECRETS.md) for bindings, permission limits and failure
 behavior. Production startup, chart mounts and installed federation remain
 pending.
 
+The existing OIDC/JWKS, token exchange, CIBA, SSF and CIMD HTTP transports now
+compile through `portable-http`, shared by AWS and PostgreSQL without AWS SDK
+dependencies. Their existing trust, DNS pinning, bounds and refresh/response
+rules are retained. See [portable outbound HTTP](PORTABLE_HTTP.md). Production
+composition, worker use and installed IdP acceptance remain pending.
+
 `MountedSignerRing` loads immutable ES256/RS256 file generations and
 `TenantKeyService::mounted` resolves them per request with disabled SaaS
 registry/command interfaces. See [mounted signing keys](MOUNTED_SIGNER.md) for

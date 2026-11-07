@@ -225,6 +225,18 @@ jobs:
           cimd::tests::http_transport_pins_tls_and_enforces_redirect_size_and_timeout
           --locked -- --exact
 
+      - name: Run AWS-free HTTP adapter and TLS tests
+        run: |
+          source ./scripts/rust_test_stack.sh
+          cargo test -p agent-auth-http --no-default-features \
+            --features postgres,portable-transport-test --test portable_http --locked
+          cargo test -p agent-auth-http --no-default-features \
+            --features postgres,portable-transport-test --lib adapters::http_transport --locked
+          cargo test -p agent-auth-http --no-default-features \
+            --features postgres,portable-transport-test --lib \
+            cimd::tests::http_transport_pins_tls_and_enforces_redirect_size_and_timeout \
+            --locked -- --exact
+
   conformance-exact:
     name: Exact conformance selectors
     if: ${{ github.event_name != 'pull_request' }}
