@@ -96,16 +96,18 @@ external encryption keys or a delete-only capability.
 using tenant-locked durable control snapshots and permanent suppression rows.
 `PostgresCibaStore` implements all ten `CibaStore` methods with complete encrypted
 request/callback snapshots and a delete-only capability.
+`PostgresSsfStore` implements all thirteen `SsfStore` methods with generation-bound
+streams, encrypted delivery/lease/history authority and durable worker claims.
 `PostgresUsersStore` implements all twenty-five `UsersStore` methods with a
 required external HMAC authority key.
 `PostgresGraceStore` implements
 `GraceStore` with an explicit external encryption key ring or a delete-only
-capability. Thirty-five embedded forward
+capability. Thirty-six embedded forward
 migrations create their authority tables and credential-free client reclaim
 audit metadata.
 
-The current shared suite contains 155 cases: thirty-four contracts run through each of
-the memory, AWS, and PostgreSQL adapters, plus fifty PostgreSQL-specific
+The current shared suite contains 163 cases: thirty-five contracts run through each of
+the memory, AWS, and PostgreSQL adapters, plus fifty-five PostgreSQL-specific
 transaction/durability cases and three AWS recovery interleaving/compatibility
 cases. AWS adapters run against a loopback DynamoDB
 emulator; PostgreSQL adapters run against PostgreSQL 16. This does not establish
@@ -372,6 +374,41 @@ tenant keys. This helper also serves device, recovery and authorization-session
 cleanup. Encrypted issued push responses, durable callback dispatch/receipts,
 production state, authorized credential/session transactions and native CIBA
 worker acceptance remain required.
+SSF stream admission retains the thirty-two-stream quota, including revoked
+tombstones. Revision CAS preserves pause/resume/replacement activation, and
+deliveries bind the event ID to its stream generation. PostgreSQL retains
+complete delivery snapshots in per-record AES-256-GCM envelopes, including
+subjects, verification state, signed SETs, lease credentials and retry history.
+All twenty-seven fields and every six-field attempt are required, including
+nullable values. Authentication binds the separate SSF purpose, tenant, stream,
+generation, event, queue times, expiry, status and physical lease metadata.
+Typed domain validation checks counters/history, signed-field combinations,
+signed SET evidence and destination configuration. Authenticated incomplete,
+rebound, inconsistent or wrong-purpose data fails without overwrite.
+The existing AWS domain validator is shared with PostgreSQL; AWS's physical
+index checks remain in its adapter.
+
+SSF transactions acquire tenant directory fences before stream or delivery rows.
+Due-row claims use `FOR UPDATE SKIP LOCKED`; a held delivery row is skipped in
+favor of another due row. Two independent pools with sixteen actors claim
+distinct deliveries, save a signed SET once, complete its receipt once and
+admit one redrive. Expired owners cannot sign or finish after a replacement
+lease; paused/revised/revoked streams block further signed SET admission.
+Retries and redrives retain the same signed SET and complete attempt history.
+Governance revocation commits stream tombstones and suppression of all active
+deliveries together while retaining terminal audit. This retained-audit
+transition requires the configured delivery encryption keys.
+
+An exhausted later stream revision and actual delivery-write failures roll
+back previous stream changes, claims or receipts. Key overlap decrypts old
+authority and writes the active key; wrong or retired keys fail closed.
+Shared tests also reproduced AWS version decoding through `i64` rejecting
+`u64::MAX`; it now parses the complete unsigned domain directly.
+Queue contracts use owned isolated PostgreSQL databases because due claims
+span tenants. Directory fences serialize competing tenant transitions;
+throughput and installed-worker acceptance remain unverified.
+Production SSF push, signer resolution and portable worker execution still
+require integration and native qualification.
 Cross-table tests check that code/family creation updates the client authority
 revision atomically, that failed conditions roll back the new row, and that
 duplicate creation cannot resurrect consumed codes or revoked families.

@@ -12,7 +12,7 @@ must not become production fallback authority.
 
 ## Implemented PostgreSQL authority
 
-These thirty-four traits have PostgreSQL adapters. Shared contracts exercise the
+These thirty-five traits have PostgreSQL adapters. Shared contracts exercise the
 memory, actual AWS adapters against a loopback emulator, and PostgreSQL
 implementations. The delivery ledger records the candidate validation results.
 The AWS grace contract additionally uses a loopback KMS response fixture;
@@ -54,6 +54,7 @@ it does not establish native KMS acceptance.
 | `MessageOutbox` | Encrypted immutable delivery observations, deterministic tenant/time selection, recipient erasure and keyless tenant cleanup |
 | `GovernanceStore` | Tenant-locked legal holds, job/lease/continuation CAS, permanent suppression, immutable evidence and atomic task completion |
 | `CibaStore` | Complete encrypted callback/request snapshots, field-level polling/decision/consumption CAS, bounded-arithmetic throttle and atomic request/throttle cleanup |
+| [`SsfStore`](../crates/http/src/ssf.rs) | Generation-bound streams, encrypted signed SETs/lease credentials/history, `SKIP LOCKED` claims and atomic retained-audit revocation |
 
 Cross-port work remains necessary even when individual traits are implemented.
 Raw port CRUD must not replace an authorized transaction involving user,
@@ -68,7 +69,6 @@ fail-closed behavior. They must never silently select memory stores.
 
 | Trait | Required durable behavior |
 | --- | --- |
-| [`SsfStore`](../crates/http/src/ssf.rs) | Stream ownership/config generation, durable outbox and delivery receipts |
 | [`PaymentRegistry`](../crates/http/src/payment/registry.rs) | Trusted owner/version-bound funding and payee records when payments are enabled |
 | [`PaymentStore`](../crates/http/src/payment/store.rs) | Order uniqueness, status/revision CAS and durable unsettled attempts when payments are enabled |
 

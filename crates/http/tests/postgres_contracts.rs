@@ -126,6 +126,12 @@ mod ciba_contracts;
 #[path = "postgres/ciba_faults.rs"]
 mod ciba_fault_contracts;
 
+#[path = "postgres/ssf.rs"]
+mod ssf_contracts;
+
+#[path = "postgres/ssf_faults.rs"]
+mod ssf_fault_contracts;
+
 #[cfg(feature = "aws")]
 #[path = "postgres/aws.rs"]
 mod aws_contract_database;

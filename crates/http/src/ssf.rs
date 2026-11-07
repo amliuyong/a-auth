@@ -1191,7 +1191,7 @@ fn delivery_key(delivery: &SsfDelivery) -> (String, String, u64, String) {
     )
 }
 
-fn lease_is_current(delivery: &SsfDelivery, lease: &SsfDeliveryLease, now: i64) -> bool {
+pub(crate) fn lease_is_current(delivery: &SsfDelivery, lease: &SsfDeliveryLease, now: i64) -> bool {
     delivery.lease_id.as_deref() == Some(lease.lease_id.as_str())
         && delivery
             .lease_expires_at
@@ -1222,6 +1222,91 @@ pub(crate) fn compact_set_sha256(compact_set: &str) -> String {
         "sha256:{}",
         URL_SAFE_NO_PAD.encode(Sha256::digest(compact_set.as_bytes()))
     )
+}
+
+#[cfg(any(feature = "postgres", feature = "aws"))]
+pub(crate) fn validate_delivery_record(delivery: &SsfDelivery) -> Result<(), StoreError> {
+    let event_supported = SUPPORTED_EVENT_TYPES.contains(&delivery.event_uri.as_str())
+        || delivery.event_uri == SSF_VERIFICATION_EVENT;
+    let timestamps_valid = delivery.event_occurred_at > 0
+        && delivery.created_at > 0
+        && delivery.updated_at >= delivery.created_at
+        && delivery.cycle_started_at >= delivery.created_at
+        && delivery.next_attempt_at > 0
+        && delivery.expires_at > delivery.created_at;
+    let history_valid = delivery.cycle_attempts <= delivery.attempts
+        && delivery.attempts <= SSF_MAX_TOTAL_ATTEMPTS
+        && delivery.attempt_history.len()
+            == usize::try_from(delivery.attempts).unwrap_or(usize::MAX);
+    let signed_fields = [
+        delivery.compact_set.is_some(),
+        delivery.jti.is_some(),
+        delivery.signing_kid.is_some(),
+        delivery.issued_at.is_some(),
+    ];
+    let signed_fields_valid = signed_fields.iter().all(|present| *present)
+        || signed_fields.iter().all(|present| !*present);
+    let lease_fields_valid = delivery.lease_id.is_some() == delivery.lease_expires_at.is_some();
+    let signed_terminal_valid = !matches!(
+        delivery.status,
+        SsfDeliveryStatus::Delivered | SsfDeliveryStatus::Terminal
+    ) || delivery.compact_set.is_some();
+    if !event_supported
+        || !timestamps_valid
+        || !history_valid
+        || !signed_fields_valid
+        || !lease_fields_valid
+        || !signed_terminal_valid
+    {
+        return Err(StoreError::Permanent(
+            "SSF delivery row invariant mismatch".to_string(),
+        ));
+    }
+    if let Some(compact_set) = &delivery.compact_set {
+        let expected_digest = compact_set_sha256(compact_set);
+        let expected_kid = delivery
+            .signing_kid
+            .as_deref()
+            .expect("signed fields were checked together");
+        if compact_set.len() > 256 * 1024
+            || compact_set.split('.').count() != 3
+            || delivery.jti.as_ref().is_none_or(|jti| jti.is_empty())
+            || delivery
+                .signing_kid
+                .as_ref()
+                .is_none_or(|kid| kid.is_empty() || kid.len() > 512)
+            || delivery.issued_at.is_none_or(|issued_at| issued_at <= 0)
+        {
+            return Err(StoreError::Permanent(
+                "SSF delivery row has invalid signed SET evidence".to_string(),
+            ));
+        }
+        if delivery.attempt_history.iter().any(|attempt| {
+            attempt
+                .set_sha256
+                .as_deref()
+                .is_some_and(|digest| digest != expected_digest)
+                || attempt
+                    .signing_kid
+                    .as_deref()
+                    .is_some_and(|kid| kid != expected_kid)
+                || attempt.set_sha256.is_some() != attempt.signing_kid.is_some()
+        }) {
+            return Err(StoreError::Permanent(
+                "SSF attempt history has inconsistent signed SET evidence".to_string(),
+            ));
+        }
+    }
+    validate_stream_configuration(
+        &delivery.endpoint,
+        &delivery.audience,
+        std::slice::from_ref(&delivery.event_uri),
+    )
+    .map_err(|error| {
+        StoreError::Permanent(format!(
+            "invalid stored SSF delivery configuration: {error}"
+        ))
+    })
 }
 
 pub(crate) fn apply_attempt_result(delivery: &mut SsfDelivery, result: SsfAttemptResult, now: i64) {

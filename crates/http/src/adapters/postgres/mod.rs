@@ -34,6 +34,7 @@ mod scim_groups;
 mod security_events;
 mod serialization;
 mod sessions;
+mod ssf;
 mod users;
 mod workload_trust;
 
@@ -43,6 +44,7 @@ pub use governance::PostgresGovernanceStore;
 pub use grace::PostgresGraceStore;
 pub use outbox::PostgresMessageOutbox;
 pub use refresh::RefreshRotationRequest;
+pub use ssf::PostgresSsfStore;
 pub use users::{PostgresInvitationStore, PostgresUsersStore, UserAuthorityKey};
 
 static MIGRATIONS: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");

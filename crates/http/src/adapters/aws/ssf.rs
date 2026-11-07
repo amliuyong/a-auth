@@ -9,13 +9,14 @@ use crate::{
     ports::StoreError,
     security_event::SecurityEvent,
     ssf::{
-        apply_attempt_result, apply_stream_mutation, compact_set_sha256, delivery_is_redriveable,
-        delivery_retry_window_expired, project_security_event, validate_stream_configuration,
-        validate_stream_identity, SignedSet, SsfAttemptResult, SsfDelivery, SsfDeliveryAttempt,
-        SsfDeliveryAttemptOutcome, SsfDeliveryCursor, SsfDeliveryLease, SsfDeliveryPage,
-        SsfDeliveryStatus, SsfRedriveOutcome, SsfStore, SsfStream, SsfStreamCreateOutcome,
-        SsfStreamMutation, SsfStreamMutationOutcome, SsfStreamStatus, SsfVerificationOutcome,
-        SSF_DELIVERY_RETENTION_SECS, SSF_MAX_ATTEMPTS_PER_CYCLE, SSF_MAX_DELIVERY_PAGE_SIZE,
+        apply_attempt_result, apply_stream_mutation, delivery_is_redriveable,
+        delivery_retry_window_expired, project_security_event, validate_delivery_record,
+        validate_stream_configuration, validate_stream_identity, SignedSet, SsfAttemptResult,
+        SsfDelivery, SsfDeliveryAttempt, SsfDeliveryAttemptOutcome, SsfDeliveryCursor,
+        SsfDeliveryLease, SsfDeliveryPage, SsfDeliveryStatus, SsfRedriveOutcome, SsfStore,
+        SsfStream, SsfStreamCreateOutcome, SsfStreamMutation, SsfStreamMutationOutcome,
+        SsfStreamStatus, SsfVerificationOutcome, SSF_DELIVERY_RETENTION_SECS,
+        SSF_MAX_ATTEMPTS_PER_CYCLE, SSF_MAX_DELIVERY_PAGE_SIZE,
         SSF_MAX_REGISTERED_STREAMS_PER_TENANT, SSF_MAX_RETRY_AGE_SECS, SSF_MAX_TOTAL_ATTEMPTS,
         SSF_VERIFICATION_EVENT, SUPPORTED_EVENT_TYPES,
     },
@@ -146,9 +147,12 @@ impl DynamoSsfStore {
     }
 
     fn required_u64(item: &Item, name: &str) -> Result<u64, StoreError> {
-        u64::try_from(Self::required_i64(item, name)?).map_err(|_| {
-            StoreError::Permanent(format!("SSF row has out-of-range number attribute {name}"))
-        })
+        item.get(name)
+            .and_then(|value| value.as_n().ok())
+            .and_then(|value| value.parse::<u64>().ok())
+            .ok_or_else(|| {
+                StoreError::Permanent(format!("SSF row has invalid number attribute {name}"))
+            })
     }
 
     fn string_list(item: &Item, name: &str) -> Result<Vec<String>, StoreError> {
@@ -600,77 +604,7 @@ impl DynamoSsfStore {
     }
 
     fn validate_delivery_item(item: &Item, delivery: &SsfDelivery) -> Result<(), StoreError> {
-        let event_supported = SUPPORTED_EVENT_TYPES.contains(&delivery.event_uri.as_str())
-            || delivery.event_uri == SSF_VERIFICATION_EVENT;
-        let timestamps_valid = delivery.event_occurred_at > 0
-            && delivery.created_at > 0
-            && delivery.updated_at >= delivery.created_at
-            && delivery.cycle_started_at >= delivery.created_at
-            && delivery.next_attempt_at > 0
-            && delivery.expires_at > delivery.created_at;
-        let history_valid = delivery.cycle_attempts <= delivery.attempts
-            && delivery.attempts <= SSF_MAX_TOTAL_ATTEMPTS
-            && delivery.attempt_history.len()
-                == usize::try_from(delivery.attempts).unwrap_or(usize::MAX);
-        let signed_fields = [
-            delivery.compact_set.is_some(),
-            delivery.jti.is_some(),
-            delivery.signing_kid.is_some(),
-            delivery.issued_at.is_some(),
-        ];
-        let signed_fields_valid = signed_fields.iter().all(|present| *present)
-            || signed_fields.iter().all(|present| !*present);
-        let lease_fields_valid = delivery.lease_id.is_some() == delivery.lease_expires_at.is_some();
-        let signed_terminal_valid = !matches!(
-            delivery.status,
-            SsfDeliveryStatus::Delivered | SsfDeliveryStatus::Terminal
-        ) || delivery.compact_set.is_some();
-        if !event_supported
-            || !timestamps_valid
-            || !history_valid
-            || !signed_fields_valid
-            || !lease_fields_valid
-            || !signed_terminal_valid
-        {
-            return Err(StoreError::Permanent(
-                "SSF delivery row invariant mismatch".to_string(),
-            ));
-        }
-        if let Some(compact_set) = &delivery.compact_set {
-            let expected_digest = compact_set_sha256(compact_set);
-            let expected_kid = delivery
-                .signing_kid
-                .as_deref()
-                .expect("signed fields were checked together");
-            if compact_set.len() > 256 * 1024
-                || compact_set.split('.').count() != 3
-                || delivery.jti.as_ref().is_none_or(|jti| jti.is_empty())
-                || delivery
-                    .signing_kid
-                    .as_ref()
-                    .is_none_or(|kid| kid.is_empty() || kid.len() > 512)
-                || delivery.issued_at.is_none_or(|issued_at| issued_at <= 0)
-            {
-                return Err(StoreError::Permanent(
-                    "SSF delivery row has invalid signed SET evidence".to_string(),
-                ));
-            }
-            if delivery.attempt_history.iter().any(|attempt| {
-                attempt
-                    .set_sha256
-                    .as_deref()
-                    .is_some_and(|digest| digest != expected_digest)
-                    || attempt
-                        .signing_kid
-                        .as_deref()
-                        .is_some_and(|kid| kid != expected_kid)
-                    || attempt.set_sha256.is_some() != attempt.signing_kid.is_some()
-            }) {
-                return Err(StoreError::Permanent(
-                    "SSF attempt history has inconsistent signed SET evidence".to_string(),
-                ));
-            }
-        }
+        validate_delivery_record(delivery)?;
         let active = matches!(
             delivery.status,
             SsfDeliveryStatus::Pending | SsfDeliveryStatus::RetryWait
@@ -695,16 +629,7 @@ impl DynamoSsfStore {
                 "SSF terminal delivery row retains active lease or due fields".to_string(),
             ));
         }
-        validate_stream_configuration(
-            &delivery.endpoint,
-            &delivery.audience,
-            std::slice::from_ref(&delivery.event_uri),
-        )
-        .map_err(|error| {
-            StoreError::Permanent(format!(
-                "invalid stored SSF delivery configuration: {error}"
-            ))
-        })
+        Ok(())
     }
 
     async fn get_delivery_consistent(
