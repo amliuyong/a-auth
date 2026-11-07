@@ -108,6 +108,12 @@ mod invitation_contracts;
 #[path = "postgres/invitations_faults.rs"]
 mod invitation_fault_contracts;
 
+#[path = "postgres/outbox.rs"]
+mod outbox_contracts;
+
+#[path = "postgres/outbox_faults.rs"]
+mod outbox_fault_contracts;
+
 #[cfg(feature = "aws")]
 #[path = "postgres/aws.rs"]
 mod aws_contract_database;

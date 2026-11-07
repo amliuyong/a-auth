@@ -111,15 +111,33 @@ pub(super) async fn governance_delete_by_tenant_key_values(
             _ => break,
         }
     }
-    for (key, _) in &keys {
-        db.delete_item()
+    let mut removed = Vec::new();
+    for (key, logical) in keys {
+        let result = match db
+            .delete_item()
             .table_name(table)
-            .key(key_name, key.clone())
+            .key(key_name, key)
+            .condition_expression("attribute_exists(#key)")
+            .expression_attribute_names("#key", key_name)
+            .return_values(aws_sdk_dynamodb::types::ReturnValue::AllOld)
             .send()
             .await
-            .map_err(ddb_err)?;
+        {
+            Ok(result) => result,
+            Err(error)
+                if error
+                    .code()
+                    .is_some_and(|code| code.contains("ConditionalCheckFailed")) =>
+            {
+                continue;
+            }
+            Err(error) => return Err(ddb_err(error)),
+        };
+        if result.attributes().is_some_and(|old| !old.is_empty()) {
+            removed.push(logical);
+        }
     }
-    Ok(keys.into_iter().map(|(_, logical)| logical).collect())
+    Ok(removed)
 }
 
 const GOVERNANCE_DESTRUCTIVE_TARGET_BATCH: usize = 90;

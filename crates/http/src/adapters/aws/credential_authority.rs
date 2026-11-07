@@ -3082,16 +3082,33 @@ impl MessageOutbox for DynamoNotifier {
                 _ => break,
             }
         }
+        let mut deleted = 0;
         for message_id in &message_ids {
-            self.db
+            let result = match self
+                .db
                 .delete_item()
                 .table_name(&self.table)
                 .key("message_id", message_id.clone())
+                .condition_expression("attribute_exists(message_id)")
+                .return_values(aws_sdk_dynamodb::types::ReturnValue::AllOld)
                 .send()
                 .await
-                .map_err(ddb_err)?;
+            {
+                Ok(result) => result,
+                Err(error)
+                    if error
+                        .code()
+                        .is_some_and(|code| code.contains("ConditionalCheckFailed")) =>
+                {
+                    continue;
+                }
+                Err(error) => return Err(ddb_err(error)),
+            };
+            if result.attributes().is_some_and(|old| !old.is_empty()) {
+                deleted += 1;
+            }
         }
-        Ok(message_ids.len())
+        Ok(deleted)
     }
 
     async fn delete_all_by_tenant(&self, tenant: &str) -> Result<usize, StoreError> {

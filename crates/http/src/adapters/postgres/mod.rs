@@ -19,6 +19,7 @@ mod grants;
 mod initial_access_tokens;
 mod jti;
 mod magic_links;
+mod outbox;
 mod passkey_challenges;
 mod passkeys;
 mod passwords;
@@ -36,6 +37,7 @@ mod workload_trust;
 
 pub use codes::ExchangeFailureRequest;
 pub use grace::PostgresGraceStore;
+pub use outbox::PostgresMessageOutbox;
 pub use refresh::RefreshRotationRequest;
 pub use users::{PostgresInvitationStore, PostgresUsersStore, UserAuthorityKey};
 

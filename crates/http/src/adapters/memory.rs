@@ -5806,18 +5806,13 @@ impl MessageOutbox for MemoryOutboxNotifier {
     ) -> Result<Vec<SentMessage>, StoreError> {
         let v = self.outbox.lock().await;
         // **tenant-scope(C10.19)**:只取本租户消息,防跨租户泄露。再按 created_at 倒序取 limit。
-        let mut out: Vec<SentMessage> = v
-            .iter()
-            .rev()
-            .filter(|m| m.tenant == tenant)
-            .take(limit)
-            .cloned()
-            .collect();
+        let mut out: Vec<SentMessage> = v.iter().filter(|m| m.tenant == tenant).cloned().collect();
         out.sort_by(|a, b| {
             b.created_at
                 .cmp(&a.created_at)
                 .then(b.message_id.cmp(&a.message_id))
         });
+        out.truncate(limit);
         Ok(out)
     }
 

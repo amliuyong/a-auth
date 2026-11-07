@@ -90,16 +90,18 @@ The `postgres` feature currently provides `PostgresStore` implementations for
 `RecoveryStore` and `PasskeyStore`.
 `PostgresInvitationStore` implements `InvitationStore` using the same pool and
 configured user authority as `PostgresUsersStore`.
+`PostgresMessageOutbox` implements `MessageOutbox` with explicitly configured
+external encryption keys or a delete-only capability.
 `PostgresUsersStore` implements all twenty-five `UsersStore` methods with a
 required external HMAC authority key.
 `PostgresGraceStore` implements
 `GraceStore` with an explicit external encryption key ring or a delete-only
-capability. Thirty-two embedded forward
+capability. Thirty-three embedded forward
 migrations create their authority tables and credential-free client reclaim
 audit metadata.
 
-The current shared suite contains 132 cases: thirty-one contracts run through each of
-the memory, AWS, and PostgreSQL adapters, plus thirty-six PostgreSQL-specific
+The current shared suite contains 139 cases: thirty-two contracts run through each of
+the memory, AWS, and PostgreSQL adapters, plus forty PostgreSQL-specific
 transaction/durability cases and three AWS recovery interleaving/compatibility
 cases. AWS adapters run against a loopback DynamoDB
 emulator; PostgreSQL adapters run against PostgreSQL 16. This does not establish
@@ -291,6 +293,28 @@ NUL locator and activation IDs and full `i64` timestamps round-trip.
 Shared contracts reproduced memory and AWS session lifetime overflow; both now
 return an error without consuming the invitation. Production invitation dispatch
 and the remaining credential lifecycle transactions remain pending.
+Delivery observations retain their immutable message identity and encrypted
+complete payload. Per-record AES-256-GCM envelopes bind the outbox purpose,
+tenant, message, kind, recipient and timestamps to external encryption authority.
+Only ciphertext, wrapped data keys and query metadata enter PostgreSQL; retained
+magic-link bodies have no plaintext database representation.
+Authenticated but incomplete or rebound payloads, changed envelope metadata and
+copied refresh-grace ciphertext fail closed without being overwritten.
+Explicit key overlap permits old and new records; retired or wrong keys cannot
+read them. A delete-only instance rejects reads and writes, including absent
+selections, but can erase ciphertext without possessing the keys.
+Tenant directory transactions fence observation admission and erasure.
+Sixteen exact retries create one immutable row; captured IDs cannot acquire
+another recipient. Rejected admission and deletion roll back the previous state.
+Separate pools share observations and preserve NUL fields and full `i64` times.
+Selection orders the complete tenant set before applying its limit.
+Shared contracts reproduced memory limiting before sorting and AWS counting
+the same concurrent deletion repeatedly. Memory now limits after sorting;
+AWS recipient and tenant cleanup count successful conditional deletions.
+The explicit observation writer and test notification fixture do not establish
+SMTP delivery. Production SMTP, durable delivery state/leases, recovery
+notification handling, governance-authorized erasure and worker acceptance remain
+required.
 Cross-table tests check that code/family creation updates the client authority
 revision atomically, that failed conditions roll back the new row, and that
 duplicate creation cannot resurrect consumed codes or revoked families.
