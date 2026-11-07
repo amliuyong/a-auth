@@ -118,7 +118,29 @@ The shared contracts select those variants rather than invoking the raw
 PostgreSQL adapters. This covers dispatch only; production startup still
 needs an explicit PostgreSQL constructor. Failed code exchange and encrypted
 refresh finalization select their existing atomic helpers and reject stores
-from different pool identities. Other authorized transactions remain pending.
+from different pool identities. User-authorized code issuance, active-client
+Grant admission, password enrollment/rotation and operation-owned administrator
+password reset now use PostgreSQL transactions as well. Other authorized
+transactions remain pending.
+
+Client authority reads and locked writes require the complete stored typed
+record, including nullable retirement fields, and its physical client ID.
+Missing status fields cannot reactivate a retired client. Code creation and
+Grant admission roll back when this client proof is invalid. Grant admission
+locks the active client and commits its usage day/revision with the Grant.
+Human code issuance locks the active, non-pending user and rechecks its
+credential epoch before committing the code and client authority.
+
+Password transactions follow directory, user, then credential lock order and
+require the exact credential-change operation and epoch. Enrollment/rotation
+commits the password version and releases the user fence atomically.
+Administrator staging retains the owner on both authorities; completion
+clears both markers together after authentication cleanup. Two independent
+HTTP states/pools exercise enrollment/rotation and reset retry. Actual second
+writes rejected by owned database constraints verify password rollback,
+retained revocation fences and same-operation reset recovery. These mixed
+development fixtures do not establish production AppState or deployment
+acceptance.
 
 Federated attribute reconciliation locks namespace, mapping and user authority
 in that order. Owner purge locks the mapping registry before the user and
@@ -129,8 +151,8 @@ IdP against the physical row identity. Authorized administrator attribute
 writes also lock namespace authority before the user, recheck the captured
 authority and retain the raw attribute CAS and federation ownership rules.
 
-The current shared suite contains 167 cases: thirty-five contracts run through each of
-the memory, AWS, and PostgreSQL adapters, plus fifty-nine PostgreSQL-specific
+The current shared suite contains 173 cases: thirty-five contracts run through each of
+the memory, AWS, and PostgreSQL adapters, plus sixty-five PostgreSQL-specific
 transaction/durability cases and three AWS recovery interleaving/compatibility
 cases. AWS adapters run against a loopback DynamoDB
 emulator; PostgreSQL adapters run against PostgreSQL 16. This does not establish
@@ -274,8 +296,9 @@ captures that mixed snapshot. Alias classification now reads both rows in one
 DynamoDB transaction with bounded retry for transaction contention. Primary and
 standby HTTP runtime policies grant transaction reads on the exact user table;
 the configuration tests inspect each role's inline and managed policies.
-The authorized user/password/recovery/session transactions and production
-dispatch remain pending.
+Password enrollment/rotation and administrator reset are wired as described
+above. Other authorized recovery/session/passkey transactions and production
+startup remain pending.
 Recovery code consumption locks the tenant directory and complete code set
 within one transaction. It preserves the existing constant-time verifier,
 failed-attempt limit, lockout boundary and regeneration behavior. Only HMAC

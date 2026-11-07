@@ -1,6 +1,6 @@
 use super::{db_error, PostgresStore};
 use crate::ports::{AuthzSessionRecord, CodeRecord, CodeStore, LeaseAcquire, StoreError};
-use sqlx::{types::Json, Row};
+use sqlx::{types::Json, Postgres, Row, Transaction};
 
 /// Identity and fencing snapshot for one failed authorization-code exchange.
 pub struct ExchangeFailureRequest<'a> {
@@ -15,6 +15,27 @@ pub struct ExchangeFailureRequest<'a> {
 }
 
 impl PostgresStore {
+    pub(super) async fn insert_code(
+        transaction: &mut Transaction<'_, Postgres>,
+        tenant: &str,
+        record: &CodeRecord,
+    ) -> Result<bool, StoreError> {
+        let result = sqlx::query(
+            "INSERT INTO a_auth.codes (tenant, code, client_id, user_id, expires_at, record) \
+             VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (tenant, code) DO NOTHING",
+        )
+        .bind(tenant)
+        .bind(&record.code)
+        .bind(&record.client_id)
+        .bind(&record.user_id)
+        .bind(record.expires_at)
+        .bind(Json(record))
+        .execute(&mut **transaction)
+        .await
+        .map_err(db_error)?;
+        Ok(result.rows_affected() == 1)
+    }
+
     /// Consume the code and make its bound session terminal in one transaction.
     /// No projection or network operation is included in the authority commit.
     pub async fn finalize_exchange_failure(
@@ -100,20 +121,7 @@ impl PostgresStore {
 impl CodeStore for PostgresStore {
     async fn put(&self, tenant: &str, record: CodeRecord) -> Result<(), StoreError> {
         let mut transaction = self.pool.begin().await.map_err(db_error)?;
-        let result = sqlx::query(
-            "INSERT INTO a_auth.codes (tenant, code, client_id, user_id, expires_at, record) \
-             VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (tenant, code) DO NOTHING",
-        )
-        .bind(tenant)
-        .bind(&record.code)
-        .bind(&record.client_id)
-        .bind(&record.user_id)
-        .bind(record.expires_at)
-        .bind(Json(&record))
-        .execute(&mut *transaction)
-        .await
-        .map_err(db_error)?;
-        if result.rows_affected() != 1 {
+        if !Self::insert_code(&mut transaction, tenant, &record).await? {
             return Err(StoreError::Transient(
                 "authorization code already exists".into(),
             ));

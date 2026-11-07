@@ -303,6 +303,17 @@ impl CodeStoreImpl {
         expected_epoch: u64,
     ) -> Result<CodeIssueOutcome, StoreError> {
         match (self, users) {
+            #[cfg(feature = "postgres")]
+            (CodeStoreImpl::Postgres(codes), UsersStoreImpl::Postgres(users)) => {
+                if !users.belongs_to(codes) {
+                    return Err(StoreError::Permanent(
+                        "code and user stores do not share a pool".into(),
+                    ));
+                }
+                users
+                    .put_code_authorized(tenant, record, expected_epoch)
+                    .await
+            }
             (CodeStoreImpl::Memory(codes), UsersStoreImpl::Memory(users)) => {
                 codes
                     .put_authorized(users, tenant, record, expected_epoch)
@@ -1961,6 +1972,15 @@ impl GrantStoreImpl {
         grant: agent_auth_grant::Grant,
     ) -> Result<bool, StoreError> {
         match (self, clients) {
+            #[cfg(feature = "postgres")]
+            (GrantStoreImpl::Postgres(grants), ClientStoreImpl::Postgres(clients)) => {
+                if !grants.shares_pool_with(clients) {
+                    return Err(StoreError::Permanent(
+                        "Grant and Client stores do not share a pool".into(),
+                    ));
+                }
+                grants.put_grant_for_active_client(tenant, grant).await
+            }
             (GrantStoreImpl::Memory(grants), ClientStoreImpl::Memory(clients)) => {
                 Box::pin(grants.put_for_active_client(clients, tenant, grant)).await
             }
@@ -4552,6 +4572,15 @@ impl PasswordStoreImpl {
         owner: crate::ports::CredentialChangeOwner<'_>,
     ) -> Result<bool, StoreError> {
         match (self, users) {
+            #[cfg(feature = "postgres")]
+            (PasswordStoreImpl::Postgres(passwords), UsersStoreImpl::Postgres(users)) => {
+                if !users.belongs_to(passwords) {
+                    return Err(StoreError::Permanent(
+                        "password and user stores are not co-located".into(),
+                    ));
+                }
+                users.commit_credential_change(mutation, owner).await
+            }
             (PasswordStoreImpl::Memory(passwords), UsersStoreImpl::Memory(users)) => {
                 passwords
                     .commit_credential_change(users, mutation, owner)
@@ -4577,6 +4606,15 @@ impl PasswordStoreImpl {
         owner: crate::ports::CredentialChangeOwner<'_>,
     ) -> Result<Option<u64>, StoreError> {
         match (self, users) {
+            #[cfg(feature = "postgres")]
+            (PasswordStoreImpl::Postgres(passwords), UsersStoreImpl::Postgres(users)) => {
+                if !users.belongs_to(passwords) {
+                    return Err(StoreError::Permanent(
+                        "password and user stores are not co-located".into(),
+                    ));
+                }
+                users.stage_admin_reset(mutation, owner).await
+            }
             (PasswordStoreImpl::Memory(passwords), UsersStoreImpl::Memory(users)) => {
                 passwords.stage_admin_reset(users, mutation, owner).await
             }
@@ -4601,6 +4639,17 @@ impl PasswordStoreImpl {
         updated_at: i64,
     ) -> Result<bool, StoreError> {
         match (self, users) {
+            #[cfg(feature = "postgres")]
+            (PasswordStoreImpl::Postgres(passwords), UsersStoreImpl::Postgres(users)) => {
+                if !users.belongs_to(passwords) {
+                    return Err(StoreError::Permanent(
+                        "password and user stores are not co-located".into(),
+                    ));
+                }
+                users
+                    .complete_admin_reset(tenant, user_id, expected_version, owner, updated_at)
+                    .await
+            }
             (PasswordStoreImpl::Memory(passwords), UsersStoreImpl::Memory(users)) => {
                 passwords
                     .complete_admin_reset(

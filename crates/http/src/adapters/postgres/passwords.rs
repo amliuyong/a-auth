@@ -1,7 +1,10 @@
 use super::{db_error, PostgresStore, PostgresUsersStore};
 use crate::ports::{PasswordCredential, PasswordStore, StoreError};
 use agent_auth_authn::password::EncodedPasswordHash;
-use sqlx::{postgres::PgRow, Row};
+use sqlx::{postgres::PgRow, Postgres, Row, Transaction};
+
+const COLUMNS: &str = "user_id, password_hash, must_change, revocation_pending, \
+    credential_change_id, version::TEXT AS version, updated_at";
 
 fn decode(row: PgRow) -> Result<PasswordCredential, StoreError> {
     let encoded: String = row.try_get("password_hash").map_err(db_error)?;
@@ -33,17 +36,76 @@ fn next_version(expected: u64) -> Result<u64, StoreError> {
         .ok_or_else(|| StoreError::Permanent("Password version exhausted".into()))
 }
 
+impl PostgresStore {
+    pub(super) async fn lock_password(
+        transaction: &mut Transaction<'_, Postgres>,
+        tenant: &str,
+        user_id: &str,
+    ) -> Result<Option<PasswordCredential>, StoreError> {
+        sqlx::query(&format!(
+            "SELECT {COLUMNS} FROM a_auth.password_credentials \
+             WHERE tenant = $1 AND user_id = $2 FOR UPDATE"
+        ))
+        .bind(tenant)
+        .bind(user_id)
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(db_error)?
+        .map(decode)
+        .transpose()
+    }
+
+    pub(super) async fn write_password(
+        transaction: &mut Transaction<'_, Postgres>,
+        tenant: &str,
+        credential: &PasswordCredential,
+        expected_version: Option<u64>,
+    ) -> Result<bool, StoreError> {
+        let statement = if expected_version.is_some() {
+            "UPDATE a_auth.password_credentials SET password_hash = $3, \
+             must_change = $4, revocation_pending = $5, credential_change_id = $6, \
+             version = $7::TEXT::NUMERIC, updated_at = $8 \
+             WHERE tenant = $1 AND user_id = $2 AND version = $9::TEXT::NUMERIC"
+        } else {
+            "INSERT INTO a_auth.password_credentials \
+             (tenant, user_id, password_hash, must_change, revocation_pending, \
+              credential_change_id, version, updated_at) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7::TEXT::NUMERIC, $8) \
+             ON CONFLICT (tenant, user_id) DO NOTHING"
+        };
+        let query = sqlx::query(statement)
+            .bind(tenant)
+            .bind(&credential.user_id)
+            .bind(credential.password_hash.expose())
+            .bind(credential.must_change)
+            .bind(credential.revocation_pending)
+            .bind(
+                credential
+                    .credential_change_id
+                    .as_deref()
+                    .map(str::as_bytes),
+            )
+            .bind(credential.version.to_string())
+            .bind(credential.updated_at);
+        let query = if let Some(version) = expected_version {
+            query.bind(version.to_string())
+        } else {
+            query
+        };
+        let result = query.execute(&mut **transaction).await.map_err(db_error)?;
+        Ok(result.rows_affected() == 1)
+    }
+}
+
 impl PasswordStore for PostgresStore {
     async fn get(
         &self,
         tenant: &str,
         user_id: &str,
     ) -> Result<Option<PasswordCredential>, StoreError> {
-        sqlx::query(
-            "SELECT user_id, password_hash, must_change, revocation_pending, \
-             credential_change_id, version::TEXT AS version, updated_at \
-             FROM a_auth.password_credentials WHERE tenant = $1 AND user_id = $2",
-        )
+        sqlx::query(&format!(
+            "SELECT {COLUMNS} FROM a_auth.password_credentials WHERE tenant = $1 AND user_id = $2"
+        ))
         .bind(tenant)
         .bind(user_id)
         .fetch_optional(&self.pool)

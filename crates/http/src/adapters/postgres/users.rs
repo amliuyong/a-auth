@@ -12,8 +12,10 @@ use std::{collections::BTreeMap, sync::Arc};
 use zeroize::Zeroizing;
 
 mod attribute_authority;
+mod code_authority;
 mod federation_authority;
 mod invitations;
+mod password_authority;
 mod record;
 mod scim;
 pub use invitations::PostgresInvitationStore;

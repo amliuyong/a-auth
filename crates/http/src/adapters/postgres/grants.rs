@@ -3,6 +3,46 @@ use crate::ports::{GrantStore, StoreError};
 use agent_auth_grant::Grant;
 use sqlx::types::Json;
 
+impl PostgresStore {
+    pub(crate) async fn put_grant_for_active_client(
+        &self,
+        tenant: &str,
+        grant: Grant,
+    ) -> Result<bool, StoreError> {
+        let mut transaction = self.pool.begin().await.map_err(db_error)?;
+        let Some(mut client) =
+            Self::lock_client(&mut transaction, tenant, &grant.client_id).await?
+        else {
+            return Ok(false);
+        };
+        let today = crate::current_unix_secs().div_euclid(86_400);
+        if client.is_tombstoned() || client.last_used_day.is_some_and(|day| day > today) {
+            return Ok(false);
+        }
+        client.authority_revision = client
+            .authority_revision
+            .checked_add(1)
+            .ok_or_else(|| StoreError::Permanent("Client authority revision exhausted".into()))?;
+        client.last_used_day = Some(today);
+        Self::persist_client(&mut transaction, tenant, &client).await?;
+        sqlx::query(
+            "INSERT INTO a_auth.grants (tenant, grant_id, user_id, client_id, record) \
+             VALUES ($1, $2, $3, $4, $5) ON CONFLICT (tenant, grant_id) DO UPDATE \
+             SET user_id = EXCLUDED.user_id, client_id = EXCLUDED.client_id, record = EXCLUDED.record",
+        )
+        .bind(tenant)
+        .bind(&grant.grant_id)
+        .bind(&grant.user_id)
+        .bind(&grant.client_id)
+        .bind(Json(&grant))
+        .execute(&mut *transaction)
+        .await
+        .map_err(db_error)?;
+        transaction.commit().await.map_err(db_error)?;
+        Ok(true)
+    }
+}
+
 impl GrantStore for PostgresStore {
     async fn put(&self, tenant: &str, grant: Grant) -> Result<(), StoreError> {
         sqlx::query(

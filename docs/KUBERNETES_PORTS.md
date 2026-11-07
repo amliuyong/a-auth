@@ -22,12 +22,12 @@ it does not establish native KMS acceptance.
 | Trait | PostgreSQL authority and relevant conditions |
 | --- | --- |
 | `ParStore` | Tenant-scoped atomic consume, application expiry |
-| `CodeStore` | Create-once, client authority revision, owner-fenced signing lease, failed-exchange transaction |
-| `ClientStore` | Credential metadata CAS, active/retired authority, reclaim audit |
+| `CodeStore` | Create-once, user epoch/status-authorized issuance, client authority revision, owner-fenced signing lease, failed-exchange transaction |
+| `ClientStore` | Complete typed authority and physical identity validation, credential metadata CAS, active/retired authority, reclaim audit |
 | `InitialAccessTokenStore` | Bound issue limit, expiry, one-time consumption |
 | `RefreshStore` | Family create-once, client authority revision, lease owner/version CAS, revocation |
 | `ReplayStore` | Tenant-scoped conditional admission and expiry boundary |
-| `GrantStore` | Revision CAS, revocation monotonicity, credential epoch predicates |
+| `GrantStore` | Active-client-fenced admission and usage/revision transaction, revision CAS, revocation monotonicity, credential epoch predicates |
 | `PolicyVersionStore` | Atomic increment with exhaustion guard |
 | `PolicyArtifactStore` | Immutable version, identical retry |
 | `JtiStore` | Root/delegation namespaces, immutable delegated authority, monotonic revoke |
@@ -42,7 +42,7 @@ it does not establish native KMS acceptance.
 | `DeviceStore` | Tenant-scoped user-code lookup, field CAS for polling/decision/consumption |
 | `AdminAuthStore` | Config revision CAS, create-once hashed flows/sessions, tenant cleanup transaction |
 | [`AttributeNamespaceStore`](../crates/http/src/attribute_namespace.rs) | Tenant-locked exact-audience claims, migration revision CAS, durable cancellation receipts and burned operation IDs |
-| `PasswordStore` | Separate validated PHC hashes, version CAS, temporary/pending predicates and exhaustion rejection |
+| `PasswordStore` | Separate validated PHC hashes, operation-owned enrollment/rotation and administrator reset transactions, version CAS, temporary/pending predicates and exhaustion rejection |
 | `GraceStore` | Per-record encrypted responses, authenticated family/version/expiry, external key rotation and delete-only capability |
 | [`SecurityEventStore`](../crates/http/src/security_event.rs) | Immutable typed events, idempotent admission, atomic source-history reconciliation and tenant/time pagination |
 | [`FederationAttributeMappingsStore`](../crates/http/src/federation_attributes.rs) | Tenant-locked registry/mapping CAS, unique enabled target owners, permanent retired IDs and validated snapshots |
