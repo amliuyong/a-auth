@@ -24,6 +24,7 @@ mod policy;
 mod rate_limits;
 mod refresh;
 mod replay;
+mod security_events;
 mod workload_trust;
 
 pub use codes::ExchangeFailureRequest;

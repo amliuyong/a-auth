@@ -85,14 +85,15 @@ The `postgres` feature currently provides `PostgresStore` implementations for
 `JtiStore`, `AuthzSessionStore`, `RateLimitStore`, `FederationConfigStore`,
 `FederationFlowStore`, `MagicLinkStore`, `WorkloadTrustStore`, `DomainMapStore`,
 `PasskeyChallengeStore`, `DeviceStore`, `AdminAuthStore`,
-`AttributeNamespaceStore`, and `PasswordStore`. `PostgresGraceStore` implements
+`AttributeNamespaceStore`, `PasswordStore`, and `SecurityEventStore`.
+`PostgresGraceStore` implements
 `GraceStore` with an explicit external encryption key ring or a delete-only
-capability. Twenty-three embedded forward
+capability. Twenty-four embedded forward
 migrations create their authority tables and credential-free client reclaim
 audit metadata.
 
-The current shared suite passes 79 cases: twenty-three contracts run through each of
-the memory, AWS, and PostgreSQL adapters, plus ten PostgreSQL-specific
+The current shared suite passes 83 cases: twenty-four contracts run through each of
+the memory, AWS, and PostgreSQL adapters, plus eleven PostgreSQL-specific
 transaction/durability cases. AWS adapters run against a loopback DynamoDB
 emulator; PostgreSQL adapters run against PostgreSQL 16. This does not establish
 native AWS deployment acceptance.
@@ -141,6 +142,18 @@ The helper rejects a grace instance from another store pool. Production state
 dispatch has not selected this transaction yet.
 An expired real lease cannot be extended using a stale caller timestamp;
 finalization checks the clock after acquiring the family row lock.
+Security events use a global immutable event ID and validated typed envelope.
+Sixteen concurrent admissions create one row. Duplicate ingress atomically
+reconciles a compatible source-history suffix with the current delivery view;
+older or equivalent retries contribute no additional attempts or transitions.
+An injected update failure rolls back both delivery and its source receipt.
+Late source evidence reopens an archived delivery for refresh without claiming
+that an archive object was written. Tenant/time export skips corrupt rows with
+`SECURITY_EVENT_INVALID` diagnostics and continues pagination through valid
+neighbors; duplicate writes against corrupt authority still fail closed.
+The memory adapter now applies the same source-history merge, following a
+reproduced shared-contract failure. Durable fallback ingestion, archive workers
+and their multiple-worker acceptance remain pending.
 Cross-table tests check that code/family creation updates the client authority
 revision atomically, that failed conditions roll back the new row, and that
 duplicate creation cannot resurrect consumed codes or revoked families.
@@ -180,7 +193,9 @@ The grace contract also reproduced memory cleanup deleting another family
 whose name shared a prefix. Cleanup now compares the exact family identity.
 
 Current local validation passes 680 HTTP library tests with both
-`postgres` and `aws`, and 114 code-flow/refresh/revocation HTTP regressions.
+`postgres` and `aws`, and 31 security-event/SCIM HTTP regressions.
+The grace increment `f5bdb5c7e64010b6beff5589804534a172538ad4` passed
+114 code-flow/refresh/revocation HTTP regressions and hosted CI.
 The password increment `f1b8604343396c7223174742937414c08c97f04d` passed
 76 password login, account credential, credential lifecycle and
 administrator-user regression tests. The preceding namespace
