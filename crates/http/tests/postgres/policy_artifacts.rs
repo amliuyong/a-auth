@@ -82,7 +82,10 @@ async fn memory_policy_artifact_contract() {
 
 #[tokio::test]
 async fn postgres_policy_artifact_contract() {
-    artifact_contract(database().await).await;
+    artifact_contract(agent_auth_http::state::PolicyArtifactStoreImpl::Postgres(
+        database().await,
+    ))
+    .await;
 }
 
 #[cfg(feature = "aws")]

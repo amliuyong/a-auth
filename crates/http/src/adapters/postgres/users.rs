@@ -11,6 +11,8 @@ use sqlx::{Postgres, Row, Transaction};
 use std::{collections::BTreeMap, sync::Arc};
 use zeroize::Zeroizing;
 
+mod attribute_authority;
+mod federation_authority;
 mod invitations;
 mod record;
 mod scim;
@@ -520,69 +522,17 @@ impl UsersStore for PostgresUsersStore {
         expected_revision: u64,
     ) -> Result<PutAttrOutcome, StoreError> {
         let mut transaction = self.base.pool.begin().await.map_err(db_error)?;
-        let Some(mut user) = Self::lock_user(&mut transaction, tenant, user_id).await? else {
-            return Ok(PutAttrOutcome::NotFound);
-        };
-        if user.record.status == UserStatus::Tombstoned {
-            return Ok(PutAttrOutcome::Tombstoned);
-        }
-        let current = user
-            .record
-            .attributes
-            .get(namespace)
-            .map_or(0, |attrs| attrs.revision);
-        if current != expected_revision {
-            if expected_revision.checked_add(1) == Some(current)
-                && user
-                    .record
-                    .attributes
-                    .get(namespace)
-                    .is_some_and(|attrs| attrs.kv == kv)
-            {
-                return Ok(PutAttrOutcome::Ok { revision: current });
-            }
-            return Ok(PutAttrOutcome::RevisionConflict { current });
-        }
-        let owners = user
-            .record
-            .attributes
-            .get(namespace)
-            .map(|attrs| attrs.federation_owners.clone())
-            .unwrap_or_default();
-        if owners.keys().any(|key| {
-            user.record
-                .attributes
-                .get(namespace)
-                .and_then(|attrs| attrs.kv.get(key))
-                != kv.get(key)
-        }) {
-            return Ok(PutAttrOutcome::OwnershipConflict);
-        }
-        let generation = user
-            .record
-            .attributes_generation
-            .checked_add(1)
-            .ok_or_else(|| StoreError::Permanent("User attribute generation exhausted".into()))?;
-        let revision = current
-            .checked_add(1)
-            .ok_or_else(|| StoreError::Permanent("User attribute revision exhausted".into()))?;
-        let mut attributes = user.record.attributes.clone();
-        attributes.insert(
-            namespace.into(),
-            NamespaceAttrs {
-                revision,
-                kv,
-                federation_owners: owners,
-            },
-        );
-        if crate::user_attributes::attributes_serialized_len(&attributes) > ATTRIBUTES_MAX_BYTES {
-            return Ok(PutAttrOutcome::TooLarge);
-        }
-        user.record.attributes = attributes;
-        user.record.attributes_generation = generation;
-        Self::write_user(&mut transaction, tenant, &user, false).await?;
+        let outcome = Self::put_attributes_in_transaction(
+            &mut transaction,
+            tenant,
+            user_id,
+            namespace,
+            kv,
+            expected_revision,
+        )
+        .await?;
         transaction.commit().await.map_err(db_error)?;
-        Ok(PutAttrOutcome::Ok { revision })
+        Ok(outcome)
     }
 
     async fn migrate_attributes(
@@ -749,6 +699,72 @@ fn invalid_cursor() -> StoreError {
 impl PostgresUsersStore {
     pub fn new(base: PostgresStore, key: UserAuthorityKey) -> Self {
         Self { base, key }
+    }
+
+    pub(crate) fn belongs_to(&self, store: &PostgresStore) -> bool {
+        self.base.shares_pool_with(store)
+    }
+
+    pub(crate) async fn begin_admin_credential_change(
+        &self,
+        tenant: &str,
+        user_id: &str,
+        expected_epoch: u64,
+        operation_id: &str,
+        now: i64,
+    ) -> Result<CredentialChangeStart, StoreError> {
+        let epoch = expected_epoch
+            .checked_add(1)
+            .ok_or_else(|| StoreError::Permanent("User credential epoch exhausted".into()))?;
+        let mut transaction = self.base.pool.begin().await.map_err(db_error)?;
+        let Some(mut user) = Self::lock_user(&mut transaction, tenant, user_id).await? else {
+            return Ok(CredentialChangeStart::NotFound);
+        };
+        if user.record.revocation_pending
+            && user.record.credential_epoch == epoch
+            && user.operation_id.as_deref() == Some(operation_id)
+        {
+            return Ok(CredentialChangeStart::Started { epoch });
+        }
+        if user.record.status == UserStatus::Tombstoned {
+            return Ok(CredentialChangeStart::Ineligible);
+        }
+        if user.record.revocation_pending || user.record.credential_epoch != expected_epoch {
+            return Ok(CredentialChangeStart::ConcurrentChange);
+        }
+        user.record.credential_epoch = epoch;
+        user.record.revocation_pending = true;
+        user.record.updated_at = now;
+        user.operation_id = Some(operation_id.into());
+        Self::write_user(&mut transaction, tenant, &user, false).await?;
+        transaction.commit().await.map_err(db_error)?;
+        Ok(CredentialChangeStart::Started { epoch })
+    }
+
+    pub(crate) async fn abort_admin_credential_change(
+        &self,
+        tenant: &str,
+        user_id: &str,
+        owner: CredentialChangeOwner<'_>,
+        now: i64,
+    ) -> Result<bool, StoreError> {
+        let mut transaction = self.base.pool.begin().await.map_err(db_error)?;
+        let Some(mut user) = Self::lock_user(&mut transaction, tenant, user_id).await? else {
+            return Ok(false);
+        };
+        if user.record.status == UserStatus::Tombstoned
+            || !user.record.revocation_pending
+            || user.record.credential_epoch != owner.epoch
+            || user.operation_id.as_deref() != Some(owner.operation_id)
+        {
+            return Ok(false);
+        }
+        user.record.revocation_pending = false;
+        user.record.updated_at = now;
+        user.operation_id = None;
+        Self::write_user(&mut transaction, tenant, &user, false).await?;
+        transaction.commit().await.map_err(db_error)?;
+        Ok(true)
     }
 
     fn authority_mac(&self) -> Hmac<Sha256> {

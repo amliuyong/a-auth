@@ -60,7 +60,7 @@ impl PostgresStore {
         }
     }
 
-    async fn persist_mapping_catalog(
+    pub(super) async fn persist_mapping_catalog(
         transaction: &mut Transaction<'_, Postgres>,
         tenant: &str,
         catalog: &MappingCatalog,

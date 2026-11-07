@@ -93,7 +93,10 @@ async fn memory_domain_map_contract() {
 
 #[tokio::test]
 async fn postgres_domain_map_contract() {
-    domain_map_contract(database().await).await;
+    domain_map_contract(agent_auth_http::state::DomainMapStoreImpl::Postgres(
+        database().await,
+    ))
+    .await;
 }
 
 #[cfg(feature = "aws")]

@@ -1159,8 +1159,8 @@ async fn authorize_fails_closed_when_authorization_session_creation_fails() {
     let session = login_session(&router, "alice@example.com").await;
     match state.authz_sessions.as_ref() {
         AuthzSessionStoreImpl::Memory(store) => store.fail_next_create(),
-        #[cfg(feature = "aws")]
-        AuthzSessionStoreImpl::Dynamo(_) => unreachable!("dev state uses the memory store"),
+        #[cfg(any(feature = "aws", feature = "postgres"))]
+        _ => unreachable!("dev state uses the memory store"),
     }
 
     let response = router

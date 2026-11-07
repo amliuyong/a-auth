@@ -97,8 +97,8 @@ fn memory_user_plane(
     };
     let grace = match state.grace.as_deref() {
         Some(GraceStoreImpl::Memory(grace)) => Some(grace),
-        #[cfg(feature = "aws")]
-        Some(GraceStoreImpl::Dynamo(_)) => return Err(backend_mismatch("Memory")),
+        #[cfg(any(feature = "aws", feature = "postgres"))]
+        Some(_) => return Err(backend_mismatch("Memory")),
         None => None,
     };
     let PasskeyChallengeStoreImpl::Memory(passkey_challenges) = state.passkey_challenges.as_ref()
@@ -113,8 +113,8 @@ fn memory_user_plane(
     };
     let jtis = match state.jti_store.as_deref() {
         Some(JtiStoreImpl::Memory(jtis)) => Some(jtis),
-        #[cfg(feature = "aws")]
-        Some(JtiStoreImpl::Dynamo(_)) => return Err(backend_mismatch("Memory")),
+        #[cfg(any(feature = "aws", feature = "postgres"))]
+        Some(_) => return Err(backend_mismatch("Memory")),
         None => None,
     };
     let CibaStoreImpl::Memory(ciba) = state.ciba.as_ref() else {
@@ -215,7 +215,7 @@ fn dynamo_user_plane(state: &AppState) -> Result<DynamoUserPlane<'_>, StoreError
     };
     let grace = match state.grace.as_deref() {
         Some(GraceStoreImpl::Dynamo(grace)) => Some(grace),
-        Some(GraceStoreImpl::Memory(_)) => return Err(backend_mismatch("Dynamo")),
+        Some(_) => return Err(backend_mismatch("Dynamo")),
         None => None,
     };
     let PasskeyChallengeStoreImpl::Dynamo(passkey_challenges) = state.passkey_challenges.as_ref()
@@ -230,7 +230,7 @@ fn dynamo_user_plane(state: &AppState) -> Result<DynamoUserPlane<'_>, StoreError
     };
     let jtis = match state.jti_store.as_deref() {
         Some(JtiStoreImpl::Dynamo(jtis)) => Some(jtis),
-        Some(JtiStoreImpl::Memory(_)) => return Err(backend_mismatch("Dynamo")),
+        Some(_) => return Err(backend_mismatch("Dynamo")),
         None => None,
     };
     let CibaStoreImpl::Dynamo(ciba) = state.ciba.as_ref() else {
@@ -297,6 +297,10 @@ pub(crate) async fn fence_user_identity(
     now: i64,
 ) -> Result<Option<UserRecord>, StoreError> {
     match state.governance.as_ref() {
+        #[cfg(feature = "postgres")]
+        GovernanceStoreImpl::Postgres(_) => Err(StoreError::Permanent(
+            "PostgreSQL governance data transaction is not wired".into(),
+        )),
         GovernanceStoreImpl::Memory(_) => {
             memory_user_plane(state)?
                 .fence_identity(logical_tenant, data_tenant, user_id, fence, now)
@@ -334,6 +338,10 @@ pub(crate) async fn cleanup_user_authority(
     now: i64,
 ) -> Result<u64, StoreError> {
     match state.governance.as_ref() {
+        #[cfg(feature = "postgres")]
+        GovernanceStoreImpl::Postgres(_) => Err(StoreError::Permanent(
+            "PostgreSQL governance data transaction is not wired".into(),
+        )),
         GovernanceStoreImpl::Memory(_) => {
             memory_user_plane(state)?
                 .cleanup_user(
@@ -617,6 +625,10 @@ pub(crate) async fn delete_user_identity(
     now: i64,
 ) -> Result<bool, StoreError> {
     match state.governance.as_ref() {
+        #[cfg(feature = "postgres")]
+        GovernanceStoreImpl::Postgres(_) => Err(StoreError::Permanent(
+            "PostgreSQL governance data transaction is not wired".into(),
+        )),
         GovernanceStoreImpl::Memory(_) => {
             memory_user_plane(state)?
                 .delete_identity(logical_tenant, data_tenant, user_id, fence, now)
@@ -654,6 +666,10 @@ pub(crate) async fn inventory_user_authority(
     aliases: &[GovernanceTargetAlias],
 ) -> Result<GovernanceInventory, StoreError> {
     match state.governance.as_ref() {
+        #[cfg(feature = "postgres")]
+        GovernanceStoreImpl::Postgres(_) => Err(StoreError::Permanent(
+            "PostgreSQL governance data transaction is not wired".into(),
+        )),
         GovernanceStoreImpl::Memory(_) => Ok(GovernanceInventory {
             live_counts: memory_user_plane(state)?
                 .inventory_user(logical_tenant, data_tenant, user_id, &alias_values(aliases))
@@ -896,8 +912,8 @@ fn memory_tenant_plane(
     };
     let grace = match state.grace.as_deref() {
         Some(GraceStoreImpl::Memory(grace)) => Some(grace),
-        #[cfg(feature = "aws")]
-        Some(GraceStoreImpl::Dynamo(_)) => return Err(backend_mismatch("Memory")),
+        #[cfg(any(feature = "aws", feature = "postgres"))]
+        Some(_) => return Err(backend_mismatch("Memory")),
         None => None,
     };
     let PasskeyChallengeStoreImpl::Memory(passkey_challenges) = state.passkey_challenges.as_ref()
@@ -909,8 +925,8 @@ fn memory_tenant_plane(
     };
     let jtis = match state.jti_store.as_deref() {
         Some(JtiStoreImpl::Memory(jtis)) => Some(jtis),
-        #[cfg(feature = "aws")]
-        Some(JtiStoreImpl::Dynamo(_)) => return Err(backend_mismatch("Memory")),
+        #[cfg(any(feature = "aws", feature = "postgres"))]
+        Some(_) => return Err(backend_mismatch("Memory")),
         None => None,
     };
     let PasswordStoreImpl::Memory(passwords) = state.passwords.as_ref() else {
@@ -939,8 +955,8 @@ fn memory_tenant_plane(
     };
     let replay = match state.replay_store.as_deref() {
         Some(ReplayStoreImpl::Memory(replay)) => Some(replay),
-        #[cfg(feature = "aws")]
-        Some(ReplayStoreImpl::Dynamo(_)) => return Err(backend_mismatch("Memory")),
+        #[cfg(any(feature = "aws", feature = "postgres"))]
+        Some(_) => return Err(backend_mismatch("Memory")),
         None => None,
     };
     let AuthzSessionStoreImpl::Memory(authz_sessions) = state.authz_sessions.as_ref() else {
@@ -960,8 +976,8 @@ fn memory_tenant_plane(
     };
     let rate_limit = match state.rate_limit.as_deref() {
         Some(RateLimitStoreImpl::Memory(rate_limit)) => Some(rate_limit),
-        #[cfg(feature = "aws")]
-        Some(RateLimitStoreImpl::Dynamo(_)) => return Err(backend_mismatch("Memory")),
+        #[cfg(any(feature = "aws", feature = "postgres"))]
+        Some(_) => return Err(backend_mismatch("Memory")),
         None => None,
     };
     let SsfStoreImpl::Memory(ssf) = state.ssf.as_ref() else {
@@ -1090,7 +1106,7 @@ fn dynamo_tenant_plane(state: &AppState) -> Result<DynamoTenantPlane<'_>, StoreE
     };
     let grace = match state.grace.as_deref() {
         Some(GraceStoreImpl::Dynamo(grace)) => Some(grace),
-        Some(GraceStoreImpl::Memory(_)) => return Err(backend_mismatch("Dynamo")),
+        Some(_) => return Err(backend_mismatch("Dynamo")),
         None => None,
     };
     let PasskeyChallengeStoreImpl::Dynamo(passkey_challenges) = state.passkey_challenges.as_ref()
@@ -1102,7 +1118,7 @@ fn dynamo_tenant_plane(state: &AppState) -> Result<DynamoTenantPlane<'_>, StoreE
     };
     let jtis = match state.jti_store.as_deref() {
         Some(JtiStoreImpl::Dynamo(jtis)) => Some(jtis),
-        Some(JtiStoreImpl::Memory(_)) => return Err(backend_mismatch("Dynamo")),
+        Some(_) => return Err(backend_mismatch("Dynamo")),
         None => None,
     };
     let PasswordStoreImpl::Dynamo(passwords) = state.passwords.as_ref() else {
@@ -1131,7 +1147,7 @@ fn dynamo_tenant_plane(state: &AppState) -> Result<DynamoTenantPlane<'_>, StoreE
     };
     let replay = match state.replay_store.as_deref() {
         Some(ReplayStoreImpl::Dynamo(replay)) => Some(replay),
-        Some(ReplayStoreImpl::Memory(_)) => return Err(backend_mismatch("Dynamo")),
+        Some(_) => return Err(backend_mismatch("Dynamo")),
         None => None,
     };
     let AuthzSessionStoreImpl::Dynamo(authz_sessions) = state.authz_sessions.as_ref() else {
@@ -1151,7 +1167,7 @@ fn dynamo_tenant_plane(state: &AppState) -> Result<DynamoTenantPlane<'_>, StoreE
     };
     let rate_limit = match state.rate_limit.as_deref() {
         Some(RateLimitStoreImpl::Dynamo(rate_limit)) => Some(rate_limit),
-        Some(RateLimitStoreImpl::Memory(_)) => return Err(backend_mismatch("Dynamo")),
+        Some(_) => return Err(backend_mismatch("Dynamo")),
         None => None,
     };
     let SsfStoreImpl::Dynamo(ssf) = state.ssf.as_ref() else {
@@ -1204,6 +1220,10 @@ pub(crate) async fn cleanup_tenant_stage(
     now: i64,
 ) -> Result<u64, StoreError> {
     match state.governance.as_ref() {
+        #[cfg(feature = "postgres")]
+        GovernanceStoreImpl::Postgres(_) => Err(StoreError::Permanent(
+            "PostgreSQL governance data transaction is not wired".into(),
+        )),
         GovernanceStoreImpl::Memory(_) => {
             memory_tenant_plane(state)?
                 .cleanup_stage(logical_tenant, data_tenant, stage, fence, now)
@@ -1700,6 +1720,10 @@ pub(crate) async fn inventory_tenant_authority(
     data_tenant: &str,
 ) -> Result<GovernanceInventory, StoreError> {
     match state.governance.as_ref() {
+        #[cfg(feature = "postgres")]
+        GovernanceStoreImpl::Postgres(_) => Err(StoreError::Permanent(
+            "PostgreSQL governance data transaction is not wired".into(),
+        )),
         GovernanceStoreImpl::Memory(_) => {
             let mut inventory = memory_tenant_plane(state)?
                 .inventory_tenant(logical_tenant, data_tenant)
@@ -1732,6 +1756,10 @@ pub(crate) async fn first_tenant_user(
     data_tenant: &str,
 ) -> Result<Option<UserRecord>, StoreError> {
     match state.governance.as_ref() {
+        #[cfg(feature = "postgres")]
+        GovernanceStoreImpl::Postgres(_) => Err(StoreError::Permanent(
+            "PostgreSQL governance data transaction is not wired".into(),
+        )),
         GovernanceStoreImpl::Memory(_) => Ok(memory_user_plane(state)?
             .users
             .list(

@@ -327,7 +327,10 @@ async fn memory_federation_config_contract() {
 }
 #[tokio::test]
 async fn postgres_federation_config_contract() {
-    federation_config_contract(database().await).await;
+    federation_config_contract(agent_auth_http::state::FederationConfigStoreImpl::Postgres(
+        database().await,
+    ))
+    .await;
 }
 #[tokio::test]
 async fn memory_federation_flow_contract() {
@@ -335,7 +338,10 @@ async fn memory_federation_flow_contract() {
 }
 #[tokio::test]
 async fn postgres_federation_flow_contract() {
-    federation_flow_contract(database().await).await;
+    federation_flow_contract(agent_auth_http::state::FederationFlowStoreImpl::Postgres(
+        database().await,
+    ))
+    .await;
 }
 #[tokio::test]
 async fn memory_magic_link_contract() {
@@ -343,7 +349,10 @@ async fn memory_magic_link_contract() {
 }
 #[tokio::test]
 async fn postgres_magic_link_contract() {
-    magic_link_contract(database().await).await;
+    magic_link_contract(agent_auth_http::state::MagicLinkStoreImpl::Postgres(
+        database().await,
+    ))
+    .await;
 }
 #[tokio::test]
 async fn memory_workload_trust_contract() {
@@ -351,7 +360,10 @@ async fn memory_workload_trust_contract() {
 }
 #[tokio::test]
 async fn postgres_workload_trust_contract() {
-    workload_trust_contract(database().await).await;
+    workload_trust_contract(agent_auth_http::state::WorkloadTrustStoreImpl::Postgres(
+        database().await,
+    ))
+    .await;
 }
 
 #[cfg(feature = "aws")]

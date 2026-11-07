@@ -160,7 +160,11 @@ async fn postgres_outbox_contract() {
         database().await,
         EncryptionKeyring::new("outbox-key", vec![("outbox-key".into(), [0x61; 32])]).unwrap(),
     );
-    outbox_contract(store.clone(), ObservedNotificationFixture(store)).await;
+    outbox_contract(
+        agent_auth_http::state::MessageOutboxImpl::Postgres(store.clone()),
+        ObservedNotificationFixture(store),
+    )
+    .await;
 }
 
 #[cfg(feature = "aws")]

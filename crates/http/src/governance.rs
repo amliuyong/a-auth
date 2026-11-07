@@ -933,6 +933,8 @@ pub enum GovernanceEvidencePutOutcome {
 
 #[derive(Clone)]
 pub enum GovernanceStoreImpl {
+    #[cfg(feature = "postgres")]
+    Postgres(crate::adapters::postgres::PostgresGovernanceStore),
     Memory(crate::adapters::memory::MemoryGovernanceStore),
     #[cfg(feature = "aws")]
     Dynamo(crate::adapters::aws::DynamoGovernanceStore),
@@ -966,6 +968,10 @@ impl GovernanceStore for GovernanceStoreImpl {
         now: i64,
     ) -> Result<TenantMutationPermitAcquireOutcome, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                GovernanceStore::acquire_tenant_mutation_permit(store, permit, now).await
+            }
             Self::Memory(store) => store.acquire_tenant_mutation_permit(permit, now).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.acquire_tenant_mutation_permit(permit, now).await,
@@ -979,6 +985,10 @@ impl GovernanceStore for GovernanceStoreImpl {
         deadline: i64,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                GovernanceStore::renew_tenant_mutation_permit(store, permit, now, deadline).await
+            }
             Self::Memory(store) => {
                 store
                     .renew_tenant_mutation_permit(permit, now, deadline)
@@ -999,6 +1009,10 @@ impl GovernanceStore for GovernanceStoreImpl {
         now: i64,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                GovernanceStore::release_tenant_mutation_permit(store, permit, now).await
+            }
             Self::Memory(store) => store.release_tenant_mutation_permit(permit, now).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.release_tenant_mutation_permit(permit, now).await,
@@ -1010,6 +1024,8 @@ impl GovernanceStore for GovernanceStoreImpl {
         tenant_id: &str,
     ) -> Result<Option<GovernancePolicyRecord>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => GovernanceStore::get_policy(store, tenant_id).await,
             Self::Memory(store) => store.get_policy(tenant_id).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.get_policy(tenant_id).await,
@@ -1022,6 +1038,10 @@ impl GovernanceStore for GovernanceStoreImpl {
         expected_revision: u64,
     ) -> Result<GovernancePolicyPutOutcome, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                GovernanceStore::put_policy(store, record, expected_revision).await
+            }
             Self::Memory(store) => store.put_policy(record, expected_revision).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.put_policy(record, expected_revision).await,
@@ -1033,6 +1053,8 @@ impl GovernanceStore for GovernanceStoreImpl {
         manifest: GovernanceExportManifest,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => GovernanceStore::put_export_manifest(store, manifest).await,
             Self::Memory(store) => store.put_export_manifest(manifest).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.put_export_manifest(manifest).await,
@@ -1046,6 +1068,10 @@ impl GovernanceStore for GovernanceStoreImpl {
         now: i64,
     ) -> Result<Option<GovernanceExportManifest>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                GovernanceStore::get_export_manifest(store, tenant_id, export_id, now).await
+            }
             Self::Memory(store) => store.get_export_manifest(tenant_id, export_id, now).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.get_export_manifest(tenant_id, export_id, now).await,
@@ -1059,6 +1085,16 @@ impl GovernanceStore for GovernanceStoreImpl {
         freeze_tenant: bool,
     ) -> Result<GovernanceJobStartOutcome, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                GovernanceStore::start_or_resume_job(
+                    store,
+                    job,
+                    expected_policy_revision,
+                    freeze_tenant,
+                )
+                .await
+            }
             Self::Memory(store) => {
                 store
                     .start_or_resume_job(job, expected_policy_revision, freeze_tenant)
@@ -1079,6 +1115,8 @@ impl GovernanceStore for GovernanceStoreImpl {
         job_id: &str,
     ) -> Result<Option<GovernanceJobRecord>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => GovernanceStore::get_job(store, tenant_id, job_id).await,
             Self::Memory(store) => store.get_job(tenant_id, job_id).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.get_job(tenant_id, job_id).await,
@@ -1087,6 +1125,8 @@ impl GovernanceStore for GovernanceStoreImpl {
 
     async fn list_jobs(&self, tenant_id: &str) -> Result<Vec<GovernanceJobRecord>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => GovernanceStore::list_jobs(store, tenant_id).await,
             Self::Memory(store) => store.list_jobs(tenant_id).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.list_jobs(tenant_id).await,
@@ -1099,6 +1139,10 @@ impl GovernanceStore for GovernanceStoreImpl {
         job_id: &str,
     ) -> Result<Option<GovernanceContinuationRecord>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                GovernanceStore::get_continuation(store, tenant_id, job_id).await
+            }
             Self::Memory(store) => store.get_continuation(tenant_id, job_id).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.get_continuation(tenant_id, job_id).await,
@@ -1111,6 +1155,10 @@ impl GovernanceStore for GovernanceStoreImpl {
         expected_revision: u64,
     ) -> Result<GovernanceContinuationUpdateOutcome, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                GovernanceStore::update_continuation(store, record, expected_revision).await
+            }
             Self::Memory(store) => store.update_continuation(record, expected_revision).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.update_continuation(record, expected_revision).await,
@@ -1126,6 +1174,18 @@ impl GovernanceStore for GovernanceStoreImpl {
         expires_at: i64,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                GovernanceStore::consume_continuation_resume(
+                    store,
+                    tenant_id,
+                    job_id,
+                    jti_digest,
+                    expected_resume_revision,
+                    expires_at,
+                )
+                .await
+            }
             Self::Memory(store) => {
                 store
                     .consume_continuation_resume(
@@ -1159,6 +1219,11 @@ impl GovernanceStore for GovernanceStoreImpl {
         expected_policy_revision: u64,
     ) -> Result<GovernanceJobUpdateOutcome, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                GovernanceStore::update_job(store, job, expected_revision, expected_policy_revision)
+                    .await
+            }
             Self::Memory(store) => {
                 store
                     .update_job(job, expected_revision, expected_policy_revision)
@@ -1181,6 +1246,17 @@ impl GovernanceStore for GovernanceStoreImpl {
         expected_policy_revision: u64,
     ) -> Result<GovernanceJobUpdateOutcome, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                GovernanceStore::complete_job_with_evidence(
+                    store,
+                    job,
+                    evidence,
+                    expected_revision,
+                    expected_policy_revision,
+                )
+                .await
+            }
             Self::Memory(store) => {
                 store
                     .complete_job_with_evidence(
@@ -1215,6 +1291,19 @@ impl GovernanceStore for GovernanceStoreImpl {
         deadline: i64,
     ) -> Result<GovernanceJobLeaseOutcome, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                GovernanceStore::claim_job_lease(
+                    store,
+                    tenant_id,
+                    job_id,
+                    expected_job_revision,
+                    token_digest,
+                    now,
+                    deadline,
+                )
+                .await
+            }
             Self::Memory(store) => {
                 store
                     .claim_job_lease(
@@ -1251,6 +1340,10 @@ impl GovernanceStore for GovernanceStoreImpl {
         deadline: i64,
     ) -> Result<GovernanceJobLeaseOutcome, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                GovernanceStore::renew_job_lease(store, tenant_id, fence, now, deadline).await
+            }
             Self::Memory(store) => store.renew_job_lease(tenant_id, fence, now, deadline).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.renew_job_lease(tenant_id, fence, now, deadline).await,
@@ -1263,6 +1356,10 @@ impl GovernanceStore for GovernanceStoreImpl {
         fence: GovernanceDestructiveFence,
     ) -> Result<GovernanceJobLeaseOutcome, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                GovernanceStore::release_job_lease(store, tenant_id, fence).await
+            }
             Self::Memory(store) => store.release_job_lease(tenant_id, fence).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.release_job_lease(tenant_id, fence).await,
@@ -1275,6 +1372,10 @@ impl GovernanceStore for GovernanceStoreImpl {
         now: i64,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                GovernanceStore::tenant_has_active_job_leases(store, tenant_id, now).await
+            }
             Self::Memory(store) => store.tenant_has_active_job_leases(tenant_id, now).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.tenant_has_active_job_leases(tenant_id, now).await,
@@ -1286,6 +1387,8 @@ impl GovernanceStore for GovernanceStoreImpl {
         tenant_id: &str,
     ) -> Result<Option<TenantLifecycleRecord>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => GovernanceStore::get_tenant_lifecycle(store, tenant_id).await,
             Self::Memory(store) => store.get_tenant_lifecycle(tenant_id).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.get_tenant_lifecycle(tenant_id).await,
@@ -1298,6 +1401,10 @@ impl GovernanceStore for GovernanceStoreImpl {
         fence: GovernanceExternalActionFence,
     ) -> Result<GovernanceExternalActionPutOutcome, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                GovernanceStore::prepare_external_action(store, record, fence).await
+            }
             Self::Memory(store) => store.prepare_external_action(record, fence).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.prepare_external_action(record, fence).await,
@@ -1311,6 +1418,10 @@ impl GovernanceStore for GovernanceStoreImpl {
         action_id: &str,
     ) -> Result<Option<GovernanceExternalActionRecord>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                GovernanceStore::get_external_action(store, tenant_id, job_id, action_id).await
+            }
             Self::Memory(store) => {
                 store
                     .get_external_action(tenant_id, job_id, action_id)
@@ -1331,6 +1442,10 @@ impl GovernanceStore for GovernanceStoreImpl {
         job_id: &str,
     ) -> Result<Vec<GovernanceExternalActionRecord>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                GovernanceStore::list_external_actions(store, tenant_id, job_id).await
+            }
             Self::Memory(store) => store.list_external_actions(tenant_id, job_id).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.list_external_actions(tenant_id, job_id).await,
@@ -1342,6 +1457,10 @@ impl GovernanceStore for GovernanceStoreImpl {
         tenant_id: &str,
     ) -> Result<Vec<GovernanceExternalActionRecord>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                GovernanceStore::list_tenant_external_actions(store, tenant_id).await
+            }
             Self::Memory(store) => store.list_tenant_external_actions(tenant_id).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.list_tenant_external_actions(tenant_id).await,
@@ -1355,6 +1474,11 @@ impl GovernanceStore for GovernanceStoreImpl {
         fence: GovernanceExternalActionFence,
     ) -> Result<GovernanceExternalActionUpdateOutcome, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                GovernanceStore::update_external_action(store, record, expected_revision, fence)
+                    .await
+            }
             Self::Memory(store) => {
                 store
                     .update_external_action(record, expected_revision, fence)
@@ -1376,6 +1500,11 @@ impl GovernanceStore for GovernanceStoreImpl {
         fence: GovernanceExternalActionReconcileFence,
     ) -> Result<GovernanceExternalActionUpdateOutcome, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                GovernanceStore::reconcile_external_action(store, record, expected_revision, fence)
+                    .await
+            }
             Self::Memory(store) => {
                 store
                     .reconcile_external_action(record, expected_revision, fence)
@@ -1395,6 +1524,8 @@ impl GovernanceStore for GovernanceStoreImpl {
         record: GovernanceEvidenceRecord,
     ) -> Result<GovernanceEvidencePutOutcome, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => GovernanceStore::put_evidence(store, record).await,
             Self::Memory(store) => store.put_evidence(record).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.put_evidence(record).await,
@@ -1407,6 +1538,10 @@ impl GovernanceStore for GovernanceStoreImpl {
         job_id: &str,
     ) -> Result<Option<GovernanceEvidenceRecord>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                GovernanceStore::latest_evidence(store, tenant_id, job_id).await
+            }
             Self::Memory(store) => store.latest_evidence(tenant_id, job_id).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.latest_evidence(tenant_id, job_id).await,
@@ -1420,6 +1555,10 @@ impl GovernanceStore for GovernanceStoreImpl {
         now: i64,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                GovernanceStore::put_suppression(store, record, fence, now).await
+            }
             Self::Memory(store) => store.put_suppression(record, fence, now).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.put_suppression(record, fence, now).await,
@@ -1433,6 +1572,10 @@ impl GovernanceStore for GovernanceStoreImpl {
         digest: &str,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                GovernanceStore::is_suppressed(store, tenant_id, target_class, digest).await
+            }
             Self::Memory(store) => store.is_suppressed(tenant_id, target_class, digest).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.is_suppressed(tenant_id, target_class, digest).await,
@@ -1446,6 +1589,11 @@ impl GovernanceStore for GovernanceStoreImpl {
         digest: &str,
     ) -> Result<Option<u64>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                GovernanceStore::latest_suppression_epoch(store, tenant_id, target_class, digest)
+                    .await
+            }
             Self::Memory(store) => {
                 store
                     .latest_suppression_epoch(tenant_id, target_class, digest)

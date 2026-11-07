@@ -379,7 +379,10 @@ async fn memory_scim_group_contract() {
 
 #[tokio::test]
 async fn postgres_scim_group_contract() {
-    group_contract(database().await).await;
+    group_contract(agent_auth_http::state::ScimGroupsStoreImpl::Postgres(
+        database().await,
+    ))
+    .await;
 }
 
 #[cfg(feature = "aws")]

@@ -536,7 +536,10 @@ async fn postgres_ssf_contract() {
     let (database, _pool, admin, name, _url) = isolated_database().await;
     let keys = EncryptionKeyring::new("fixture-ssf-v1", vec![("fixture-ssf-v1".into(), [41; 32])])
         .unwrap();
-    ssf_contract(PostgresSsfStore::new(database, keys)).await;
+    ssf_contract(agent_auth_http::state::SsfStoreImpl::Postgres(
+        PostgresSsfStore::new(database, keys),
+    ))
+    .await;
     sqlx::query(&format!("DROP DATABASE {name} WITH (FORCE)"))
         .execute(&admin)
         .await

@@ -127,7 +127,10 @@ async fn memory_passkey_challenge_contract() {
 
 #[tokio::test]
 async fn postgres_passkey_challenge_contract() {
-    challenge_contract(database().await).await;
+    challenge_contract(agent_auth_http::state::PasskeyChallengeStoreImpl::Postgres(
+        database().await,
+    ))
+    .await;
 }
 
 #[cfg(feature = "aws")]

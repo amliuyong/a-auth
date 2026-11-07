@@ -216,6 +216,8 @@ impl Signer for SignerImpl {
 /// 授权码存储端口的枚举分发。
 #[derive(Clone)]
 pub enum CodeStoreImpl {
+    #[cfg(feature = "postgres")]
+    Postgres(crate::adapters::postgres::PostgresStore),
     Memory(MemoryCodeStore),
     #[cfg(feature = "aws")]
     Dynamo(crate::adapters::aws::DynamoCodeStore),
@@ -235,6 +237,26 @@ impl CodeStoreImpl {
         last_error: String,
     ) -> Result<Option<AuthzSessionRecord>, StoreError> {
         match (self, authz_sessions) {
+            #[cfg(feature = "postgres")]
+            (CodeStoreImpl::Postgres(codes), AuthzSessionStoreImpl::Postgres(sessions)) => {
+                if !codes.shares_pool_with(sessions) {
+                    return Err(StoreError::Permanent(
+                        "code and authorization session stores do not share a pool".into(),
+                    ));
+                }
+                codes
+                    .finalize_exchange_failure(crate::adapters::postgres::ExchangeFailureRequest {
+                        tenant,
+                        code,
+                        client_id,
+                        expires_at,
+                        now,
+                        lease_owner,
+                        authz_session_id,
+                        last_error,
+                    })
+                    .await
+            }
             (CodeStoreImpl::Memory(codes), AuthzSessionStoreImpl::Memory(sessions)) => {
                 codes
                     .finalize_exchange_failure(
@@ -303,6 +325,8 @@ impl CodeStoreImpl {
 impl CodeStore for CodeStoreImpl {
     async fn put(&self, tenant: &str, r: CodeRecord) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => CodeStore::put(store, tenant, r).await,
             CodeStoreImpl::Memory(s) => s.put(tenant, r).await,
             #[cfg(feature = "aws")]
             CodeStoreImpl::Dynamo(s) => s.put(tenant, r).await,
@@ -317,6 +341,11 @@ impl CodeStore for CodeStoreImpl {
         lease_expires_at: i64,
     ) -> Result<LeaseAcquire, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                CodeStore::acquire_lease(store, tenant, code, lease_owner, now, lease_expires_at)
+                    .await
+            }
             CodeStoreImpl::Memory(s) => {
                 s.acquire_lease(tenant, code, lease_owner, now, lease_expires_at)
                     .await
@@ -339,6 +368,20 @@ impl CodeStore for CodeStoreImpl {
         issued_grant_id: Option<&str>,
     ) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                CodeStore::finalize(
+                    store,
+                    tenant,
+                    code,
+                    client_id,
+                    expires_at,
+                    now,
+                    lease_owner,
+                    issued_grant_id,
+                )
+                .await
+            }
             CodeStoreImpl::Memory(s) => {
                 s.finalize(
                     tenant,
@@ -374,6 +417,10 @@ impl CodeStore for CodeStoreImpl {
         now: i64,
     ) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                CodeStore::release_lease(store, tenant, code, lease_owner, now).await
+            }
             CodeStoreImpl::Memory(s) => s.release_lease(tenant, code, lease_owner, now).await,
             #[cfg(feature = "aws")]
             CodeStoreImpl::Dynamo(s) => s.release_lease(tenant, code, lease_owner, now).await,
@@ -381,6 +428,8 @@ impl CodeStore for CodeStoreImpl {
     }
     async fn record_replay(&self, tenant: &str, code: &str, now: i64) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => CodeStore::record_replay(store, tenant, code, now).await,
             CodeStoreImpl::Memory(s) => s.record_replay(tenant, code, now).await,
             #[cfg(feature = "aws")]
             CodeStoreImpl::Dynamo(s) => s.record_replay(tenant, code, now).await,
@@ -388,6 +437,8 @@ impl CodeStore for CodeStoreImpl {
     }
     async fn replay_detected(&self, tenant: &str, code: &str) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => CodeStore::replay_detected(store, tenant, code).await,
             CodeStoreImpl::Memory(s) => s.replay_detected(tenant, code).await,
             #[cfg(feature = "aws")]
             CodeStoreImpl::Dynamo(s) => s.replay_detected(tenant, code).await,
@@ -400,6 +451,10 @@ impl CodeStore for CodeStoreImpl {
         now: i64,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                CodeStore::has_unexpired_by_client(store, tenant, client_id, now).await
+            }
             CodeStoreImpl::Memory(s) => s.has_unexpired_by_client(tenant, client_id, now).await,
             #[cfg(feature = "aws")]
             CodeStoreImpl::Dynamo(s) => s.has_unexpired_by_client(tenant, client_id, now).await,
@@ -407,6 +462,8 @@ impl CodeStore for CodeStoreImpl {
     }
     async fn delete_by_user(&self, tenant: &str, user_id: &str) -> Result<usize, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => CodeStore::delete_by_user(store, tenant, user_id).await,
             CodeStoreImpl::Memory(s) => s.delete_by_user(tenant, user_id).await,
             #[cfg(feature = "aws")]
             CodeStoreImpl::Dynamo(s) => s.delete_by_user(tenant, user_id).await,
@@ -414,6 +471,8 @@ impl CodeStore for CodeStoreImpl {
     }
     async fn delete_all_by_tenant(&self, tenant: &str) -> Result<usize, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => CodeStore::delete_all_by_tenant(store, tenant).await,
             CodeStoreImpl::Memory(s) => s.delete_all_by_tenant(tenant).await,
             #[cfg(feature = "aws")]
             CodeStoreImpl::Dynamo(s) => s.delete_all_by_tenant(tenant).await,
@@ -424,6 +483,8 @@ impl CodeStore for CodeStoreImpl {
 /// 客户端存储端口的枚举分发。
 #[derive(Clone)]
 pub enum ClientStoreImpl {
+    #[cfg(feature = "postgres")]
+    Postgres(crate::adapters::postgres::PostgresStore),
     Memory(MemoryClientStore),
     #[cfg(feature = "aws")]
     Dynamo(crate::adapters::aws::DynamoClientStore),
@@ -432,6 +493,8 @@ pub enum ClientStoreImpl {
 impl ClientStore for ClientStoreImpl {
     async fn get(&self, tenant: &str, client_id: &str) -> Result<Option<ClientRecord>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => ClientStore::get(store, tenant, client_id).await,
             ClientStoreImpl::Memory(s) => s.get(tenant, client_id).await,
             #[cfg(feature = "aws")]
             ClientStoreImpl::Dynamo(s) => s.get(tenant, client_id).await,
@@ -439,6 +502,8 @@ impl ClientStore for ClientStoreImpl {
     }
     async fn put(&self, tenant: &str, r: ClientRecord) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => ClientStore::put(store, tenant, r).await,
             ClientStoreImpl::Memory(s) => s.put(tenant, r).await,
             #[cfg(feature = "aws")]
             ClientStoreImpl::Dynamo(s) => s.put(tenant, r).await,
@@ -452,6 +517,17 @@ impl ClientStore for ClientStoreImpl {
         expected_registration_token_version: u64,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                ClientStore::put_if_credential_versions(
+                    store,
+                    tenant,
+                    record,
+                    expected_client_secret_version,
+                    expected_registration_token_version,
+                )
+                .await
+            }
             ClientStoreImpl::Memory(s) => {
                 s.put_if_credential_versions(
                     tenant,
@@ -482,6 +558,18 @@ impl ClientStore for ClientStoreImpl {
         credentials: crate::credential::CredentialSet,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                ClientStore::replace_credential_set(
+                    store,
+                    tenant,
+                    client_id,
+                    kind,
+                    expected_version,
+                    credentials,
+                )
+                .await
+            }
             ClientStoreImpl::Memory(s) => {
                 s.replace_credential_set(tenant, client_id, kind, expected_version, credentials)
                     .await
@@ -495,6 +583,8 @@ impl ClientStore for ClientStoreImpl {
     }
     async fn list(&self, tenant: &str) -> Result<Vec<ClientRecord>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => ClientStore::list(store, tenant).await,
             ClientStoreImpl::Memory(s) => s.list(tenant).await,
             #[cfg(feature = "aws")]
             ClientStoreImpl::Dynamo(s) => s.list(tenant).await,
@@ -502,6 +592,8 @@ impl ClientStore for ClientStoreImpl {
     }
     async fn delete(&self, tenant: &str, client_id: &str) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => ClientStore::delete(store, tenant, client_id).await,
             ClientStoreImpl::Memory(s) => s.delete(tenant, client_id).await,
             #[cfg(feature = "aws")]
             ClientStoreImpl::Dynamo(s) => s.delete(tenant, client_id).await,
@@ -514,6 +606,10 @@ impl ClientStore for ClientStoreImpl {
         today: i64,
     ) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                ClientStore::touch_last_used(store, tenant, client_id, today).await
+            }
             ClientStoreImpl::Memory(s) => s.touch_last_used(tenant, client_id, today).await,
             #[cfg(feature = "aws")]
             ClientStoreImpl::Dynamo(s) => s.touch_last_used(tenant, client_id, today).await,
@@ -528,6 +624,18 @@ impl ClientStore for ClientStoreImpl {
         snapshot_authority_revision: u64,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                ClientStore::convert_to_tombstone(
+                    store,
+                    tenant,
+                    client_id,
+                    tombstoned_at,
+                    snapshot_day,
+                    snapshot_authority_revision,
+                )
+                .await
+            }
             ClientStoreImpl::Memory(s) => {
                 s.convert_to_tombstone(
                     tenant,
@@ -557,6 +665,10 @@ impl ClientStore for ClientStoreImpl {
         older_than_day: i64,
     ) -> Result<Vec<(String, ClientRecord)>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                ClientStore::list_reclaim_candidates(store, tenant, older_than_day).await
+            }
             ClientStoreImpl::Memory(s) => s.list_reclaim_candidates(tenant, older_than_day).await,
             #[cfg(feature = "aws")]
             ClientStoreImpl::Dynamo(s) => s.list_reclaim_candidates(tenant, older_than_day).await,
@@ -569,6 +681,10 @@ impl ClientStore for ClientStoreImpl {
         hard_deleted_at: i64,
     ) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                ClientStore::hard_delete_with_audit(store, tenant, record, hard_deleted_at).await
+            }
             ClientStoreImpl::Memory(s) => {
                 s.hard_delete_with_audit(tenant, record, hard_deleted_at)
                     .await
@@ -584,6 +700,8 @@ impl ClientStore for ClientStoreImpl {
 
 #[derive(Clone)]
 pub enum InitialAccessTokenStoreImpl {
+    #[cfg(feature = "postgres")]
+    Postgres(crate::adapters::postgres::PostgresStore),
     Memory(MemoryInitialAccessTokenStore),
     #[cfg(feature = "aws")]
     Dynamo(crate::adapters::aws::DynamoInitialAccessTokenStore),
@@ -596,6 +714,8 @@ impl InitialAccessTokenStore for InitialAccessTokenStoreImpl {
         token_id: &str,
     ) -> Result<Option<crate::credential::InitialAccessTokenRecord>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => InitialAccessTokenStore::get(store, tenant, token_id).await,
             Self::Memory(store) => store.get(tenant, token_id).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.get(tenant, token_id).await,
@@ -608,6 +728,8 @@ impl InitialAccessTokenStore for InitialAccessTokenStoreImpl {
         record: crate::credential::InitialAccessTokenRecord,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => InitialAccessTokenStore::put_new(store, tenant, record).await,
             Self::Memory(store) => store.put_new(tenant, record).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.put_new(tenant, record).await,
@@ -619,6 +741,8 @@ impl InitialAccessTokenStore for InitialAccessTokenStoreImpl {
         tenant: &str,
     ) -> Result<Vec<crate::credential::InitialAccessTokenRecord>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => InitialAccessTokenStore::list(store, tenant).await,
             Self::Memory(store) => store.list(tenant).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.list(tenant).await,
@@ -633,6 +757,17 @@ impl InitialAccessTokenStore for InitialAccessTokenStoreImpl {
         revoked_at: i64,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                InitialAccessTokenStore::revoke(
+                    store,
+                    tenant,
+                    token_id,
+                    expected_version,
+                    revoked_at,
+                )
+                .await
+            }
             Self::Memory(store) => {
                 store
                     .revoke(tenant, token_id, expected_version, revoked_at)
@@ -655,6 +790,17 @@ impl InitialAccessTokenStore for InitialAccessTokenStoreImpl {
         used_at: i64,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                InitialAccessTokenStore::consume_once(
+                    store,
+                    tenant,
+                    token_id,
+                    expected_version,
+                    used_at,
+                )
+                .await
+            }
             Self::Memory(store) => {
                 store
                     .consume_once(tenant, token_id, expected_version, used_at)
@@ -671,6 +817,8 @@ impl InitialAccessTokenStore for InitialAccessTokenStoreImpl {
 
     async fn delete(&self, tenant: &str, token_id: &str) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => InitialAccessTokenStore::delete(store, tenant, token_id).await,
             Self::Memory(store) => store.delete(tenant, token_id).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.delete(tenant, token_id).await,
@@ -681,6 +829,8 @@ impl InitialAccessTokenStore for InitialAccessTokenStoreImpl {
 /// refresh family 存储端口的枚举分发。
 #[derive(Clone)]
 pub enum RefreshStoreImpl {
+    #[cfg(feature = "postgres")]
+    Postgres(crate::adapters::postgres::PostgresStore),
     Memory(MemoryRefreshStore),
     #[cfg(feature = "aws")]
     Dynamo(crate::adapters::aws::DynamoRefreshStore),
@@ -689,6 +839,8 @@ pub enum RefreshStoreImpl {
 impl RefreshStore for RefreshStoreImpl {
     async fn create(&self, tenant: &str, r: RefreshFamilyRecord) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => RefreshStore::create(store, tenant, r).await,
             RefreshStoreImpl::Memory(s) => s.create(tenant, r).await,
             #[cfg(feature = "aws")]
             RefreshStoreImpl::Dynamo(s) => s.create(tenant, r).await,
@@ -700,6 +852,8 @@ impl RefreshStore for RefreshStoreImpl {
         family_id: &str,
     ) -> Result<Option<RefreshFamilyRecord>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => RefreshStore::get(store, tenant, family_id).await,
             RefreshStoreImpl::Memory(s) => s.get(tenant, family_id).await,
             #[cfg(feature = "aws")]
             RefreshStoreImpl::Dynamo(s) => s.get(tenant, family_id).await,
@@ -715,6 +869,19 @@ impl RefreshStore for RefreshStoreImpl {
         lease_expires_at: i64,
     ) -> Result<RefreshLeaseAcquire, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                RefreshStore::acquire_lease(
+                    store,
+                    tenant,
+                    family_id,
+                    expected_version,
+                    lease_owner,
+                    now,
+                    lease_expires_at,
+                )
+                .await
+            }
             RefreshStoreImpl::Memory(s) => {
                 s.acquire_lease(
                     tenant,
@@ -749,6 +916,18 @@ impl RefreshStore for RefreshStoreImpl {
         now: i64,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                RefreshStore::finalize_rotation(
+                    store,
+                    tenant,
+                    family_id,
+                    expected_version,
+                    lease_owner,
+                    now,
+                )
+                .await
+            }
             RefreshStoreImpl::Memory(s) => {
                 s.finalize_rotation(tenant, family_id, expected_version, lease_owner, now)
                     .await
@@ -768,6 +947,11 @@ impl RefreshStore for RefreshStoreImpl {
         lease_owner: &str,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                RefreshStore::release_lease(store, tenant, family_id, expected_version, lease_owner)
+                    .await
+            }
             RefreshStoreImpl::Memory(s) => {
                 s.release_lease(tenant, family_id, expected_version, lease_owner)
                     .await
@@ -781,6 +965,8 @@ impl RefreshStore for RefreshStoreImpl {
     }
     async fn revoke(&self, tenant: &str, family_id: &str) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => RefreshStore::revoke(store, tenant, family_id).await,
             RefreshStoreImpl::Memory(s) => s.revoke(tenant, family_id).await,
             #[cfg(feature = "aws")]
             RefreshStoreImpl::Dynamo(s) => s.revoke(tenant, family_id).await,
@@ -788,6 +974,8 @@ impl RefreshStore for RefreshStoreImpl {
     }
     async fn revoke_by_user(&self, tenant: &str, user_id: &str) -> Result<Vec<String>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => RefreshStore::revoke_by_user(store, tenant, user_id).await,
             RefreshStoreImpl::Memory(s) => s.revoke_by_user(tenant, user_id).await,
             #[cfg(feature = "aws")]
             RefreshStoreImpl::Dynamo(s) => s.revoke_by_user(tenant, user_id).await,
@@ -800,6 +988,10 @@ impl RefreshStore for RefreshStoreImpl {
         epoch: u64,
     ) -> Result<Vec<String>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                RefreshStore::revoke_by_user_before_epoch(store, tenant, user_id, epoch).await
+            }
             RefreshStoreImpl::Memory(s) => {
                 s.revoke_by_user_before_epoch(tenant, user_id, epoch).await
             }
@@ -815,6 +1007,8 @@ impl RefreshStore for RefreshStoreImpl {
         client_id: &str,
     ) -> Result<Vec<String>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => RefreshStore::revoke_by_client(store, tenant, client_id).await,
             RefreshStoreImpl::Memory(s) => s.revoke_by_client(tenant, client_id).await,
             #[cfg(feature = "aws")]
             RefreshStoreImpl::Dynamo(s) => s.revoke_by_client(tenant, client_id).await,
@@ -826,6 +1020,10 @@ impl RefreshStore for RefreshStoreImpl {
         client_id: &str,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                RefreshStore::has_active_family_by_client(store, tenant, client_id).await
+            }
             RefreshStoreImpl::Memory(s) => s.has_active_family_by_client(tenant, client_id).await,
             #[cfg(feature = "aws")]
             RefreshStoreImpl::Dynamo(s) => s.has_active_family_by_client(tenant, client_id).await,
@@ -833,6 +1031,8 @@ impl RefreshStore for RefreshStoreImpl {
     }
     async fn delete_by_user(&self, tenant: &str, user_id: &str) -> Result<Vec<String>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => RefreshStore::delete_by_user(store, tenant, user_id).await,
             RefreshStoreImpl::Memory(s) => s.delete_by_user(tenant, user_id).await,
             #[cfg(feature = "aws")]
             RefreshStoreImpl::Dynamo(s) => s.delete_by_user(tenant, user_id).await,
@@ -840,6 +1040,8 @@ impl RefreshStore for RefreshStoreImpl {
     }
     async fn delete_all_by_tenant(&self, tenant: &str) -> Result<Vec<String>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => RefreshStore::delete_all_by_tenant(store, tenant).await,
             RefreshStoreImpl::Memory(s) => s.delete_all_by_tenant(tenant).await,
             #[cfg(feature = "aws")]
             RefreshStoreImpl::Dynamo(s) => s.delete_all_by_tenant(tenant).await,
@@ -850,6 +1052,8 @@ impl RefreshStore for RefreshStoreImpl {
 /// 宽限窗缓存存储端口的枚举分发(C3.2/C3.4/C3.5)。
 #[derive(Clone)]
 pub enum GraceStoreImpl {
+    #[cfg(feature = "postgres")]
+    Postgres(crate::adapters::postgres::PostgresGraceStore),
     Memory(MemoryGraceStore),
     #[cfg(feature = "aws")]
     Dynamo(crate::adapters::aws::DynamoGraceStore),
@@ -867,6 +1071,38 @@ impl RefreshStoreImpl {
         entry: Option<crate::ports::GraceCacheEntry>,
     ) -> Result<bool, StoreError> {
         match (self, grace) {
+            #[cfg(feature = "postgres")]
+            (RefreshStoreImpl::Postgres(refresh), Some(GraceStoreImpl::Postgres(grace))) => {
+                refresh
+                    .finalize_refresh_rotation(
+                        Some(grace),
+                        crate::adapters::postgres::RefreshRotationRequest {
+                            tenant,
+                            family_id,
+                            expected_version,
+                            lease_owner,
+                            now,
+                            grace_entry: entry,
+                        },
+                    )
+                    .await
+            }
+            #[cfg(feature = "postgres")]
+            (RefreshStoreImpl::Postgres(refresh), None) => {
+                refresh
+                    .finalize_refresh_rotation(
+                        None,
+                        crate::adapters::postgres::RefreshRotationRequest {
+                            tenant,
+                            family_id,
+                            expected_version,
+                            lease_owner,
+                            now,
+                            grace_entry: entry,
+                        },
+                    )
+                    .await
+            }
             (RefreshStoreImpl::Memory(refresh), Some(GraceStoreImpl::Memory(grace))) => {
                 refresh
                     .finalize_rotation_with_grace(
@@ -921,7 +1157,7 @@ impl RefreshStoreImpl {
                     )
                     .await
             }
-            #[cfg(feature = "aws")]
+            #[cfg(any(feature = "aws", feature = "postgres"))]
             _ => Err(StoreError::Permanent(
                 "refresh and grace stores use incompatible backends".into(),
             )),
@@ -932,6 +1168,8 @@ impl RefreshStoreImpl {
 impl crate::ports::GraceStore for GraceStoreImpl {
     async fn put(&self, entry: crate::ports::GraceCacheEntry) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => crate::ports::GraceStore::put(store, entry).await,
             GraceStoreImpl::Memory(s) => s.put(entry).await,
             #[cfg(feature = "aws")]
             GraceStoreImpl::Dynamo(s) => s.put(entry).await,
@@ -943,6 +1181,8 @@ impl crate::ports::GraceStore for GraceStoreImpl {
         version: u64,
     ) -> Result<Option<crate::ports::GraceCacheEntry>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => crate::ports::GraceStore::get(store, family_id, version).await,
             GraceStoreImpl::Memory(s) => s.get(family_id, version).await,
             #[cfg(feature = "aws")]
             GraceStoreImpl::Dynamo(s) => s.get(family_id, version).await,
@@ -950,6 +1190,10 @@ impl crate::ports::GraceStore for GraceStoreImpl {
     }
     async fn delete_family(&self, family_id: &str) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::GraceStore::delete_family(store, family_id).await
+            }
             GraceStoreImpl::Memory(s) => s.delete_family(family_id).await,
             #[cfg(feature = "aws")]
             GraceStoreImpl::Dynamo(s) => s.delete_family(family_id).await,
@@ -1064,6 +1308,8 @@ impl crate::ports::SecretResolver for SecretResolverImpl {
 /// 联邦 flow 状态存储端口枚举分发(spec 003 §4)。dev/测试 = Memory;真机 = Dynamo(条件删一次性 + TTL)。
 #[derive(Clone)]
 pub enum FederationFlowStoreImpl {
+    #[cfg(feature = "postgres")]
+    Postgres(crate::adapters::postgres::PostgresStore),
     Memory(crate::adapters::memory::MemoryFederationFlowStore),
     #[cfg(feature = "aws")]
     Dynamo(crate::adapters::aws::DynamoFederationFlowStore),
@@ -1072,6 +1318,8 @@ pub enum FederationFlowStoreImpl {
 impl crate::ports::FederationFlowStore for FederationFlowStoreImpl {
     async fn put(&self, st: crate::ports::FederationFlowState) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => crate::ports::FederationFlowStore::put(store, st).await,
             FederationFlowStoreImpl::Memory(s) => s.put(st).await,
             #[cfg(feature = "aws")]
             FederationFlowStoreImpl::Dynamo(s) => s.put(st).await,
@@ -1082,6 +1330,8 @@ impl crate::ports::FederationFlowStore for FederationFlowStoreImpl {
         state: &str,
     ) -> Result<Option<crate::ports::FederationFlowState>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => crate::ports::FederationFlowStore::consume(store, state).await,
             FederationFlowStoreImpl::Memory(s) => s.consume(state).await,
             #[cfg(feature = "aws")]
             FederationFlowStoreImpl::Dynamo(s) => s.consume(state).await,
@@ -1089,6 +1339,10 @@ impl crate::ports::FederationFlowStore for FederationFlowStoreImpl {
     }
     async fn delete_all_by_tenant(&self, tenant_id: &str) -> Result<usize, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::FederationFlowStore::delete_all_by_tenant(store, tenant_id).await
+            }
             FederationFlowStoreImpl::Memory(s) => s.delete_all_by_tenant(tenant_id).await,
             #[cfg(feature = "aws")]
             FederationFlowStoreImpl::Dynamo(s) => s.delete_all_by_tenant(tenant_id).await,
@@ -1099,6 +1353,8 @@ impl crate::ports::FederationFlowStore for FederationFlowStoreImpl {
 /// Admin OIDC configuration, one-time flow, and short-lived session store.
 #[derive(Clone)]
 pub enum AdminAuthStoreImpl {
+    #[cfg(feature = "postgres")]
+    Postgres(crate::adapters::postgres::PostgresStore),
     Memory(crate::adapters::memory::MemoryAdminAuthStore),
     #[cfg(feature = "aws")]
     Dynamo(crate::adapters::aws::DynamoAdminAuthStore),
@@ -1107,6 +1363,8 @@ pub enum AdminAuthStoreImpl {
 impl AdminAuthStore for AdminAuthStoreImpl {
     async fn get_config(&self, tenant_id: &str) -> Result<Option<AdminOidcConfig>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => AdminAuthStore::get_config(store, tenant_id).await,
             Self::Memory(store) => store.get_config(tenant_id).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.get_config(tenant_id).await,
@@ -1119,6 +1377,10 @@ impl AdminAuthStore for AdminAuthStoreImpl {
         expected_revision: u64,
     ) -> Result<AdminOidcConfigPutOutcome, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                AdminAuthStore::put_config(store, config, expected_revision).await
+            }
             Self::Memory(store) => store.put_config(config, expected_revision).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.put_config(config, expected_revision).await,
@@ -1131,6 +1393,10 @@ impl AdminAuthStore for AdminAuthStoreImpl {
         expected_revision: u64,
     ) -> Result<AdminOidcConfigDeleteOutcome, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                AdminAuthStore::delete_config(store, tenant_id, expected_revision).await
+            }
             Self::Memory(store) => store.delete_config(tenant_id, expected_revision).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.delete_config(tenant_id, expected_revision).await,
@@ -1139,6 +1405,8 @@ impl AdminAuthStore for AdminAuthStoreImpl {
 
     async fn put_flow(&self, flow: AdminOidcFlow) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => AdminAuthStore::put_flow(store, flow).await,
             Self::Memory(store) => store.put_flow(flow).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.put_flow(flow).await,
@@ -1151,6 +1419,8 @@ impl AdminAuthStore for AdminAuthStoreImpl {
         now: i64,
     ) -> Result<Option<AdminOidcFlow>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => AdminAuthStore::consume_flow(store, state_hash, now).await,
             Self::Memory(store) => store.consume_flow(state_hash, now).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.consume_flow(state_hash, now).await,
@@ -1159,6 +1429,8 @@ impl AdminAuthStore for AdminAuthStoreImpl {
 
     async fn create_session(&self, session: AdminSessionRecord) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => AdminAuthStore::create_session(store, session).await,
             Self::Memory(store) => store.create_session(session).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.create_session(session).await,
@@ -1171,6 +1443,8 @@ impl AdminAuthStore for AdminAuthStoreImpl {
         now: i64,
     ) -> Result<Option<AdminSessionRecord>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => AdminAuthStore::get_session(store, session_hash, now).await,
             Self::Memory(store) => store.get_session(session_hash, now).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.get_session(session_hash, now).await,
@@ -1179,6 +1453,10 @@ impl AdminAuthStore for AdminAuthStoreImpl {
 
     async fn delete_session(&self, tenant_id: &str, session_hash: &str) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                AdminAuthStore::delete_session(store, tenant_id, session_hash).await
+            }
             Self::Memory(store) => store.delete_session(tenant_id, session_hash).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.delete_session(tenant_id, session_hash).await,
@@ -1187,6 +1465,8 @@ impl AdminAuthStore for AdminAuthStoreImpl {
 
     async fn delete_all_by_tenant(&self, tenant_id: &str) -> Result<usize, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => AdminAuthStore::delete_all_by_tenant(store, tenant_id).await,
             Self::Memory(store) => store.delete_all_by_tenant(tenant_id).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.delete_all_by_tenant(tenant_id).await,
@@ -1197,6 +1477,8 @@ impl AdminAuthStore for AdminAuthStoreImpl {
 /// passkey challenge 存储枚举分发(spec 003 §3)。dev/测试 = Memory;真机 = Dynamo(条件删一次性 + TTL)。
 #[derive(Clone)]
 pub enum PasskeyChallengeStoreImpl {
+    #[cfg(feature = "postgres")]
+    Postgres(crate::adapters::postgres::PostgresStore),
     Memory(crate::adapters::memory::MemoryPasskeyChallengeStore),
     #[cfg(feature = "aws")]
     Dynamo(crate::adapters::aws::DynamoPasskeyChallengeStore),
@@ -1205,6 +1487,8 @@ pub enum PasskeyChallengeStoreImpl {
 impl crate::ports::PasskeyChallengeStore for PasskeyChallengeStoreImpl {
     async fn put(&self, ch: crate::ports::PasskeyChallenge) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => crate::ports::PasskeyChallengeStore::put(store, ch).await,
             PasskeyChallengeStoreImpl::Memory(s) => s.put(ch).await,
             #[cfg(feature = "aws")]
             PasskeyChallengeStoreImpl::Dynamo(s) => s.put(ch).await,
@@ -1216,6 +1500,10 @@ impl crate::ports::PasskeyChallengeStore for PasskeyChallengeStoreImpl {
         challenge_b64url: &str,
     ) -> Result<Option<crate::ports::PasskeyChallenge>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::PasskeyChallengeStore::consume(store, tenant, challenge_b64url).await
+            }
             PasskeyChallengeStoreImpl::Memory(s) => s.consume(tenant, challenge_b64url).await,
             #[cfg(feature = "aws")]
             PasskeyChallengeStoreImpl::Dynamo(s) => s.consume(tenant, challenge_b64url).await,
@@ -1223,6 +1511,10 @@ impl crate::ports::PasskeyChallengeStore for PasskeyChallengeStoreImpl {
     }
     async fn delete_by_user(&self, tenant: &str, user_id: &str) -> Result<usize, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::PasskeyChallengeStore::delete_by_user(store, tenant, user_id).await
+            }
             PasskeyChallengeStoreImpl::Memory(s) => s.delete_by_user(tenant, user_id).await,
             #[cfg(feature = "aws")]
             PasskeyChallengeStoreImpl::Dynamo(s) => s.delete_by_user(tenant, user_id).await,
@@ -1230,6 +1522,10 @@ impl crate::ports::PasskeyChallengeStore for PasskeyChallengeStoreImpl {
     }
     async fn delete_all_by_tenant(&self, tenant: &str) -> Result<usize, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::PasskeyChallengeStore::delete_all_by_tenant(store, tenant).await
+            }
             PasskeyChallengeStoreImpl::Memory(s) => s.delete_all_by_tenant(tenant).await,
             #[cfg(feature = "aws")]
             PasskeyChallengeStoreImpl::Dynamo(s) => s.delete_all_by_tenant(tenant).await,
@@ -1240,6 +1536,8 @@ impl crate::ports::PasskeyChallengeStore for PasskeyChallengeStoreImpl {
 /// PAR 存储枚举分发(spec 006 §7.3)。dev/测试 = Memory;真机 = Dynamo(条件删一次性 + fail-closed 校过期)。
 #[derive(Clone)]
 pub enum ParStoreImpl {
+    #[cfg(feature = "postgres")]
+    Postgres(crate::adapters::postgres::PostgresStore),
     Memory(crate::adapters::memory::MemoryParStore),
     #[cfg(feature = "aws")]
     Dynamo(crate::adapters::aws::DynamoParStore),
@@ -1248,6 +1546,8 @@ pub enum ParStoreImpl {
 impl crate::ports::ParStore for ParStoreImpl {
     async fn put(&self, tenant: &str, record: crate::ports::ParRecord) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => crate::ports::ParStore::put(store, tenant, record).await,
             ParStoreImpl::Memory(s) => s.put(tenant, record).await,
             #[cfg(feature = "aws")]
             ParStoreImpl::Dynamo(s) => s.put(tenant, record).await,
@@ -1260,6 +1560,10 @@ impl crate::ports::ParStore for ParStoreImpl {
         now: i64,
     ) -> Result<Option<crate::ports::ParRecord>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::ParStore::consume(store, tenant, request_uri, now).await
+            }
             ParStoreImpl::Memory(s) => s.consume(tenant, request_uri, now).await,
             #[cfg(feature = "aws")]
             ParStoreImpl::Dynamo(s) => s.consume(tenant, request_uri, now).await,
@@ -1267,6 +1571,10 @@ impl crate::ports::ParStore for ParStoreImpl {
     }
     async fn delete_all_by_tenant(&self, tenant: &str) -> Result<usize, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::ParStore::delete_all_by_tenant(store, tenant).await
+            }
             ParStoreImpl::Memory(s) => s.delete_all_by_tenant(tenant).await,
             #[cfg(feature = "aws")]
             ParStoreImpl::Dynamo(s) => s.delete_all_by_tenant(tenant).await,
@@ -1277,6 +1585,8 @@ impl crate::ports::ParStore for ParStoreImpl {
 /// passkey 凭证存储枚举分发(spec 003 §3)。dev/测试 = Memory;真机 = Dynamo(条件写唯一 + CAS)。
 #[derive(Clone)]
 pub enum PasskeyStoreImpl {
+    #[cfg(feature = "postgres")]
+    Postgres(crate::adapters::postgres::PostgresStore),
     Memory(crate::adapters::memory::MemoryPasskeyStore),
     #[cfg(feature = "aws")]
     Dynamo(crate::adapters::aws::DynamoPasskeyStore),
@@ -1369,6 +1679,8 @@ impl crate::ports::PasskeyStore for PasskeyStoreImpl {
         cred: agent_auth_authn::passkey::PasskeyCredential,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => crate::ports::PasskeyStore::put_new(store, tenant, cred).await,
             PasskeyStoreImpl::Memory(s) => s.put_new(tenant, cred).await,
             #[cfg(feature = "aws")]
             PasskeyStoreImpl::Dynamo(s) => s.put_new(tenant, cred).await,
@@ -1380,6 +1692,10 @@ impl crate::ports::PasskeyStore for PasskeyStoreImpl {
         credential_id: &str,
     ) -> Result<Option<agent_auth_authn::passkey::PasskeyCredential>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::PasskeyStore::get(store, tenant, credential_id).await
+            }
             PasskeyStoreImpl::Memory(s) => s.get(tenant, credential_id).await,
             #[cfg(feature = "aws")]
             PasskeyStoreImpl::Dynamo(s) => s.get(tenant, credential_id).await,
@@ -1391,6 +1707,10 @@ impl crate::ports::PasskeyStore for PasskeyStoreImpl {
         user_id: &str,
     ) -> Result<Vec<agent_auth_authn::passkey::PasskeyCredential>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::PasskeyStore::list_by_user(store, tenant, user_id).await
+            }
             PasskeyStoreImpl::Memory(s) => s.list_by_user(tenant, user_id).await,
             #[cfg(feature = "aws")]
             PasskeyStoreImpl::Dynamo(s) => s.list_by_user(tenant, user_id).await,
@@ -1404,6 +1724,17 @@ impl crate::ports::PasskeyStore for PasskeyStoreImpl {
         expected_prev: u32,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::PasskeyStore::update_sign_count(
+                    store,
+                    tenant,
+                    credential_id,
+                    new_count,
+                    expected_prev,
+                )
+                .await
+            }
             PasskeyStoreImpl::Memory(s) => {
                 s.update_sign_count(tenant, credential_id, new_count, expected_prev)
                     .await
@@ -1423,6 +1754,17 @@ impl crate::ports::PasskeyStore for PasskeyStoreImpl {
         name: &str,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::PasskeyStore::rename_owned(
+                    store,
+                    tenant,
+                    user_id,
+                    credential_id,
+                    name,
+                )
+                .await
+            }
             PasskeyStoreImpl::Memory(s) => {
                 s.rename_owned(tenant, user_id, credential_id, name).await
             }
@@ -1439,6 +1781,11 @@ impl crate::ports::PasskeyStore for PasskeyStoreImpl {
         credential_id: &str,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::PasskeyStore::delete_owned(store, tenant, user_id, credential_id)
+                    .await
+            }
             PasskeyStoreImpl::Memory(s) => s.delete_owned(tenant, user_id, credential_id).await,
             #[cfg(feature = "aws")]
             PasskeyStoreImpl::Dynamo(s) => s.delete_owned(tenant, user_id, credential_id).await,
@@ -1446,6 +1793,10 @@ impl crate::ports::PasskeyStore for PasskeyStoreImpl {
     }
     async fn delete_by_user(&self, tenant: &str, user_id: &str) -> Result<usize, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::PasskeyStore::delete_by_user(store, tenant, user_id).await
+            }
             PasskeyStoreImpl::Memory(s) => s.delete_by_user(tenant, user_id).await,
             #[cfg(feature = "aws")]
             PasskeyStoreImpl::Dynamo(s) => s.delete_by_user(tenant, user_id).await,
@@ -1453,6 +1804,10 @@ impl crate::ports::PasskeyStore for PasskeyStoreImpl {
     }
     async fn delete_all_by_tenant(&self, tenant: &str) -> Result<usize, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::PasskeyStore::delete_all_by_tenant(store, tenant).await
+            }
             PasskeyStoreImpl::Memory(s) => s.delete_all_by_tenant(tenant).await,
             #[cfg(feature = "aws")]
             PasskeyStoreImpl::Dynamo(s) => s.delete_all_by_tenant(tenant).await,
@@ -1461,7 +1816,10 @@ impl crate::ports::PasskeyStore for PasskeyStoreImpl {
 }
 
 /// 一次性 replay 缓存端口枚举分发(spec 012 C5.3②)。
+#[derive(Clone)]
 pub enum ReplayStoreImpl {
+    #[cfg(feature = "postgres")]
+    Postgres(crate::adapters::postgres::PostgresStore),
     Memory(crate::adapters::memory::MemoryReplayStore),
     #[cfg(feature = "aws")]
     Dynamo(crate::adapters::aws::DynamoReplayStore),
@@ -1475,6 +1833,10 @@ impl crate::ports::ReplayStore for ReplayStoreImpl {
         expires_at: i64,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::ReplayStore::check_and_set(store, tenant, key, expires_at).await
+            }
             ReplayStoreImpl::Memory(s) => s.check_and_set(tenant, key, expires_at).await,
             #[cfg(feature = "aws")]
             ReplayStoreImpl::Dynamo(s) => s.check_and_set(tenant, key, expires_at).await,
@@ -1482,6 +1844,10 @@ impl crate::ports::ReplayStore for ReplayStoreImpl {
     }
     async fn delete_all_by_tenant(&self, tenant: &str) -> Result<usize, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::ReplayStore::delete_all_by_tenant(store, tenant).await
+            }
             ReplayStoreImpl::Memory(s) => s.delete_all_by_tenant(tenant).await,
             #[cfg(feature = "aws")]
             ReplayStoreImpl::Dynamo(s) => s.delete_all_by_tenant(tenant).await,
@@ -1490,7 +1856,10 @@ impl crate::ports::ReplayStore for ReplayStoreImpl {
 }
 
 /// per-client 令牌桶限流端口枚举分发(spec 005 C10.7)。
+#[derive(Clone)]
 pub enum RateLimitStoreImpl {
+    #[cfg(feature = "postgres")]
+    Postgres(crate::adapters::postgres::PostgresStore),
     Memory(crate::adapters::memory::MemoryRateLimitStore),
     #[cfg(feature = "aws")]
     Dynamo(crate::adapters::aws::DynamoRateLimitStore),
@@ -1506,6 +1875,18 @@ impl crate::ports::RateLimitStore for RateLimitStoreImpl {
         cost: f64,
     ) -> Result<crate::ports::RateLimitDecision, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::RateLimitStore::check_available(
+                    store,
+                    key,
+                    now,
+                    capacity,
+                    refill_per_sec,
+                    cost,
+                )
+                .await
+            }
             RateLimitStoreImpl::Memory(s) => {
                 s.check_available(key, now, capacity, refill_per_sec, cost)
                     .await
@@ -1527,6 +1908,18 @@ impl crate::ports::RateLimitStore for RateLimitStoreImpl {
         cost: f64,
     ) -> Result<crate::ports::RateLimitDecision, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::RateLimitStore::try_consume(
+                    store,
+                    key,
+                    now,
+                    capacity,
+                    refill_per_sec,
+                    cost,
+                )
+                .await
+            }
             RateLimitStoreImpl::Memory(s) => {
                 s.try_consume(key, now, capacity, refill_per_sec, cost)
                     .await
@@ -1541,6 +1934,8 @@ impl crate::ports::RateLimitStore for RateLimitStoreImpl {
 
     async fn delete(&self, key: &str) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => crate::ports::RateLimitStore::delete(store, key).await,
             RateLimitStoreImpl::Memory(store) => store.delete(key).await,
             #[cfg(feature = "aws")]
             RateLimitStoreImpl::Dynamo(store) => store.delete(key).await,
@@ -1549,7 +1944,10 @@ impl crate::ports::RateLimitStore for RateLimitStoreImpl {
 }
 
 /// Grant 存储端口枚举分发(spec 011 §5.1)。
+#[derive(Clone)]
 pub enum GrantStoreImpl {
+    #[cfg(feature = "postgres")]
+    Postgres(crate::adapters::postgres::PostgresStore),
     Memory(crate::adapters::memory::MemoryGrantStore),
     #[cfg(feature = "aws")]
     Dynamo(crate::adapters::aws::DynamoGrantStore),
@@ -1581,6 +1979,8 @@ impl GrantStoreImpl {
 impl crate::ports::GrantStore for GrantStoreImpl {
     async fn put(&self, tenant: &str, grant: agent_auth_grant::Grant) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => crate::ports::GrantStore::put(store, tenant, grant).await,
             GrantStoreImpl::Memory(s) => s.put(tenant, grant).await,
             #[cfg(feature = "aws")]
             GrantStoreImpl::Dynamo(s) => s.put(tenant, grant).await,
@@ -1592,6 +1992,8 @@ impl crate::ports::GrantStore for GrantStoreImpl {
         grant_id: &str,
     ) -> Result<Option<agent_auth_grant::Grant>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => crate::ports::GrantStore::get(store, tenant, grant_id).await,
             GrantStoreImpl::Memory(s) => s.get(tenant, grant_id).await,
             #[cfg(feature = "aws")]
             GrantStoreImpl::Dynamo(s) => s.get(tenant, grant_id).await,
@@ -1603,6 +2005,10 @@ impl crate::ports::GrantStore for GrantStoreImpl {
         user_id: &str,
     ) -> Result<Vec<agent_auth_grant::Grant>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::GrantStore::list_by_user(store, tenant, user_id).await
+            }
             GrantStoreImpl::Memory(s) => s.list_by_user(tenant, user_id).await,
             #[cfg(feature = "aws")]
             GrantStoreImpl::Dynamo(s) => s.list_by_user(tenant, user_id).await,
@@ -1610,6 +2016,10 @@ impl crate::ports::GrantStore for GrantStoreImpl {
     }
     async fn revoke(&self, tenant: &str, grant_id: &str) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::GrantStore::revoke(store, tenant, grant_id).await
+            }
             GrantStoreImpl::Memory(s) => s.revoke(tenant, grant_id).await,
             #[cfg(feature = "aws")]
             GrantStoreImpl::Dynamo(s) => s.revoke(tenant, grant_id).await,
@@ -1622,6 +2032,11 @@ impl crate::ports::GrantStore for GrantStoreImpl {
         epoch: u64,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::GrantStore::revoke_if_epoch_before(store, tenant, grant_id, epoch)
+                    .await
+            }
             GrantStoreImpl::Memory(s) => s.revoke_if_epoch_before(tenant, grant_id, epoch).await,
             #[cfg(feature = "aws")]
             GrantStoreImpl::Dynamo(s) => s.revoke_if_epoch_before(tenant, grant_id, epoch).await,
@@ -1634,6 +2049,16 @@ impl crate::ports::GrantStore for GrantStoreImpl {
         expected_revision: u64,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::GrantStore::revoke_if_revision(
+                    store,
+                    tenant,
+                    grant_id,
+                    expected_revision,
+                )
+                .await
+            }
             GrantStoreImpl::Memory(s) => {
                 s.revoke_if_revision(tenant, grant_id, expected_revision)
                     .await
@@ -1652,6 +2077,11 @@ impl crate::ports::GrantStore for GrantStoreImpl {
         expected_revision: u64,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::GrantStore::put_conditional(store, tenant, grant, expected_revision)
+                    .await
+            }
             GrantStoreImpl::Memory(s) => s.put_conditional(tenant, grant, expected_revision).await,
             #[cfg(feature = "aws")]
             GrantStoreImpl::Dynamo(s) => s.put_conditional(tenant, grant, expected_revision).await,
@@ -1663,6 +2093,10 @@ impl crate::ports::GrantStore for GrantStoreImpl {
         current_pv: u64,
     ) -> Result<Vec<(String, agent_auth_grant::Grant)>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::GrantStore::list_stale(store, tenant, current_pv).await
+            }
             GrantStoreImpl::Memory(s) => s.list_stale(tenant, current_pv).await,
             #[cfg(feature = "aws")]
             GrantStoreImpl::Dynamo(s) => s.list_stale(tenant, current_pv).await,
@@ -1670,6 +2104,10 @@ impl crate::ports::GrantStore for GrantStoreImpl {
     }
     async fn delete_by_user(&self, tenant: &str, user_id: &str) -> Result<usize, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::GrantStore::delete_by_user(store, tenant, user_id).await
+            }
             GrantStoreImpl::Memory(s) => s.delete_by_user(tenant, user_id).await,
             #[cfg(feature = "aws")]
             GrantStoreImpl::Dynamo(s) => s.delete_by_user(tenant, user_id).await,
@@ -1677,6 +2115,10 @@ impl crate::ports::GrantStore for GrantStoreImpl {
     }
     async fn delete_by_client(&self, tenant: &str, client_id: &str) -> Result<usize, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::GrantStore::delete_by_client(store, tenant, client_id).await
+            }
             GrantStoreImpl::Memory(s) => s.delete_by_client(tenant, client_id).await,
             #[cfg(feature = "aws")]
             GrantStoreImpl::Dynamo(s) => s.delete_by_client(tenant, client_id).await,
@@ -1684,6 +2126,10 @@ impl crate::ports::GrantStore for GrantStoreImpl {
     }
     async fn delete_all_by_tenant(&self, tenant: &str) -> Result<usize, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::GrantStore::delete_all_by_tenant(store, tenant).await
+            }
             GrantStoreImpl::Memory(s) => s.delete_all_by_tenant(tenant).await,
             #[cfg(feature = "aws")]
             GrantStoreImpl::Dynamo(s) => s.delete_all_by_tenant(tenant).await,
@@ -1692,7 +2138,10 @@ impl crate::ports::GrantStore for GrantStoreImpl {
 }
 
 /// 逐租户 policy_version 存储枚举分发(spec 005 §7)。
+#[derive(Clone)]
 pub enum PolicyVersionStoreImpl {
+    #[cfg(feature = "postgres")]
+    Postgres(crate::adapters::postgres::PostgresStore),
     Memory(crate::adapters::memory::MemoryPolicyVersionStore),
     #[cfg(feature = "aws")]
     Dynamo(crate::adapters::aws::DynamoPolicyVersionStore),
@@ -1701,6 +2150,8 @@ pub enum PolicyVersionStoreImpl {
 impl crate::ports::PolicyVersionStore for PolicyVersionStoreImpl {
     async fn get(&self, tenant: &str) -> Result<u64, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => crate::ports::PolicyVersionStore::get(store, tenant).await,
             PolicyVersionStoreImpl::Memory(s) => s.get(tenant).await,
             #[cfg(feature = "aws")]
             PolicyVersionStoreImpl::Dynamo(s) => s.get(tenant).await,
@@ -1708,6 +2159,8 @@ impl crate::ports::PolicyVersionStore for PolicyVersionStoreImpl {
     }
     async fn bump(&self, tenant: &str) -> Result<u64, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => crate::ports::PolicyVersionStore::bump(store, tenant).await,
             PolicyVersionStoreImpl::Memory(s) => s.bump(tenant).await,
             #[cfg(feature = "aws")]
             PolicyVersionStoreImpl::Dynamo(s) => s.bump(tenant).await,
@@ -1715,6 +2168,8 @@ impl crate::ports::PolicyVersionStore for PolicyVersionStoreImpl {
     }
     async fn delete(&self, tenant: &str) -> Result<usize, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => crate::ports::PolicyVersionStore::delete(store, tenant).await,
             PolicyVersionStoreImpl::Memory(s) => s.delete(tenant).await,
             #[cfg(feature = "aws")]
             PolicyVersionStoreImpl::Dynamo(s) => s.delete(tenant).await,
@@ -1723,7 +2178,10 @@ impl crate::ports::PolicyVersionStore for PolicyVersionStoreImpl {
 }
 
 /// BYOD 域名映射存储枚举分发(spec 010 §5.4 / C8.1b)。
+#[derive(Clone)]
 pub enum DomainMapStoreImpl {
+    #[cfg(feature = "postgres")]
+    Postgres(crate::adapters::postgres::PostgresStore),
     Memory(crate::adapters::memory::MemoryDomainMapStore),
     #[cfg(feature = "aws")]
     Dynamo(crate::adapters::aws::DynamoDomainMapStore),
@@ -1732,6 +2190,8 @@ pub enum DomainMapStoreImpl {
 impl crate::ports::DomainMapStore for DomainMapStoreImpl {
     async fn get(&self, domain: &str) -> Result<Option<crate::ports::DomainBinding>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => crate::ports::DomainMapStore::get(store, domain).await,
             DomainMapStoreImpl::Memory(s) => s.get(domain).await,
             #[cfg(feature = "aws")]
             DomainMapStoreImpl::Dynamo(s) => s.get(domain).await,
@@ -1742,6 +2202,10 @@ impl crate::ports::DomainMapStore for DomainMapStoreImpl {
         binding: crate::ports::DomainBinding,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::DomainMapStore::put_if_absent(store, binding).await
+            }
             DomainMapStoreImpl::Memory(s) => s.put_if_absent(binding).await,
             #[cfg(feature = "aws")]
             DomainMapStoreImpl::Dynamo(s) => s.put_if_absent(binding).await,
@@ -1749,6 +2213,10 @@ impl crate::ports::DomainMapStore for DomainMapStoreImpl {
     }
     async fn delete_if_owner(&self, domain: &str, client_id: &str) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::DomainMapStore::delete_if_owner(store, domain, client_id).await
+            }
             DomainMapStoreImpl::Memory(s) => s.delete_if_owner(domain, client_id).await,
             #[cfg(feature = "aws")]
             DomainMapStoreImpl::Dynamo(s) => s.delete_if_owner(domain, client_id).await,
@@ -1759,6 +2227,10 @@ impl crate::ports::DomainMapStore for DomainMapStoreImpl {
         client_id: &str,
     ) -> Result<Vec<crate::ports::DomainBinding>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::DomainMapStore::list_by_client(store, client_id).await
+            }
             DomainMapStoreImpl::Memory(s) => s.list_by_client(client_id).await,
             #[cfg(feature = "aws")]
             DomainMapStoreImpl::Dynamo(s) => s.list_by_client(client_id).await,
@@ -1766,6 +2238,10 @@ impl crate::ports::DomainMapStore for DomainMapStoreImpl {
     }
     async fn delete_all_by_tenant(&self, tenant_id: &str) -> Result<usize, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::DomainMapStore::delete_all_by_tenant(store, tenant_id).await
+            }
             DomainMapStoreImpl::Memory(s) => s.delete_all_by_tenant(tenant_id).await,
             #[cfg(feature = "aws")]
             DomainMapStoreImpl::Dynamo(s) => s.delete_all_by_tenant(tenant_id).await,
@@ -1774,7 +2250,10 @@ impl crate::ports::DomainMapStore for DomainMapStoreImpl {
 }
 
 /// 不可变策略工件存储枚举分发(spec 005 §7)。
+#[derive(Clone)]
 pub enum PolicyArtifactStoreImpl {
+    #[cfg(feature = "postgres")]
+    Postgres(crate::adapters::postgres::PostgresStore),
     Memory(crate::adapters::memory::MemoryPolicyArtifactStore),
     #[cfg(feature = "aws")]
     Dynamo(crate::adapters::aws::DynamoPolicyArtifactStore),
@@ -1789,6 +2268,10 @@ impl crate::ports::PolicyArtifactStore for PolicyArtifactStoreImpl {
         digest: String,
     ) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::PolicyArtifactStore::put(store, tenant, version, text, digest).await
+            }
             PolicyArtifactStoreImpl::Memory(s) => s.put(tenant, version, text, digest).await,
             #[cfg(feature = "aws")]
             PolicyArtifactStoreImpl::Dynamo(s) => s.put(tenant, version, text, digest).await,
@@ -1800,6 +2283,10 @@ impl crate::ports::PolicyArtifactStore for PolicyArtifactStoreImpl {
         version: u64,
     ) -> Result<Option<(String, String)>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::PolicyArtifactStore::get(store, tenant, version).await
+            }
             PolicyArtifactStoreImpl::Memory(s) => s.get(tenant, version).await,
             #[cfg(feature = "aws")]
             PolicyArtifactStoreImpl::Dynamo(s) => s.get(tenant, version).await,
@@ -1807,6 +2294,10 @@ impl crate::ports::PolicyArtifactStore for PolicyArtifactStoreImpl {
     }
     async fn delete_all_by_tenant(&self, tenant: &str) -> Result<usize, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::PolicyArtifactStore::delete_all_by_tenant(store, tenant).await
+            }
             PolicyArtifactStoreImpl::Memory(s) => s.delete_all_by_tenant(tenant).await,
             #[cfg(feature = "aws")]
             PolicyArtifactStoreImpl::Dynamo(s) => s.delete_all_by_tenant(tenant).await,
@@ -1817,6 +2308,8 @@ impl crate::ports::PolicyArtifactStore for PolicyArtifactStoreImpl {
 /// jti→主体映射存储端口枚举分发(spec 011 C7.8)。
 #[derive(Clone)]
 pub enum JtiStoreImpl {
+    #[cfg(feature = "postgres")]
+    Postgres(crate::adapters::postgres::PostgresStore),
     Memory(crate::adapters::memory::MemoryJtiStore),
     #[cfg(feature = "aws")]
     Dynamo(crate::adapters::aws::DynamoJtiStore),
@@ -1825,6 +2318,10 @@ pub enum JtiStoreImpl {
 impl crate::ports::JtiStore for JtiStoreImpl {
     async fn revoke_delegation(&self, tenant_id: &str, jti: &str) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::JtiStore::revoke_delegation(store, tenant_id, jti).await
+            }
             JtiStoreImpl::Memory(store) => store.revoke_delegation(tenant_id, jti).await,
             #[cfg(feature = "aws")]
             JtiStoreImpl::Dynamo(store) => store.revoke_delegation(tenant_id, jti).await,
@@ -1833,6 +2330,8 @@ impl crate::ports::JtiStore for JtiStoreImpl {
 
     async fn put(&self, record: crate::ports::JtiRecord) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => crate::ports::JtiStore::put(store, record).await,
             JtiStoreImpl::Memory(s) => s.put(record).await,
             #[cfg(feature = "aws")]
             JtiStoreImpl::Dynamo(s) => s.put(record).await,
@@ -1844,6 +2343,8 @@ impl crate::ports::JtiStore for JtiStoreImpl {
         jti: &str,
     ) -> Result<Option<crate::ports::JtiRecord>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => crate::ports::JtiStore::get(store, tenant_id, jti).await,
             JtiStoreImpl::Memory(s) => s.get(tenant_id, jti).await,
             #[cfg(feature = "aws")]
             JtiStoreImpl::Dynamo(s) => s.get(tenant_id, jti).await,
@@ -1851,6 +2352,10 @@ impl crate::ports::JtiStore for JtiStoreImpl {
     }
     async fn delete_by_user(&self, tenant_id: &str, user_id: &str) -> Result<usize, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::JtiStore::delete_by_user(store, tenant_id, user_id).await
+            }
             JtiStoreImpl::Memory(s) => s.delete_by_user(tenant_id, user_id).await,
             #[cfg(feature = "aws")]
             JtiStoreImpl::Dynamo(s) => s.delete_by_user(tenant_id, user_id).await,
@@ -1858,6 +2363,10 @@ impl crate::ports::JtiStore for JtiStoreImpl {
     }
     async fn delete_all_by_tenant(&self, tenant_id: &str) -> Result<usize, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::JtiStore::delete_all_by_tenant(store, tenant_id).await
+            }
             JtiStoreImpl::Memory(s) => s.delete_all_by_tenant(tenant_id).await,
             #[cfg(feature = "aws")]
             JtiStoreImpl::Dynamo(s) => s.delete_all_by_tenant(tenant_id).await,
@@ -1868,6 +2377,8 @@ impl crate::ports::JtiStore for JtiStoreImpl {
 /// workload 信任绑定存储端口枚举分发(spec 012 C5.5)。
 #[derive(Clone)]
 pub enum WorkloadTrustStoreImpl {
+    #[cfg(feature = "postgres")]
+    Postgres(crate::adapters::postgres::PostgresStore),
     Memory(MemoryWorkloadTrustStore),
     #[cfg(feature = "aws")]
     Dynamo(crate::adapters::aws::DynamoWorkloadTrustStore),
@@ -1881,6 +2392,10 @@ impl WorkloadTrustStore for WorkloadTrustStoreImpl {
         binding: agent_auth_workload::TrustBinding,
     ) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                WorkloadTrustStore::put(store, tenant, binding_id, binding).await
+            }
             WorkloadTrustStoreImpl::Memory(m) => m.put(tenant, binding_id, binding).await,
             #[cfg(feature = "aws")]
             WorkloadTrustStoreImpl::Dynamo(m) => m.put(tenant, binding_id, binding).await,
@@ -1891,6 +2406,8 @@ impl WorkloadTrustStore for WorkloadTrustStoreImpl {
         tenant_id: &str,
     ) -> Result<Vec<crate::ports::WorkloadTrustEntry>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => WorkloadTrustStore::list_by_tenant(store, tenant_id).await,
             WorkloadTrustStoreImpl::Memory(m) => m.list_by_tenant(tenant_id).await,
             #[cfg(feature = "aws")]
             WorkloadTrustStoreImpl::Dynamo(m) => m.list_by_tenant(tenant_id).await,
@@ -1898,6 +2415,8 @@ impl WorkloadTrustStore for WorkloadTrustStoreImpl {
     }
     async fn delete(&self, tenant: &str, binding_id: &str) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => WorkloadTrustStore::delete(store, tenant, binding_id).await,
             WorkloadTrustStoreImpl::Memory(m) => m.delete(tenant, binding_id).await,
             #[cfg(feature = "aws")]
             WorkloadTrustStoreImpl::Dynamo(m) => m.delete(tenant, binding_id).await,
@@ -1906,6 +2425,8 @@ impl WorkloadTrustStore for WorkloadTrustStoreImpl {
 
     async fn delete_all_by_tenant(&self, tenant: &str) -> Result<usize, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => WorkloadTrustStore::delete_all_by_tenant(store, tenant).await,
             WorkloadTrustStoreImpl::Memory(store) => store.delete_all_by_tenant(tenant).await,
             #[cfg(feature = "aws")]
             WorkloadTrustStoreImpl::Dynamo(store) => store.delete_all_by_tenant(tenant).await,
@@ -1916,6 +2437,8 @@ impl WorkloadTrustStore for WorkloadTrustStoreImpl {
 /// 联邦配置存储枚举分发(spec 003 §4 Task 4.7)。Memory(本地/测试)/ Dynamo(真机,复合键隔离)。
 #[derive(Clone)]
 pub enum FederationConfigStoreImpl {
+    #[cfg(feature = "postgres")]
+    Postgres(crate::adapters::postgres::PostgresStore),
     Memory(crate::adapters::memory::MemoryFederationConfigStore),
     #[cfg(feature = "aws")]
     Dynamo(crate::adapters::aws::DynamoFederationConfigStore),
@@ -1928,6 +2451,10 @@ impl crate::ports::FederationConfigStore for FederationConfigStoreImpl {
         upstream_idp_id: &str,
     ) -> Result<Option<agent_auth_authn::federation::FederationConfig>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::FederationConfigStore::get(store, tenant_id, upstream_idp_id).await
+            }
             FederationConfigStoreImpl::Memory(m) => m.get(tenant_id, upstream_idp_id).await,
             #[cfg(feature = "aws")]
             FederationConfigStoreImpl::Dynamo(m) => m.get(tenant_id, upstream_idp_id).await,
@@ -1938,6 +2465,10 @@ impl crate::ports::FederationConfigStore for FederationConfigStoreImpl {
         tenant_id: &str,
     ) -> Result<Vec<agent_auth_authn::federation::FederationConfig>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::FederationConfigStore::list_by_tenant(store, tenant_id).await
+            }
             FederationConfigStoreImpl::Memory(m) => m.list_by_tenant(tenant_id).await,
             #[cfg(feature = "aws")]
             FederationConfigStoreImpl::Dynamo(m) => m.list_by_tenant(tenant_id).await,
@@ -1948,6 +2479,8 @@ impl crate::ports::FederationConfigStore for FederationConfigStoreImpl {
         config: agent_auth_authn::federation::FederationConfig,
     ) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => crate::ports::FederationConfigStore::put(store, config).await,
             FederationConfigStoreImpl::Memory(m) => m.put(config).await,
             #[cfg(feature = "aws")]
             FederationConfigStoreImpl::Dynamo(m) => m.put(config).await,
@@ -1955,6 +2488,10 @@ impl crate::ports::FederationConfigStore for FederationConfigStoreImpl {
     }
     async fn delete(&self, tenant_id: &str, upstream_idp_id: &str) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::FederationConfigStore::delete(store, tenant_id, upstream_idp_id).await
+            }
             FederationConfigStoreImpl::Memory(m) => m.delete(tenant_id, upstream_idp_id).await,
             #[cfg(feature = "aws")]
             FederationConfigStoreImpl::Dynamo(m) => m.delete(tenant_id, upstream_idp_id).await,
@@ -1963,6 +2500,10 @@ impl crate::ports::FederationConfigStore for FederationConfigStoreImpl {
 
     async fn delete_all_by_tenant(&self, tenant_id: &str) -> Result<usize, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::FederationConfigStore::delete_all_by_tenant(store, tenant_id).await
+            }
             FederationConfigStoreImpl::Memory(store) => store.delete_all_by_tenant(tenant_id).await,
             #[cfg(feature = "aws")]
             FederationConfigStoreImpl::Dynamo(store) => store.delete_all_by_tenant(tenant_id).await,
@@ -1972,6 +2513,8 @@ impl crate::ports::FederationConfigStore for FederationConfigStoreImpl {
 
 #[derive(Clone)]
 pub enum FederationAttributeMappingsStoreImpl {
+    #[cfg(feature = "postgres")]
+    Postgres(crate::adapters::postgres::PostgresStore),
     Disabled,
     Memory(crate::adapters::memory_federation_attributes::MemoryFederationAttributeMappingsStore),
     #[cfg(feature = "aws")]
@@ -1989,6 +2532,11 @@ impl FederationAttributeMappingsStore for FederationAttributeMappingsStoreImpl {
         upstream_idp_id: &str,
     ) -> Result<Option<crate::federation_attributes::MappingRegistry>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                FederationAttributeMappingsStore::get_registry(store, tenant_id, upstream_idp_id)
+                    .await
+            }
             Self::Disabled => Err(federation_attribute_mappings_store_disabled()),
             Self::Memory(store) => store.get_registry(tenant_id, upstream_idp_id).await,
             #[cfg(feature = "aws")]
@@ -2004,6 +2552,17 @@ impl FederationAttributeMappingsStore for FederationAttributeMappingsStoreImpl {
         change: crate::federation_attributes::MappingChange,
     ) -> Result<crate::federation_attributes::MappingChangeOutcome, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                FederationAttributeMappingsStore::change(
+                    store,
+                    tenant_id,
+                    upstream_idp_id,
+                    upstream_issuer,
+                    change,
+                )
+                .await
+            }
             Self::Disabled => Err(federation_attribute_mappings_store_disabled()),
             Self::Memory(store) => {
                 store
@@ -2024,6 +2583,10 @@ impl FederationAttributeMappingsStore for FederationAttributeMappingsStoreImpl {
         tenant_id: &str,
     ) -> Result<Vec<crate::federation_attributes::MappingRegistry>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                FederationAttributeMappingsStore::list_by_tenant(store, tenant_id).await
+            }
             Self::Disabled => Err(federation_attribute_mappings_store_disabled()),
             Self::Memory(store) => store.list_by_tenant(tenant_id).await,
             #[cfg(feature = "aws")]
@@ -2033,6 +2596,11 @@ impl FederationAttributeMappingsStore for FederationAttributeMappingsStoreImpl {
 
     async fn governance_count_all_by_tenant(&self, tenant_id: &str) -> Result<usize, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                FederationAttributeMappingsStore::governance_count_all_by_tenant(store, tenant_id)
+                    .await
+            }
             Self::Disabled => Err(federation_attribute_mappings_store_disabled()),
             Self::Memory(store) => store.governance_count_all_by_tenant(tenant_id).await,
             #[cfg(feature = "aws")]
@@ -2042,6 +2610,10 @@ impl FederationAttributeMappingsStore for FederationAttributeMappingsStoreImpl {
 
     async fn delete_all_by_tenant(&self, tenant_id: &str) -> Result<usize, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                FederationAttributeMappingsStore::delete_all_by_tenant(store, tenant_id).await
+            }
             Self::Disabled => Err(federation_attribute_mappings_store_disabled()),
             Self::Memory(store) => store.delete_all_by_tenant(tenant_id).await,
             #[cfg(feature = "aws")]
@@ -2053,6 +2625,8 @@ impl FederationAttributeMappingsStore for FederationAttributeMappingsStoreImpl {
 /// CIBA 授权请求存储端口枚举分发(spec 013)。
 #[derive(Clone)]
 pub enum CibaStoreImpl {
+    #[cfg(feature = "postgres")]
+    Postgres(crate::adapters::postgres::PostgresCibaStore),
     Memory(MemoryCibaStore),
     #[cfg(feature = "aws")]
     Dynamo(crate::adapters::aws::DynamoCibaStore),
@@ -2061,6 +2635,8 @@ pub enum CibaStoreImpl {
 impl CibaStore for CibaStoreImpl {
     async fn put(&self, tenant: &str, r: CibaAuthRequest) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => CibaStore::put(store, tenant, r).await,
             CibaStoreImpl::Memory(m) => m.put(tenant, r).await,
             #[cfg(feature = "aws")]
             CibaStoreImpl::Dynamo(m) => m.put(tenant, r).await,
@@ -2072,6 +2648,8 @@ impl CibaStore for CibaStoreImpl {
         auth_req_id: &str,
     ) -> Result<Option<CibaAuthRequest>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => CibaStore::get(store, tenant, auth_req_id).await,
             CibaStoreImpl::Memory(m) => m.get(tenant, auth_req_id).await,
             #[cfg(feature = "aws")]
             CibaStoreImpl::Dynamo(m) => m.get(tenant, auth_req_id).await,
@@ -2079,6 +2657,8 @@ impl CibaStore for CibaStoreImpl {
     }
     async fn update(&self, tenant: &str, r: CibaAuthRequest) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => CibaStore::update(store, tenant, r).await,
             CibaStoreImpl::Memory(m) => m.update(tenant, r).await,
             #[cfg(feature = "aws")]
             CibaStoreImpl::Dynamo(m) => m.update(tenant, r).await,
@@ -2086,6 +2666,8 @@ impl CibaStore for CibaStoreImpl {
     }
     async fn consume(&self, tenant: &str, auth_req_id: &str) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => CibaStore::consume(store, tenant, auth_req_id).await,
             CibaStoreImpl::Memory(m) => m.consume(tenant, auth_req_id).await,
             #[cfg(feature = "aws")]
             CibaStoreImpl::Dynamo(m) => m.consume(tenant, auth_req_id).await,
@@ -2099,6 +2681,10 @@ impl CibaStore for CibaStoreImpl {
         now: i64,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                CibaStore::claim_poll(store, tenant, auth_req_id, observed_last_poll_at, now).await
+            }
             CibaStoreImpl::Memory(m) => {
                 m.claim_poll(tenant, auth_req_id, observed_last_poll_at, now)
                     .await
@@ -2118,6 +2704,17 @@ impl CibaStore for CibaStoreImpl {
         approve: bool,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                CibaStore::decide(
+                    store,
+                    tenant,
+                    auth_req_id,
+                    password_credential_version,
+                    approve,
+                )
+                .await
+            }
             CibaStoreImpl::Memory(m) => {
                 m.decide(tenant, auth_req_id, password_credential_version, approve)
                     .await
@@ -2131,6 +2728,8 @@ impl CibaStore for CibaStoreImpl {
     }
     async fn release_consume(&self, tenant: &str, auth_req_id: &str) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => CibaStore::release_consume(store, tenant, auth_req_id).await,
             CibaStoreImpl::Memory(m) => m.release_consume(tenant, auth_req_id).await,
             #[cfg(feature = "aws")]
             CibaStoreImpl::Dynamo(m) => m.release_consume(tenant, auth_req_id).await,
@@ -2144,6 +2743,10 @@ impl CibaStore for CibaStoreImpl {
         window_secs: i64,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                CibaStore::try_arm_throttle(store, tenant, user_id, now, window_secs).await
+            }
             CibaStoreImpl::Memory(m) => m.try_arm_throttle(tenant, user_id, now, window_secs).await,
             #[cfg(feature = "aws")]
             CibaStoreImpl::Dynamo(m) => m.try_arm_throttle(tenant, user_id, now, window_secs).await,
@@ -2151,6 +2754,8 @@ impl CibaStore for CibaStoreImpl {
     }
     async fn delete_by_user(&self, tenant: &str, user_id: &str) -> Result<usize, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => CibaStore::delete_by_user(store, tenant, user_id).await,
             CibaStoreImpl::Memory(m) => m.delete_by_user(tenant, user_id).await,
             #[cfg(feature = "aws")]
             CibaStoreImpl::Dynamo(m) => m.delete_by_user(tenant, user_id).await,
@@ -2158,6 +2763,8 @@ impl CibaStore for CibaStoreImpl {
     }
     async fn delete_all_by_tenant(&self, tenant: &str) -> Result<usize, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => CibaStore::delete_all_by_tenant(store, tenant).await,
             CibaStoreImpl::Memory(m) => m.delete_all_by_tenant(tenant).await,
             #[cfg(feature = "aws")]
             CibaStoreImpl::Dynamo(m) => m.delete_all_by_tenant(tenant).await,
@@ -2168,6 +2775,8 @@ impl CibaStore for CibaStoreImpl {
 /// device 授权存储端口枚举分发(spec 013)。
 #[derive(Clone)]
 pub enum DeviceStoreImpl {
+    #[cfg(feature = "postgres")]
+    Postgres(crate::adapters::postgres::PostgresStore),
     Memory(MemoryDeviceStore),
     #[cfg(feature = "aws")]
     Dynamo(crate::adapters::aws::DynamoDeviceStore),
@@ -2176,6 +2785,8 @@ pub enum DeviceStoreImpl {
 impl DeviceStore for DeviceStoreImpl {
     async fn put(&self, tenant: &str, r: DeviceAuthGrant) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => DeviceStore::put(store, tenant, r).await,
             DeviceStoreImpl::Memory(m) => m.put(tenant, r).await,
             #[cfg(feature = "aws")]
             DeviceStoreImpl::Dynamo(m) => m.put(tenant, r).await,
@@ -2187,6 +2798,8 @@ impl DeviceStore for DeviceStoreImpl {
         device_code: &str,
     ) -> Result<Option<DeviceAuthGrant>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => DeviceStore::get(store, tenant, device_code).await,
             DeviceStoreImpl::Memory(m) => m.get(tenant, device_code).await,
             #[cfg(feature = "aws")]
             DeviceStoreImpl::Dynamo(m) => m.get(tenant, device_code).await,
@@ -2198,6 +2811,8 @@ impl DeviceStore for DeviceStoreImpl {
         user_code: &str,
     ) -> Result<Option<DeviceAuthGrant>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => DeviceStore::get_by_user_code(store, tenant, user_code).await,
             DeviceStoreImpl::Memory(m) => m.get_by_user_code(tenant, user_code).await,
             #[cfg(feature = "aws")]
             DeviceStoreImpl::Dynamo(m) => m.get_by_user_code(tenant, user_code).await,
@@ -2205,6 +2820,8 @@ impl DeviceStore for DeviceStoreImpl {
     }
     async fn update(&self, tenant: &str, r: DeviceAuthGrant) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => DeviceStore::update(store, tenant, r).await,
             DeviceStoreImpl::Memory(m) => m.update(tenant, r).await,
             #[cfg(feature = "aws")]
             DeviceStoreImpl::Dynamo(m) => m.update(tenant, r).await,
@@ -2212,6 +2829,8 @@ impl DeviceStore for DeviceStoreImpl {
     }
     async fn consume(&self, tenant: &str, device_code: &str, now: i64) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => DeviceStore::consume(store, tenant, device_code, now).await,
             DeviceStoreImpl::Memory(m) => m.consume(tenant, device_code, now).await,
             #[cfg(feature = "aws")]
             DeviceStoreImpl::Dynamo(m) => m.consume(tenant, device_code, now).await,
@@ -2225,6 +2844,11 @@ impl DeviceStore for DeviceStoreImpl {
         now: i64,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                DeviceStore::claim_poll(store, tenant, device_code, observed_last_poll_at, now)
+                    .await
+            }
             DeviceStoreImpl::Memory(m) => {
                 m.claim_poll(tenant, device_code, observed_last_poll_at, now)
                     .await
@@ -2246,6 +2870,19 @@ impl DeviceStore for DeviceStoreImpl {
         now: i64,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                DeviceStore::decide(
+                    store,
+                    tenant,
+                    device_code,
+                    user_id,
+                    password_credential_version,
+                    approve,
+                    now,
+                )
+                .await
+            }
             DeviceStoreImpl::Memory(m) => {
                 m.decide(
                     tenant,
@@ -2278,6 +2915,10 @@ impl DeviceStore for DeviceStoreImpl {
         now: i64,
     ) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                DeviceStore::release_consume(store, tenant, device_code, now).await
+            }
             DeviceStoreImpl::Memory(m) => m.release_consume(tenant, device_code, now).await,
             #[cfg(feature = "aws")]
             DeviceStoreImpl::Dynamo(m) => m.release_consume(tenant, device_code, now).await,
@@ -2285,6 +2926,8 @@ impl DeviceStore for DeviceStoreImpl {
     }
     async fn delete_by_user(&self, tenant: &str, user_id: &str) -> Result<usize, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => DeviceStore::delete_by_user(store, tenant, user_id).await,
             DeviceStoreImpl::Memory(m) => m.delete_by_user(tenant, user_id).await,
             #[cfg(feature = "aws")]
             DeviceStoreImpl::Dynamo(m) => m.delete_by_user(tenant, user_id).await,
@@ -2292,6 +2935,8 @@ impl DeviceStore for DeviceStoreImpl {
     }
     async fn delete_all_by_tenant(&self, tenant: &str) -> Result<usize, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => DeviceStore::delete_all_by_tenant(store, tenant).await,
             DeviceStoreImpl::Memory(m) => m.delete_all_by_tenant(tenant).await,
             #[cfg(feature = "aws")]
             DeviceStoreImpl::Dynamo(m) => m.delete_all_by_tenant(tenant).await,
@@ -2302,6 +2947,8 @@ impl DeviceStore for DeviceStoreImpl {
 /// 会话存储端口枚举分发。
 #[derive(Clone)]
 pub enum SessionStoreImpl {
+    #[cfg(feature = "postgres")]
+    Postgres(crate::adapters::postgres::PostgresStore),
     Memory(MemorySessionStore),
     #[cfg(feature = "aws")]
     Dynamo(crate::adapters::aws::DynamoSessionStore),
@@ -2310,6 +2957,8 @@ pub enum SessionStoreImpl {
 impl SessionStore for SessionStoreImpl {
     async fn create(&self, tenant: &str, s: SessionRecord) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => SessionStore::create(store, tenant, s).await,
             SessionStoreImpl::Memory(m) => m.create(tenant, s).await,
             #[cfg(feature = "aws")]
             SessionStoreImpl::Dynamo(m) => m.create(tenant, s).await,
@@ -2317,6 +2966,8 @@ impl SessionStore for SessionStoreImpl {
     }
     async fn get(&self, tenant: &str, id: &str) -> Result<Option<SessionRecord>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => SessionStore::get(store, tenant, id).await,
             SessionStoreImpl::Memory(m) => m.get(tenant, id).await,
             #[cfg(feature = "aws")]
             SessionStoreImpl::Dynamo(m) => m.get(tenant, id).await,
@@ -2324,6 +2975,8 @@ impl SessionStore for SessionStoreImpl {
     }
     async fn delete(&self, tenant: &str, id: &str) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => SessionStore::delete(store, tenant, id).await,
             SessionStoreImpl::Memory(m) => m.delete(tenant, id).await,
             #[cfg(feature = "aws")]
             SessionStoreImpl::Dynamo(m) => m.delete(tenant, id).await,
@@ -2336,6 +2989,8 @@ impl SessionStore for SessionStoreImpl {
         now: i64,
     ) -> Result<Vec<SessionRecord>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => SessionStore::list_by_user(store, tenant, user_id, now).await,
             SessionStoreImpl::Memory(m) => m.list_by_user(tenant, user_id, now).await,
             #[cfg(feature = "aws")]
             SessionStoreImpl::Dynamo(m) => m.list_by_user(tenant, user_id, now).await,
@@ -2349,6 +3004,17 @@ impl SessionStore for SessionStoreImpl {
         target_session_id: &str,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                SessionStore::delete_owned(
+                    store,
+                    tenant,
+                    user_id,
+                    actor_session_id,
+                    target_session_id,
+                )
+                .await
+            }
             SessionStoreImpl::Memory(m) => {
                 m.delete_owned(tenant, user_id, actor_session_id, target_session_id)
                     .await
@@ -2367,6 +3033,11 @@ impl SessionStore for SessionStoreImpl {
         retained_session_id: &str,
     ) -> Result<Option<usize>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                SessionStore::delete_others_by_user(store, tenant, user_id, retained_session_id)
+                    .await
+            }
             SessionStoreImpl::Memory(m) => {
                 m.delete_others_by_user(tenant, user_id, retained_session_id)
                     .await
@@ -2385,6 +3056,10 @@ impl SessionStore for SessionStoreImpl {
         actor_session_id: &str,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                SessionStore::revoke_all_by_actor(store, tenant, user_id, actor_session_id).await
+            }
             SessionStoreImpl::Memory(store) => {
                 store
                     .revoke_all_by_actor(tenant, user_id, actor_session_id)
@@ -2405,6 +3080,10 @@ impl SessionStore for SessionStoreImpl {
         now: i64,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                SessionStore::touch_last_used(store, tenant, session_id, now).await
+            }
             SessionStoreImpl::Memory(m) => m.touch_last_used(tenant, session_id, now).await,
             #[cfg(feature = "aws")]
             SessionStoreImpl::Dynamo(m) => m.touch_last_used(tenant, session_id, now).await,
@@ -2412,6 +3091,8 @@ impl SessionStore for SessionStoreImpl {
     }
     async fn delete_by_user(&self, tenant: &str, user_id: &str) -> Result<usize, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => SessionStore::delete_by_user(store, tenant, user_id).await,
             SessionStoreImpl::Memory(m) => m.delete_by_user(tenant, user_id).await,
             #[cfg(feature = "aws")]
             SessionStoreImpl::Dynamo(m) => m.delete_by_user(tenant, user_id).await,
@@ -2424,6 +3105,10 @@ impl SessionStore for SessionStoreImpl {
         epoch: u64,
     ) -> Result<usize, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                SessionStore::delete_by_user_before_epoch(store, tenant, user_id, epoch).await
+            }
             SessionStoreImpl::Memory(m) => {
                 m.delete_by_user_before_epoch(tenant, user_id, epoch).await
             }
@@ -2440,6 +3125,8 @@ impl SessionStore for SessionStoreImpl {
         now: i64,
     ) -> Result<usize, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => SessionStore::count_by_user(store, tenant, user_id, now).await,
             SessionStoreImpl::Memory(m) => m.count_by_user(tenant, user_id, now).await,
             #[cfg(feature = "aws")]
             SessionStoreImpl::Dynamo(m) => m.count_by_user(tenant, user_id, now).await,
@@ -2447,6 +3134,8 @@ impl SessionStore for SessionStoreImpl {
     }
     async fn delete_all_by_tenant(&self, tenant: &str) -> Result<usize, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => SessionStore::delete_all_by_tenant(store, tenant).await,
             SessionStoreImpl::Memory(m) => m.delete_all_by_tenant(tenant).await,
             #[cfg(feature = "aws")]
             SessionStoreImpl::Dynamo(m) => m.delete_all_by_tenant(tenant).await,
@@ -2457,6 +3146,8 @@ impl SessionStore for SessionStoreImpl {
 /// 恢复码存储端口枚举分发。
 #[derive(Clone)]
 pub enum RecoveryStoreImpl {
+    #[cfg(feature = "postgres")]
+    Postgres(crate::adapters::postgres::PostgresStore),
     Memory(crate::adapters::memory::MemoryRecoveryStore),
     #[cfg(feature = "aws")]
     Dynamo(crate::adapters::aws::DynamoRecoveryStore),
@@ -2538,6 +3229,8 @@ impl RecoveryStoreImpl {
 impl RecoveryStore for RecoveryStoreImpl {
     async fn put(&self, tenant: &str, r: RecoveryRecord) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => RecoveryStore::put(store, tenant, r).await,
             RecoveryStoreImpl::Memory(m) => m.put(tenant, r).await,
             #[cfg(feature = "aws")]
             RecoveryStoreImpl::Dynamo(m) => m.put(tenant, r).await,
@@ -2545,6 +3238,8 @@ impl RecoveryStore for RecoveryStoreImpl {
     }
     async fn get(&self, tenant: &str, user_id: &str) -> Result<Option<RecoveryRecord>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => RecoveryStore::get(store, tenant, user_id).await,
             RecoveryStoreImpl::Memory(m) => m.get(tenant, user_id).await,
             #[cfg(feature = "aws")]
             RecoveryStoreImpl::Dynamo(m) => m.get(tenant, user_id).await,
@@ -2556,6 +3251,10 @@ impl RecoveryStore for RecoveryStoreImpl {
         operation_key: &str,
     ) -> Result<Option<RecoverySuccessResult>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                RecoveryStore::get_success_result(store, tenant, operation_key).await
+            }
             RecoveryStoreImpl::Memory(m) => m.get_success_result(tenant, operation_key).await,
             #[cfg(feature = "aws")]
             RecoveryStoreImpl::Dynamo(m) => m.get_success_result(tenant, operation_key).await,
@@ -2569,6 +3268,10 @@ impl RecoveryStore for RecoveryStoreImpl {
         now: i64,
     ) -> Result<RecoveryConsume, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                RecoveryStore::verify_and_consume(store, tenant, user_id, presented_hash, now).await
+            }
             RecoveryStoreImpl::Memory(m) => {
                 m.verify_and_consume(tenant, user_id, presented_hash, now)
                     .await
@@ -2582,6 +3285,10 @@ impl RecoveryStore for RecoveryStoreImpl {
     }
     async fn delete_by_lookup(&self, tenant: &str, user_lookup: &str) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                RecoveryStore::delete_by_lookup(store, tenant, user_lookup).await
+            }
             RecoveryStoreImpl::Memory(m) => m.delete_by_lookup(tenant, user_lookup).await,
             #[cfg(feature = "aws")]
             RecoveryStoreImpl::Dynamo(m) => m.delete_by_lookup(tenant, user_lookup).await,
@@ -2589,6 +3296,8 @@ impl RecoveryStore for RecoveryStoreImpl {
     }
     async fn delete_all_by_tenant(&self, tenant: &str) -> Result<usize, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => RecoveryStore::delete_all_by_tenant(store, tenant).await,
             RecoveryStoreImpl::Memory(m) => m.delete_all_by_tenant(tenant).await,
             #[cfg(feature = "aws")]
             RecoveryStoreImpl::Dynamo(m) => m.delete_all_by_tenant(tenant).await,
@@ -2599,6 +3308,8 @@ impl RecoveryStore for RecoveryStoreImpl {
 /// magic-link 存储端口枚举分发。
 #[derive(Clone)]
 pub enum MagicLinkStoreImpl {
+    #[cfg(feature = "postgres")]
+    Postgres(crate::adapters::postgres::PostgresStore),
     Memory(MemoryMagicLinkStore),
     #[cfg(feature = "aws")]
     Dynamo(crate::adapters::aws::DynamoMagicLinkStore),
@@ -2607,6 +3318,8 @@ pub enum MagicLinkStoreImpl {
 impl MagicLinkStore for MagicLinkStoreImpl {
     async fn put(&self, tenant: &str, link: MagicLinkRecord) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => MagicLinkStore::put(store, tenant, link).await,
             MagicLinkStoreImpl::Memory(m) => m.put(tenant, link).await,
             #[cfg(feature = "aws")]
             MagicLinkStoreImpl::Dynamo(m) => m.put(tenant, link).await,
@@ -2618,6 +3331,8 @@ impl MagicLinkStore for MagicLinkStoreImpl {
         link_id: &str,
     ) -> Result<Option<MagicLinkRecord>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => MagicLinkStore::get(store, tenant, link_id).await,
             MagicLinkStoreImpl::Memory(m) => m.get(tenant, link_id).await,
             #[cfg(feature = "aws")]
             MagicLinkStoreImpl::Dynamo(m) => m.get(tenant, link_id).await,
@@ -2630,6 +3345,10 @@ impl MagicLinkStore for MagicLinkStoreImpl {
         expected_session_nonce: &str,
     ) -> Result<Option<MagicLinkRecord>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                MagicLinkStore::consume_bound(store, tenant, link_id, expected_session_nonce).await
+            }
             MagicLinkStoreImpl::Memory(m) => {
                 m.consume_bound(tenant, link_id, expected_session_nonce)
                     .await
@@ -2643,6 +3362,8 @@ impl MagicLinkStore for MagicLinkStoreImpl {
     }
     async fn last_sent_at(&self, tenant: &str, email: &str) -> Result<Option<i64>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => MagicLinkStore::last_sent_at(store, tenant, email).await,
             MagicLinkStoreImpl::Memory(m) => m.last_sent_at(tenant, email).await,
             #[cfg(feature = "aws")]
             MagicLinkStoreImpl::Dynamo(m) => m.last_sent_at(tenant, email).await,
@@ -2650,6 +3371,8 @@ impl MagicLinkStore for MagicLinkStoreImpl {
     }
     async fn mark_sent(&self, tenant: &str, email: &str, now: i64) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => MagicLinkStore::mark_sent(store, tenant, email, now).await,
             MagicLinkStoreImpl::Memory(m) => m.mark_sent(tenant, email, now).await,
             #[cfg(feature = "aws")]
             MagicLinkStoreImpl::Dynamo(m) => m.mark_sent(tenant, email, now).await,
@@ -2662,6 +3385,10 @@ impl MagicLinkStore for MagicLinkStoreImpl {
         aliases: &[String],
     ) -> Result<usize, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                MagicLinkStore::delete_by_user(store, tenant, user_id, aliases).await
+            }
             MagicLinkStoreImpl::Memory(m) => m.delete_by_user(tenant, user_id, aliases).await,
             #[cfg(feature = "aws")]
             MagicLinkStoreImpl::Dynamo(m) => m.delete_by_user(tenant, user_id, aliases).await,
@@ -2669,6 +3396,8 @@ impl MagicLinkStore for MagicLinkStoreImpl {
     }
     async fn delete_all_by_tenant(&self, tenant: &str) -> Result<usize, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => MagicLinkStore::delete_all_by_tenant(store, tenant).await,
             MagicLinkStoreImpl::Memory(m) => m.delete_all_by_tenant(tenant).await,
             #[cfg(feature = "aws")]
             MagicLinkStoreImpl::Dynamo(m) => m.delete_all_by_tenant(tenant).await,
@@ -2680,6 +3409,8 @@ impl MagicLinkStore for MagicLinkStoreImpl {
 /// from magic-link state even though both ultimately establish login sessions.
 #[derive(Clone)]
 pub enum InvitationStoreImpl {
+    #[cfg(feature = "postgres")]
+    Postgres(crate::adapters::postgres::PostgresInvitationStore),
     Memory(MemoryInvitationStore),
     #[cfg(feature = "aws")]
     Dynamo(crate::adapters::aws::DynamoInvitationStore),
@@ -2692,6 +3423,8 @@ impl InvitationStore for InvitationStoreImpl {
         record: InvitationRecord,
     ) -> Result<InvitationIssueOutcome, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => InvitationStore::issue(store, tenant, record).await,
             Self::Memory(store) => store.issue(tenant, record).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.issue(tenant, record).await,
@@ -2704,6 +3437,8 @@ impl InvitationStore for InvitationStoreImpl {
         request: InvitationAcceptRequest,
     ) -> Result<InvitationAcceptOutcome, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => InvitationStore::accept(store, tenant, request).await,
             Self::Memory(store) => store.accept(tenant, request).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.accept(tenant, request).await,
@@ -2712,6 +3447,8 @@ impl InvitationStore for InvitationStoreImpl {
 
     async fn invalidate(&self, tenant: &str, locator: &str) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => InvitationStore::invalidate(store, tenant, locator).await,
             Self::Memory(store) => store.invalidate(tenant, locator).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.invalidate(tenant, locator).await,
@@ -2722,6 +3459,8 @@ impl InvitationStore for InvitationStoreImpl {
 /// 用户目录存储端口枚举分发(spec 003 §1.4)。
 #[derive(Clone)]
 pub enum AttributeNamespaceStoreImpl {
+    #[cfg(feature = "postgres")]
+    Postgres(crate::adapters::postgres::PostgresStore),
     Disabled,
     Memory(crate::adapters::memory_attribute_namespaces::MemoryAttributeNamespaceStore),
     #[cfg(feature = "aws")]
@@ -2739,6 +3478,10 @@ impl AttributeNamespaceStore for AttributeNamespaceStoreImpl {
         verified_aud: &str,
     ) -> Result<crate::attribute_namespace::AudienceResolution, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                AttributeNamespaceStore::resolve(store, tenant, verified_aud).await
+            }
             Self::Disabled => Err(attribute_namespace_store_disabled()),
             Self::Memory(store) => store.resolve(tenant, verified_aud).await,
             #[cfg(feature = "aws")]
@@ -2752,6 +3495,10 @@ impl AttributeNamespaceStore for AttributeNamespaceStoreImpl {
         namespace: &str,
     ) -> Result<crate::attribute_namespace::AttributeWriteResolution, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                AttributeNamespaceStore::resolve_write_authority(store, tenant, namespace).await
+            }
             Self::Disabled => Err(attribute_namespace_store_disabled()),
             Self::Memory(store) => store.resolve_write_authority(tenant, namespace).await,
             #[cfg(feature = "aws")]
@@ -2765,6 +3512,10 @@ impl AttributeNamespaceStore for AttributeNamespaceStoreImpl {
         canonical_namespace: &str,
     ) -> Result<Option<crate::attribute_namespace::NamespaceRegistration>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                AttributeNamespaceStore::get(store, tenant, canonical_namespace).await
+            }
             Self::Disabled => Err(attribute_namespace_store_disabled()),
             Self::Memory(store) => store.get(tenant, canonical_namespace).await,
             #[cfg(feature = "aws")]
@@ -2777,6 +3528,8 @@ impl AttributeNamespaceStore for AttributeNamespaceStoreImpl {
         tenant: &str,
     ) -> Result<Vec<crate::attribute_namespace::NamespaceRegistration>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => AttributeNamespaceStore::list(store, tenant).await,
             Self::Disabled => Err(attribute_namespace_store_disabled()),
             Self::Memory(store) => store.list(tenant).await,
             #[cfg(feature = "aws")]
@@ -2790,6 +3543,10 @@ impl AttributeNamespaceStore for AttributeNamespaceStoreImpl {
         request: crate::attribute_namespace::BeginNamespaceChange,
     ) -> Result<crate::attribute_namespace::BeginNamespaceChangeOutcome, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                AttributeNamespaceStore::begin_change(store, tenant, request).await
+            }
             Self::Disabled => Err(attribute_namespace_store_disabled()),
             Self::Memory(store) => store.begin_change(tenant, request).await,
             #[cfg(feature = "aws")]
@@ -2805,6 +3562,17 @@ impl AttributeNamespaceStore for AttributeNamespaceStoreImpl {
         checkpoint: crate::attribute_namespace::NamespaceOperationCheckpoint,
     ) -> Result<crate::attribute_namespace::NamespaceChangeOutcome, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                AttributeNamespaceStore::checkpoint(
+                    store,
+                    tenant,
+                    canonical_namespace,
+                    operation_id,
+                    checkpoint,
+                )
+                .await
+            }
             Self::Disabled => Err(attribute_namespace_store_disabled()),
             Self::Memory(store) => {
                 store
@@ -2828,6 +3596,17 @@ impl AttributeNamespaceStore for AttributeNamespaceStoreImpl {
         expected_operation_revision: u64,
     ) -> Result<crate::attribute_namespace::NamespaceChangeOutcome, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                AttributeNamespaceStore::activate(
+                    store,
+                    tenant,
+                    canonical_namespace,
+                    operation_id,
+                    expected_operation_revision,
+                )
+                .await
+            }
             Self::Disabled => Err(attribute_namespace_store_disabled()),
             Self::Memory(store) => {
                 store
@@ -2861,6 +3640,17 @@ impl AttributeNamespaceStore for AttributeNamespaceStoreImpl {
         expected_operation_revision: u64,
     ) -> Result<crate::attribute_namespace::NamespaceChangeOutcome, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                AttributeNamespaceStore::cancel(
+                    store,
+                    tenant,
+                    canonical_namespace,
+                    operation_id,
+                    expected_operation_revision,
+                )
+                .await
+            }
             Self::Disabled => Err(attribute_namespace_store_disabled()),
             Self::Memory(store) => {
                 store
@@ -2890,6 +3680,8 @@ impl AttributeNamespaceStore for AttributeNamespaceStoreImpl {
 /// 用户目录存储端口枚举分发(spec 003 §1.4)。
 #[derive(Clone)]
 pub enum UsersStoreImpl {
+    #[cfg(feature = "postgres")]
+    Postgres(crate::adapters::postgres::PostgresUsersStore),
     Memory(crate::adapters::memory::MemoryUsersStore),
     #[cfg(feature = "aws")]
     Dynamo(crate::adapters::aws::DynamoUsersStore),
@@ -2905,6 +3697,18 @@ impl UsersStoreImpl {
         now: i64,
     ) -> Result<crate::ports::CredentialChangeStart, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            UsersStoreImpl::Postgres(store) => {
+                store
+                    .begin_admin_credential_change(
+                        tenant,
+                        user_id,
+                        expected_epoch,
+                        operation_id,
+                        now,
+                    )
+                    .await
+            }
             UsersStoreImpl::Memory(store) => {
                 store
                     .begin_admin_credential_change(
@@ -2939,6 +3743,12 @@ impl UsersStoreImpl {
         now: i64,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            UsersStoreImpl::Postgres(store) => {
+                store
+                    .abort_admin_credential_change(tenant, user_id, owner, now)
+                    .await
+            }
             UsersStoreImpl::Memory(store) => {
                 store
                     .abort_admin_credential_change(tenant, user_id, owner, now)
@@ -2963,6 +3773,11 @@ impl crate::ports::UsersStore for UsersStoreImpl {
         now: i64,
     ) -> Result<crate::ports::UserRecord, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::UsersStore::create_or_get_by_email(store, tenant, email, user_id, now)
+                    .await
+            }
             UsersStoreImpl::Memory(m) => {
                 m.create_or_get_by_email(tenant, email, user_id, now).await
             }
@@ -2979,6 +3794,10 @@ impl crate::ports::UsersStore for UsersStoreImpl {
         now: i64,
     ) -> Result<crate::ports::UserRecord, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::UsersStore::create_or_get_by_id(store, tenant, user_id, now).await
+            }
             UsersStoreImpl::Memory(m) => m.create_or_get_by_id(tenant, user_id, now).await,
             #[cfg(feature = "aws")]
             UsersStoreImpl::Dynamo(m) => m.create_or_get_by_id(tenant, user_id, now).await,
@@ -2990,6 +3809,10 @@ impl crate::ports::UsersStore for UsersStoreImpl {
         user_id: &str,
     ) -> Result<Option<crate::ports::UserRecord>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::UsersStore::get_by_id(store, tenant, user_id).await
+            }
             UsersStoreImpl::Memory(m) => m.get_by_id(tenant, user_id).await,
             #[cfg(feature = "aws")]
             UsersStoreImpl::Dynamo(m) => m.get_by_id(tenant, user_id).await,
@@ -3001,6 +3824,10 @@ impl crate::ports::UsersStore for UsersStoreImpl {
         email: &str,
     ) -> Result<Option<crate::ports::UserRecord>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::UsersStore::get_by_email(store, tenant, email).await
+            }
             UsersStoreImpl::Memory(m) => m.get_by_email(tenant, email).await,
             #[cfg(feature = "aws")]
             UsersStoreImpl::Dynamo(m) => m.get_by_email(tenant, email).await,
@@ -3012,6 +3839,10 @@ impl crate::ports::UsersStore for UsersStoreImpl {
         input: crate::ports::ScimUserInput,
     ) -> Result<crate::ports::ScimCreateOutcome, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::UsersStore::create_scim(store, tenant, input).await
+            }
             UsersStoreImpl::Memory(m) => m.create_scim(tenant, input).await,
             #[cfg(feature = "aws")]
             UsersStoreImpl::Dynamo(m) => m.create_scim(tenant, input).await,
@@ -3026,6 +3857,18 @@ impl crate::ports::UsersStore for UsersStoreImpl {
         now: i64,
     ) -> Result<crate::ports::ScimCreateLifecycleStart, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::UsersStore::begin_scim_create_lifecycle(
+                    store,
+                    tenant,
+                    external_id,
+                    user_name,
+                    user_id,
+                    now,
+                )
+                .await
+            }
             UsersStoreImpl::Memory(m) => {
                 m.begin_scim_create_lifecycle(tenant, external_id, user_name, user_id, now)
                     .await
@@ -3045,6 +3888,17 @@ impl crate::ports::UsersStore for UsersStoreImpl {
         user_id: &str,
     ) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::UsersStore::complete_scim_create_lifecycle(
+                    store,
+                    tenant,
+                    external_id,
+                    user_name,
+                    user_id,
+                )
+                .await
+            }
             UsersStoreImpl::Memory(m) => {
                 m.complete_scim_create_lifecycle(tenant, external_id, user_name, user_id)
                     .await
@@ -3062,6 +3916,10 @@ impl crate::ports::UsersStore for UsersStoreImpl {
         external_id: &str,
     ) -> Result<Option<crate::ports::UserRecord>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::UsersStore::get_scim_by_external_id(store, tenant, external_id).await
+            }
             UsersStoreImpl::Memory(m) => m.get_scim_by_external_id(tenant, external_id).await,
             #[cfg(feature = "aws")]
             UsersStoreImpl::Dynamo(m) => m.get_scim_by_external_id(tenant, external_id).await,
@@ -3073,6 +3931,10 @@ impl crate::ports::UsersStore for UsersStoreImpl {
         user_name: &str,
     ) -> Result<Option<crate::ports::UserRecord>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::UsersStore::get_scim_by_user_name(store, tenant, user_name).await
+            }
             UsersStoreImpl::Memory(m) => m.get_scim_by_user_name(tenant, user_name).await,
             #[cfg(feature = "aws")]
             UsersStoreImpl::Dynamo(m) => m.get_scim_by_user_name(tenant, user_name).await,
@@ -3085,6 +3947,10 @@ impl crate::ports::UsersStore for UsersStoreImpl {
         limit: usize,
     ) -> Result<(Vec<crate::ports::UserRecord>, usize), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::UsersStore::list_scim(store, tenant, offset, limit).await
+            }
             UsersStoreImpl::Memory(m) => m.list_scim(tenant, offset, limit).await,
             #[cfg(feature = "aws")]
             UsersStoreImpl::Dynamo(m) => m.list_scim(tenant, offset, limit).await,
@@ -3097,6 +3963,10 @@ impl crate::ports::UsersStore for UsersStoreImpl {
         input: crate::ports::ScimReplaceInput,
     ) -> Result<crate::ports::ScimReplaceOutcome, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::UsersStore::replace_scim(store, tenant, user_id, input).await
+            }
             UsersStoreImpl::Memory(m) => m.replace_scim(tenant, user_id, input).await,
             #[cfg(feature = "aws")]
             UsersStoreImpl::Dynamo(m) => m.replace_scim(tenant, user_id, input).await,
@@ -3111,6 +3981,10 @@ impl crate::ports::UsersStore for UsersStoreImpl {
         status: crate::ports::UserListStatusFilter,
     ) -> Result<(Vec<crate::ports::UserRecord>, Option<String>), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::UsersStore::list(store, tenant, limit, cursor, query, status).await
+            }
             UsersStoreImpl::Memory(m) => m.list(tenant, limit, cursor, query, status).await,
             #[cfg(feature = "aws")]
             UsersStoreImpl::Dynamo(m) => m.list(tenant, limit, cursor, query, status).await,
@@ -3123,6 +3997,10 @@ impl crate::ports::UsersStore for UsersStoreImpl {
         now: i64,
     ) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::UsersStore::touch_last_login(store, tenant, user_id, now).await
+            }
             UsersStoreImpl::Memory(m) => m.touch_last_login(tenant, user_id, now).await,
             #[cfg(feature = "aws")]
             UsersStoreImpl::Dynamo(m) => m.touch_last_login(tenant, user_id, now).await,
@@ -3136,6 +4014,10 @@ impl crate::ports::UsersStore for UsersStoreImpl {
         now: i64,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::UsersStore::set_status(store, tenant, user_id, status, now).await
+            }
             UsersStoreImpl::Memory(m) => m.set_status(tenant, user_id, status, now).await,
             #[cfg(feature = "aws")]
             UsersStoreImpl::Dynamo(m) => m.set_status(tenant, user_id, status, now).await,
@@ -3150,6 +4032,18 @@ impl crate::ports::UsersStore for UsersStoreImpl {
         now: i64,
     ) -> Result<crate::ports::CredentialChangeStart, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::UsersStore::begin_credential_change(
+                    store,
+                    tenant,
+                    user_id,
+                    expected_epoch,
+                    operation_id,
+                    now,
+                )
+                .await
+            }
             UsersStoreImpl::Memory(store) => {
                 store
                     .begin_credential_change(tenant, user_id, expected_epoch, operation_id, now)
@@ -3171,6 +4065,13 @@ impl crate::ports::UsersStore for UsersStoreImpl {
         now: i64,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::UsersStore::complete_credential_change(
+                    store, tenant, user_id, owner, now,
+                )
+                .await
+            }
             UsersStoreImpl::Memory(store) => {
                 store
                     .complete_credential_change(tenant, user_id, owner, now)
@@ -3193,6 +4094,18 @@ impl crate::ports::UsersStore for UsersStoreImpl {
         now: i64,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::UsersStore::recover_expired_credential_change(
+                    store,
+                    tenant,
+                    user_id,
+                    epoch,
+                    started_before,
+                    now,
+                )
+                .await
+            }
             UsersStoreImpl::Memory(store) => {
                 store
                     .recover_expired_credential_change(tenant, user_id, epoch, started_before, now)
@@ -3213,6 +4126,10 @@ impl crate::ports::UsersStore for UsersStoreImpl {
         now: i64,
     ) -> Result<crate::ports::DisableStart, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::UsersStore::begin_disable(store, tenant, user_id, now).await
+            }
             UsersStoreImpl::Memory(m) => m.begin_disable(tenant, user_id, now).await,
             #[cfg(feature = "aws")]
             UsersStoreImpl::Dynamo(m) => m.begin_disable(tenant, user_id, now).await,
@@ -3226,6 +4143,10 @@ impl crate::ports::UsersStore for UsersStoreImpl {
         now: i64,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::UsersStore::complete_disable(store, tenant, user_id, epoch, now).await
+            }
             UsersStoreImpl::Memory(m) => m.complete_disable(tenant, user_id, epoch, now).await,
             #[cfg(feature = "aws")]
             UsersStoreImpl::Dynamo(m) => m.complete_disable(tenant, user_id, epoch, now).await,
@@ -3238,6 +4159,11 @@ impl crate::ports::UsersStore for UsersStoreImpl {
         now: i64,
     ) -> Result<Option<crate::ports::UserRecord>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::UsersStore::begin_legacy_disable_cleanup(store, tenant, user_id, now)
+                    .await
+            }
             UsersStoreImpl::Memory(m) => m.begin_legacy_disable_cleanup(tenant, user_id, now).await,
             #[cfg(feature = "aws")]
             UsersStoreImpl::Dynamo(m) => m.begin_legacy_disable_cleanup(tenant, user_id, now).await,
@@ -3251,6 +4177,17 @@ impl crate::ports::UsersStore for UsersStoreImpl {
         now: i64,
     ) -> Result<crate::ports::EnableOutcome, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::UsersStore::enable_completed(
+                    store,
+                    tenant,
+                    user_id,
+                    expected_epoch,
+                    now,
+                )
+                .await
+            }
             UsersStoreImpl::Memory(m) => {
                 m.enable_completed(tenant, user_id, expected_epoch, now)
                     .await
@@ -3271,6 +4208,18 @@ impl crate::ports::UsersStore for UsersStoreImpl {
         expected_revision: u64,
     ) -> Result<crate::ports::PutAttrOutcome, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::UsersStore::put_attributes(
+                    store,
+                    tenant,
+                    user_id,
+                    namespace,
+                    kv,
+                    expected_revision,
+                )
+                .await
+            }
             UsersStoreImpl::Memory(m) => {
                 m.put_attributes(tenant, user_id, namespace, kv, expected_revision)
                     .await
@@ -3290,6 +4239,17 @@ impl crate::ports::UsersStore for UsersStoreImpl {
         source_namespaces: &std::collections::BTreeSet<String>,
     ) -> Result<crate::ports::AttributeMigrationOutcome, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::UsersStore::migrate_attributes(
+                    store,
+                    tenant,
+                    user_id,
+                    canonical_namespace,
+                    source_namespaces,
+                )
+                .await
+            }
             UsersStoreImpl::Memory(store) => {
                 store
                     .migrate_attributes(tenant, user_id, canonical_namespace, source_namespaces)
@@ -3311,6 +4271,17 @@ impl crate::ports::UsersStore for UsersStoreImpl {
         now: i64,
     ) -> Result<Option<crate::ports::UserRecord>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::UsersStore::fence_for_erasure(
+                    store,
+                    tenant,
+                    user_id,
+                    target_epoch,
+                    now,
+                )
+                .await
+            }
             UsersStoreImpl::Memory(m) => {
                 m.fence_for_erasure(tenant, user_id, target_epoch, now)
                     .await
@@ -3329,6 +4300,16 @@ impl crate::ports::UsersStore for UsersStoreImpl {
         target_epoch: u64,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::UsersStore::delete_erased_identity(
+                    store,
+                    tenant,
+                    user_id,
+                    target_epoch,
+                )
+                .await
+            }
             UsersStoreImpl::Memory(m) => {
                 m.delete_erased_identity(tenant, user_id, target_epoch)
                     .await
@@ -3344,6 +4325,8 @@ impl crate::ports::UsersStore for UsersStoreImpl {
 
 #[derive(Clone)]
 pub enum ScimGroupsStoreImpl {
+    #[cfg(feature = "postgres")]
+    Postgres(crate::adapters::postgres::PostgresStore),
     Memory(crate::adapters::memory::MemoryScimGroupsStore),
     #[cfg(feature = "aws")]
     Dynamo(crate::adapters::aws::DynamoScimGroupsStore),
@@ -3356,6 +4339,10 @@ impl crate::ports::ScimGroupsStore for ScimGroupsStoreImpl {
         input: crate::ports::ScimGroupCreateInput,
     ) -> Result<crate::ports::ScimGroupCreateOutcome, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::ScimGroupsStore::create(store, tenant, input).await
+            }
             ScimGroupsStoreImpl::Memory(store) => store.create(tenant, input).await,
             #[cfg(feature = "aws")]
             ScimGroupsStoreImpl::Dynamo(store) => store.create(tenant, input).await,
@@ -3368,6 +4355,10 @@ impl crate::ports::ScimGroupsStore for ScimGroupsStoreImpl {
         group_id: &str,
     ) -> Result<Option<crate::ports::ScimGroupRecord>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::ScimGroupsStore::get(store, tenant, group_id).await
+            }
             ScimGroupsStoreImpl::Memory(store) => store.get(tenant, group_id).await,
             #[cfg(feature = "aws")]
             ScimGroupsStoreImpl::Dynamo(store) => store.get(tenant, group_id).await,
@@ -3380,6 +4371,10 @@ impl crate::ports::ScimGroupsStore for ScimGroupsStoreImpl {
         external_id: &str,
     ) -> Result<Option<crate::ports::ScimGroupRecord>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::ScimGroupsStore::get_by_external_id(store, tenant, external_id).await
+            }
             ScimGroupsStoreImpl::Memory(store) => {
                 store.get_by_external_id(tenant, external_id).await
             }
@@ -3397,6 +4392,10 @@ impl crate::ports::ScimGroupsStore for ScimGroupsStoreImpl {
         limit: usize,
     ) -> Result<(Vec<crate::ports::ScimGroupRecord>, usize), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::ScimGroupsStore::list(store, tenant, offset, limit).await
+            }
             ScimGroupsStoreImpl::Memory(store) => store.list(tenant, offset, limit).await,
             #[cfg(feature = "aws")]
             ScimGroupsStoreImpl::Dynamo(store) => store.list(tenant, offset, limit).await,
@@ -3410,6 +4409,10 @@ impl crate::ports::ScimGroupsStore for ScimGroupsStoreImpl {
         mutation: crate::ports::ScimGroupMutation,
     ) -> Result<crate::ports::ScimGroupMutationOutcome, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::ScimGroupsStore::mutate(store, tenant, group_id, mutation).await
+            }
             ScimGroupsStoreImpl::Memory(store) => store.mutate(tenant, group_id, mutation).await,
             #[cfg(feature = "aws")]
             ScimGroupsStoreImpl::Dynamo(store) => store.mutate(tenant, group_id, mutation).await,
@@ -3423,6 +4426,10 @@ impl crate::ports::ScimGroupsStore for ScimGroupsStoreImpl {
         now: i64,
     ) -> Result<crate::ports::ScimGroupDeleteOutcome, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::ScimGroupsStore::delete(store, tenant, group_id, now).await
+            }
             ScimGroupsStoreImpl::Memory(store) => store.delete(tenant, group_id, now).await,
             #[cfg(feature = "aws")]
             ScimGroupsStoreImpl::Dynamo(store) => store.delete(tenant, group_id, now).await,
@@ -3437,6 +4444,17 @@ impl crate::ports::ScimGroupsStore for ScimGroupsStoreImpl {
         now: i64,
     ) -> Result<crate::ports::ScimRoleMappingOutcome, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::ScimGroupsStore::set_role_mapping(
+                    store,
+                    tenant,
+                    external_id,
+                    role,
+                    now,
+                )
+                .await
+            }
             ScimGroupsStoreImpl::Memory(store) => {
                 store.set_role_mapping(tenant, external_id, role, now).await
             }
@@ -3452,6 +4470,10 @@ impl crate::ports::ScimGroupsStore for ScimGroupsStoreImpl {
         tenant: &str,
     ) -> Result<Vec<crate::ports::ScimGroupRoleMapping>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::ScimGroupsStore::list_role_mappings(store, tenant).await
+            }
             ScimGroupsStoreImpl::Memory(store) => store.list_role_mappings(tenant).await,
             #[cfg(feature = "aws")]
             ScimGroupsStoreImpl::Dynamo(store) => store.list_role_mappings(tenant).await,
@@ -3464,6 +4486,10 @@ impl crate::ports::ScimGroupsStore for ScimGroupsStoreImpl {
         user_id: &str,
     ) -> Result<crate::ports::MappedTenantRole, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::ScimGroupsStore::mapped_role_for_member(store, tenant, user_id).await
+            }
             ScimGroupsStoreImpl::Memory(store) => {
                 store.mapped_role_for_member(tenant, user_id).await
             }
@@ -3480,6 +4506,11 @@ impl crate::ports::ScimGroupsStore for ScimGroupsStoreImpl {
         now: i64,
     ) -> Result<usize, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::ScimGroupsStore::remove_member_from_all(store, tenant, user_id, now)
+                    .await
+            }
             ScimGroupsStoreImpl::Memory(store) => {
                 store.remove_member_from_all(tenant, user_id, now).await
             }
@@ -3492,6 +4523,10 @@ impl crate::ports::ScimGroupsStore for ScimGroupsStoreImpl {
 
     async fn delete_all_by_tenant(&self, tenant: &str) -> Result<usize, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::ScimGroupsStore::delete_all_by_tenant(store, tenant).await
+            }
             ScimGroupsStoreImpl::Memory(store) => store.delete_all_by_tenant(tenant).await,
             #[cfg(feature = "aws")]
             ScimGroupsStoreImpl::Dynamo(store) => store.delete_all_by_tenant(tenant).await,
@@ -3502,6 +4537,8 @@ impl crate::ports::ScimGroupsStore for ScimGroupsStoreImpl {
 /// Password credential store enum dispatch(spec 003 C9.8-C9.10).
 #[derive(Clone)]
 pub enum PasswordStoreImpl {
+    #[cfg(feature = "postgres")]
+    Postgres(crate::adapters::postgres::PostgresStore),
     Memory(crate::adapters::memory::MemoryPasswordStore),
     #[cfg(feature = "aws")]
     Dynamo(crate::adapters::aws::DynamoPasswordStore),
@@ -3604,6 +4641,8 @@ impl crate::ports::PasswordStore for PasswordStoreImpl {
         user_id: &str,
     ) -> Result<Option<crate::ports::PasswordCredential>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => crate::ports::PasswordStore::get(store, tenant, user_id).await,
             PasswordStoreImpl::Memory(store) => store.get(tenant, user_id).await,
             #[cfg(feature = "aws")]
             PasswordStoreImpl::Dynamo(store) => store.get(tenant, user_id).await,
@@ -3617,6 +4656,16 @@ impl crate::ports::PasswordStore for PasswordStoreImpl {
         expected_version: u64,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::PasswordStore::complete_reset_revocation(
+                    store,
+                    tenant,
+                    user_id,
+                    expected_version,
+                )
+                .await
+            }
             PasswordStoreImpl::Memory(store) => {
                 store
                     .complete_reset_revocation(tenant, user_id, expected_version)
@@ -3637,6 +4686,10 @@ impl crate::ports::PasswordStore for PasswordStoreImpl {
         credential: crate::ports::PasswordCredential,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::PasswordStore::create_if_absent(store, tenant, credential).await
+            }
             PasswordStoreImpl::Memory(store) => store.create_if_absent(tenant, credential).await,
             #[cfg(feature = "aws")]
             PasswordStoreImpl::Dynamo(store) => store.create_if_absent(tenant, credential).await,
@@ -3650,6 +4703,16 @@ impl crate::ports::PasswordStore for PasswordStoreImpl {
         expected_version: u64,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::PasswordStore::delete_if_version(
+                    store,
+                    tenant,
+                    user_id,
+                    expected_version,
+                )
+                .await
+            }
             PasswordStoreImpl::Memory(store) => {
                 store
                     .delete_if_version(tenant, user_id, expected_version)
@@ -3673,6 +4736,18 @@ impl crate::ports::PasswordStore for PasswordStoreImpl {
         updated_at: i64,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::PasswordStore::replace_if_version_and_temporary(
+                    store,
+                    tenant,
+                    user_id,
+                    new_hash,
+                    expected_version,
+                    updated_at,
+                )
+                .await
+            }
             PasswordStoreImpl::Memory(store) => {
                 store
                     .replace_if_version_and_temporary(
@@ -3708,6 +4783,18 @@ impl crate::ports::PasswordStore for PasswordStoreImpl {
         updated_at: i64,
     ) -> Result<Option<u64>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::PasswordStore::reset_temporary(
+                    store,
+                    tenant,
+                    user_id,
+                    new_hash,
+                    expected_version,
+                    updated_at,
+                )
+                .await
+            }
             PasswordStoreImpl::Memory(store) => {
                 store
                     .reset_temporary(tenant, user_id, new_hash, expected_version, updated_at)
@@ -3724,6 +4811,10 @@ impl crate::ports::PasswordStore for PasswordStoreImpl {
 
     async fn delete(&self, tenant: &str, user_id: &str) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::PasswordStore::delete(store, tenant, user_id).await
+            }
             PasswordStoreImpl::Memory(store) => store.delete(tenant, user_id).await,
             #[cfg(feature = "aws")]
             PasswordStoreImpl::Dynamo(store) => store.delete(tenant, user_id).await,
@@ -3731,6 +4822,10 @@ impl crate::ports::PasswordStore for PasswordStoreImpl {
     }
     async fn delete_all_by_tenant(&self, tenant: &str) -> Result<usize, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                crate::ports::PasswordStore::delete_all_by_tenant(store, tenant).await
+            }
             PasswordStoreImpl::Memory(store) => store.delete_all_by_tenant(tenant).await,
             #[cfg(feature = "aws")]
             PasswordStoreImpl::Dynamo(store) => store.delete_all_by_tenant(tenant).await,
@@ -3829,6 +4924,8 @@ impl Notifier for NotifierImpl {
 /// 消息 outbox 读端口枚举分发(观测"发了什么";与 Notifier 写端共用同一后端实例)。
 #[derive(Clone)]
 pub enum MessageOutboxImpl {
+    #[cfg(feature = "postgres")]
+    Postgres(crate::adapters::postgres::PostgresMessageOutbox),
     Memory(MemoryOutboxNotifier),
     #[cfg(feature = "aws")]
     Dynamo(crate::adapters::aws::DynamoNotifier),
@@ -3841,6 +4938,8 @@ impl MessageOutbox for MessageOutboxImpl {
         limit: usize,
     ) -> Result<Vec<SentMessage>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => MessageOutbox::list_recent(store, tenant, limit).await,
             MessageOutboxImpl::Memory(n) => n.list_recent(tenant, limit).await,
             #[cfg(feature = "aws")]
             MessageOutboxImpl::Dynamo(n) => n.list_recent(tenant, limit).await,
@@ -3852,6 +4951,10 @@ impl MessageOutbox for MessageOutboxImpl {
         recipients: &[String],
     ) -> Result<usize, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                MessageOutbox::delete_by_recipients(store, tenant, recipients).await
+            }
             MessageOutboxImpl::Memory(n) => n.delete_by_recipients(tenant, recipients).await,
             #[cfg(feature = "aws")]
             MessageOutboxImpl::Dynamo(n) => n.delete_by_recipients(tenant, recipients).await,
@@ -3859,6 +4962,8 @@ impl MessageOutbox for MessageOutboxImpl {
     }
     async fn delete_all_by_tenant(&self, tenant: &str) -> Result<usize, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => MessageOutbox::delete_all_by_tenant(store, tenant).await,
             MessageOutboxImpl::Memory(n) => n.delete_all_by_tenant(tenant).await,
             #[cfg(feature = "aws")]
             MessageOutboxImpl::Dynamo(n) => n.delete_all_by_tenant(tenant).await,
@@ -3869,6 +4974,8 @@ impl MessageOutbox for MessageOutboxImpl {
 /// 授权会话存储端口枚举分发(spec 004;内存 / DynamoDB)。
 #[derive(Clone)]
 pub enum AuthzSessionStoreImpl {
+    #[cfg(feature = "postgres")]
+    Postgres(crate::adapters::postgres::PostgresStore),
     Memory(MemoryAuthzSessionStore),
     #[cfg(feature = "aws")]
     Dynamo(crate::adapters::aws::DynamoAuthzSessionStore),
@@ -3877,6 +4984,8 @@ pub enum AuthzSessionStoreImpl {
 impl AuthzSessionStore for AuthzSessionStoreImpl {
     async fn create(&self, tenant: &str, r: AuthzSessionRecord) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => AuthzSessionStore::create(store, tenant, r).await,
             AuthzSessionStoreImpl::Memory(m) => m.create(tenant, r).await,
             #[cfg(feature = "aws")]
             AuthzSessionStoreImpl::Dynamo(m) => m.create(tenant, r).await,
@@ -3888,6 +4997,8 @@ impl AuthzSessionStore for AuthzSessionStoreImpl {
         session_id: &str,
     ) -> Result<Option<AuthzSessionRecord>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => AuthzSessionStore::get(store, tenant, session_id).await,
             AuthzSessionStoreImpl::Memory(m) => m.get(tenant, session_id).await,
             #[cfg(feature = "aws")]
             AuthzSessionStoreImpl::Dynamo(m) => m.get(tenant, session_id).await,
@@ -3902,6 +5013,11 @@ impl AuthzSessionStore for AuthzSessionStoreImpl {
         now: i64,
     ) -> Result<Option<AuthzSessionRecord>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                AuthzSessionStore::transition(store, tenant, session_id, new_state, last_error, now)
+                    .await
+            }
             AuthzSessionStoreImpl::Memory(m) => {
                 m.transition(tenant, session_id, new_state, last_error, now)
                     .await
@@ -3921,6 +5037,10 @@ impl AuthzSessionStore for AuthzSessionStoreImpl {
         now: i64,
     ) -> Result<Option<AuthzSessionRecord>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                AuthzSessionStore::bind_user(store, tenant, session_id, user_id, now).await
+            }
             AuthzSessionStoreImpl::Memory(store) => {
                 store.bind_user(tenant, session_id, user_id, now).await
             }
@@ -3932,6 +5052,8 @@ impl AuthzSessionStore for AuthzSessionStoreImpl {
     }
     async fn delete(&self, tenant: &str, session_id: &str) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => AuthzSessionStore::delete(store, tenant, session_id).await,
             AuthzSessionStoreImpl::Memory(store) => store.delete(tenant, session_id).await,
             #[cfg(feature = "aws")]
             AuthzSessionStoreImpl::Dynamo(store) => store.delete(tenant, session_id).await,
@@ -3943,6 +5065,10 @@ impl AuthzSessionStore for AuthzSessionStoreImpl {
         client_id: &str,
     ) -> Result<Vec<String>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                AuthzSessionStore::list_by_client(store, tenant, client_id).await
+            }
             AuthzSessionStoreImpl::Memory(m) => m.list_by_client(tenant, client_id).await,
             #[cfg(feature = "aws")]
             AuthzSessionStoreImpl::Dynamo(m) => m.list_by_client(tenant, client_id).await,
@@ -3950,6 +5076,8 @@ impl AuthzSessionStore for AuthzSessionStoreImpl {
     }
     async fn count_active(&self, tenant: &str, now: i64) -> Result<usize, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => AuthzSessionStore::count_active(store, tenant, now).await,
             AuthzSessionStoreImpl::Memory(m) => m.count_active(tenant, now).await,
             #[cfg(feature = "aws")]
             AuthzSessionStoreImpl::Dynamo(m) => m.count_active(tenant, now).await,
@@ -3958,6 +5086,10 @@ impl AuthzSessionStore for AuthzSessionStoreImpl {
 
     async fn delete_by_client(&self, tenant: &str, client_id: &str) -> Result<usize, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                AuthzSessionStore::delete_by_client(store, tenant, client_id).await
+            }
             AuthzSessionStoreImpl::Memory(store) => store.delete_by_client(tenant, client_id).await,
             #[cfg(feature = "aws")]
             AuthzSessionStoreImpl::Dynamo(store) => store.delete_by_client(tenant, client_id).await,
@@ -3965,6 +5097,8 @@ impl AuthzSessionStore for AuthzSessionStoreImpl {
     }
     async fn delete_all_by_tenant(&self, tenant: &str) -> Result<usize, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => AuthzSessionStore::delete_all_by_tenant(store, tenant).await,
             AuthzSessionStoreImpl::Memory(store) => store.delete_all_by_tenant(tenant).await,
             #[cfg(feature = "aws")]
             AuthzSessionStoreImpl::Dynamo(store) => store.delete_all_by_tenant(tenant).await,
@@ -4010,6 +5144,8 @@ impl AuthzEventSink for AuthzEventSinkImpl {
 
 #[derive(Clone)]
 pub enum SecurityEventStoreImpl {
+    #[cfg(feature = "postgres")]
+    Postgres(crate::adapters::postgres::PostgresStore),
     Memory(MemorySecurityEventStore),
     #[cfg(feature = "aws")]
     Dynamo(crate::adapters::aws::DynamoSecurityEventStore),
@@ -4066,6 +5202,8 @@ impl SecurityEventFallback for SecurityEventFallbackImpl {
 impl SecurityEventStore for SecurityEventStoreImpl {
     async fn put(&self, event: &SecurityEvent) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => SecurityEventStore::put(store, event).await,
             Self::Memory(store) => store.put(event).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.put(event).await,
@@ -4078,6 +5216,10 @@ impl SecurityEventStore for SecurityEventStoreImpl {
         delivery: &SecurityEventDelivery,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                SecurityEventStore::put_with_delivery(store, event, delivery).await
+            }
             Self::Memory(store) => store.put_with_delivery(event, delivery).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.put_with_delivery(event, delivery).await,
@@ -4092,6 +5234,17 @@ impl SecurityEventStore for SecurityEventStoreImpl {
         limit: usize,
     ) -> Result<Vec<StoredSecurityEvent>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                SecurityEventStore::list_by_tenant(
+                    store,
+                    tenant_id,
+                    from_inclusive,
+                    through_inclusive,
+                    limit,
+                )
+                .await
+            }
             Self::Memory(store) => {
                 store
                     .list_by_tenant(tenant_id, from_inclusive, through_inclusive, limit)
@@ -4115,6 +5268,18 @@ impl SecurityEventStore for SecurityEventStoreImpl {
         cursor: Option<&SecurityEventCursor>,
     ) -> Result<SecurityEventPage, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                SecurityEventStore::list_by_tenant_page(
+                    store,
+                    tenant_id,
+                    from_inclusive,
+                    through_inclusive,
+                    limit,
+                    cursor,
+                )
+                .await
+            }
             Self::Memory(store) => {
                 store
                     .list_by_tenant_page(
@@ -4144,6 +5309,8 @@ impl SecurityEventStore for SecurityEventStoreImpl {
 
 #[derive(Clone)]
 pub enum SsfStoreImpl {
+    #[cfg(feature = "postgres")]
+    Postgres(crate::adapters::postgres::PostgresSsfStore),
     Memory(MemorySsfStore),
     #[cfg(feature = "aws")]
     Dynamo(crate::adapters::aws::DynamoSsfStore),
@@ -4152,6 +5319,8 @@ pub enum SsfStoreImpl {
 impl SsfStore for SsfStoreImpl {
     async fn create_stream(&self, stream: SsfStream) -> Result<SsfStreamCreateOutcome, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => SsfStore::create_stream(store, stream).await,
             Self::Memory(store) => store.create_stream(stream).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.create_stream(stream).await,
@@ -4164,6 +5333,8 @@ impl SsfStore for SsfStoreImpl {
         stream_id: &str,
     ) -> Result<Option<SsfStream>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => SsfStore::get_stream(store, tenant_id, stream_id).await,
             Self::Memory(store) => store.get_stream(tenant_id, stream_id).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.get_stream(tenant_id, stream_id).await,
@@ -4172,6 +5343,8 @@ impl SsfStore for SsfStoreImpl {
 
     async fn list_streams(&self, tenant_id: &str) -> Result<Vec<SsfStream>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => SsfStore::list_streams(store, tenant_id).await,
             Self::Memory(store) => store.list_streams(tenant_id).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.list_streams(tenant_id).await,
@@ -4187,6 +5360,18 @@ impl SsfStore for SsfStoreImpl {
         now: i64,
     ) -> Result<SsfStreamMutationOutcome, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                SsfStore::mutate_stream(
+                    store,
+                    tenant_id,
+                    stream_id,
+                    expected_revision,
+                    mutation,
+                    now,
+                )
+                .await
+            }
             Self::Memory(store) => {
                 store
                     .mutate_stream(tenant_id, stream_id, expected_revision, mutation, now)
@@ -4208,6 +5393,8 @@ impl SsfStore for SsfStoreImpl {
         now: i64,
     ) -> Result<Vec<SsfDelivery>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => SsfStore::enqueue_event(store, event, issuer, now).await,
             Self::Memory(store) => store.enqueue_event(event, issuer, now).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.enqueue_event(event, issuer, now).await,
@@ -4225,6 +5412,20 @@ impl SsfStore for SsfStoreImpl {
         now: i64,
     ) -> Result<SsfVerificationOutcome, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                SsfStore::enqueue_verification(
+                    store,
+                    tenant_id,
+                    stream_id,
+                    expected_revision,
+                    event_id,
+                    issuer,
+                    verification_state,
+                    now,
+                )
+                .await
+            }
             Self::Memory(store) => {
                 store
                     .enqueue_verification(
@@ -4263,6 +5464,10 @@ impl SsfStore for SsfStoreImpl {
         event_id: &str,
     ) -> Result<Option<SsfDelivery>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                SsfStore::get_delivery(store, tenant_id, stream_id, stream_revision, event_id).await
+            }
             Self::Memory(store) => {
                 store
                     .get_delivery(tenant_id, stream_id, stream_revision, event_id)
@@ -4285,6 +5490,10 @@ impl SsfStore for SsfStoreImpl {
         cursor: Option<&SsfDeliveryCursor>,
     ) -> Result<SsfDeliveryPage, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                SsfStore::list_deliveries(store, tenant_id, stream_id, limit, cursor).await
+            }
             Self::Memory(store) => {
                 store
                     .list_deliveries(tenant_id, stream_id, limit, cursor)
@@ -4306,6 +5515,10 @@ impl SsfStore for SsfStoreImpl {
         limit: usize,
     ) -> Result<Vec<SsfDeliveryLease>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                SsfStore::acquire_due(store, now, lease_duration_secs, limit).await
+            }
             Self::Memory(store) => store.acquire_due(now, lease_duration_secs, limit).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.acquire_due(now, lease_duration_secs, limit).await,
@@ -4320,6 +5533,10 @@ impl SsfStore for SsfStoreImpl {
         now: i64,
     ) -> Result<bool, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                SsfStore::persist_signed_set(store, lease, signed, issued_at, now).await
+            }
             Self::Memory(store) => {
                 store
                     .persist_signed_set(lease, signed, issued_at, now)
@@ -4341,6 +5558,8 @@ impl SsfStore for SsfStoreImpl {
         now: i64,
     ) -> Result<Option<SsfDelivery>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => SsfStore::finish_attempt(store, lease, result, now).await,
             Self::Memory(store) => store.finish_attempt(lease, result, now).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.finish_attempt(lease, result, now).await,
@@ -4356,6 +5575,18 @@ impl SsfStore for SsfStoreImpl {
         now: i64,
     ) -> Result<SsfRedriveOutcome, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => {
+                SsfStore::redrive_delivery(
+                    store,
+                    tenant_id,
+                    stream_id,
+                    stream_revision,
+                    event_id,
+                    now,
+                )
+                .await
+            }
             Self::Memory(store) => {
                 store
                     .redrive_delivery(tenant_id, stream_id, stream_revision, event_id, now)
@@ -4372,6 +5603,8 @@ impl SsfStore for SsfStoreImpl {
 
     async fn revoke_all_by_tenant(&self, tenant_id: &str, now: i64) -> Result<usize, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(store) => SsfStore::revoke_all_by_tenant(store, tenant_id, now).await,
             Self::Memory(store) => store.revoke_all_by_tenant(tenant_id, now).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(store) => store.revoke_all_by_tenant(tenant_id, now).await,
@@ -5164,6 +6397,20 @@ impl AppState {
             &*self.federation_config,
             &*self.federation_attribute_mappings,
         ) {
+            #[cfg(feature = "postgres")]
+            (
+                FederationConfigStoreImpl::Postgres(configs),
+                FederationAttributeMappingsStoreImpl::Postgres(mappings),
+            ) => {
+                if !configs.shares_pool_with(mappings) {
+                    return Err(StoreError::Permanent(
+                        "federation config and mapping stores do not share a pool".into(),
+                    ));
+                }
+                configs
+                    .change_federation_mapping_authorized(config, change)
+                    .await
+            }
             (
                 FederationConfigStoreImpl::Memory(_),
                 FederationAttributeMappingsStoreImpl::Memory(mappings),
@@ -5230,6 +6477,25 @@ impl AppState {
             &*self.federation_config,
             &*self.federation_attribute_mappings,
         ) {
+            #[cfg(feature = "postgres")]
+            (
+                FederationConfigStoreImpl::Postgres(configs),
+                FederationAttributeMappingsStoreImpl::Postgres(mappings),
+            ) => {
+                if !configs.shares_pool_with(mappings) {
+                    return Err(StoreError::Permanent(
+                        "federation config and mapping stores do not share a pool".into(),
+                    ));
+                }
+                if configs
+                    .put_federation_config_authorized(current.as_ref(), next)
+                    .await?
+                {
+                    Ok(FederationConfigMutationOutcome::Applied)
+                } else {
+                    Ok(FederationConfigMutationOutcome::MappingsPresent)
+                }
+            }
             (
                 FederationConfigStoreImpl::Memory(configs),
                 FederationAttributeMappingsStoreImpl::Memory(_),
@@ -5295,6 +6561,25 @@ impl AppState {
             &*self.federation_config,
             &*self.federation_attribute_mappings,
         ) {
+            #[cfg(feature = "postgres")]
+            (
+                FederationConfigStoreImpl::Postgres(configs),
+                FederationAttributeMappingsStoreImpl::Postgres(mappings),
+            ) => {
+                if !configs.shares_pool_with(mappings) {
+                    return Err(StoreError::Permanent(
+                        "federation config and mapping stores do not share a pool".into(),
+                    ));
+                }
+                if configs
+                    .delete_federation_config_authorized(&current)
+                    .await?
+                {
+                    Ok(FederationConfigMutationOutcome::Applied)
+                } else {
+                    Ok(FederationConfigMutationOutcome::MappingsPresent)
+                }
+            }
             (
                 FederationConfigStoreImpl::Memory(configs),
                 FederationAttributeMappingsStoreImpl::Memory(_),
@@ -5447,6 +6732,42 @@ impl AppState {
             };
 
         let result = match &*self.users {
+            #[cfg(feature = "postgres")]
+            UsersStoreImpl::Postgres(users) => {
+                let (
+                    AttributeNamespaceStoreImpl::Postgres(namespaces),
+                    FederationAttributeMappingsStoreImpl::Postgres(mappings),
+                ) = (
+                    &*self.attribute_namespaces,
+                    &*self.federation_attribute_mappings,
+                )
+                else {
+                    return (
+                        registry,
+                        desired,
+                        Err(StoreError::Permanent(
+                            "federation attribute authority stores are not co-located".into(),
+                        )),
+                    );
+                };
+                if !users.belongs_to(namespaces) || !users.belongs_to(mappings) {
+                    return (
+                        registry,
+                        desired,
+                        Err(StoreError::Permanent(
+                            "federation attribute authority stores do not share a pool".into(),
+                        )),
+                    );
+                }
+                users
+                    .reconcile_federated_attributes_authorized(
+                        request,
+                        registry.as_ref(),
+                        &desired,
+                        &namespace_authorities,
+                    )
+                    .await
+            }
             UsersStoreImpl::Memory(users) => {
                 users
                     .reconcile_federated_attributes(
@@ -5738,6 +7059,33 @@ impl AppState {
         }
 
         match &*self.users {
+            #[cfg(feature = "postgres")]
+            UsersStoreImpl::Postgres(users) => {
+                let FederationAttributeMappingsStoreImpl::Postgres(mappings) =
+                    &*self.federation_attribute_mappings
+                else {
+                    return Err(StoreError::Permanent(
+                        "federation mapping authority is not co-located".into(),
+                    ));
+                };
+                if !users.belongs_to(mappings) {
+                    return Err(StoreError::Permanent(
+                        "federation mapping authority stores do not share a pool".into(),
+                    ));
+                }
+                users
+                    .purge_federated_attribute_owner_authorized(
+                        logical_tenant_id,
+                        storage_tenant_id,
+                        user_id,
+                        namespace,
+                        key,
+                        expected_revision,
+                        &owner,
+                        registry.as_ref(),
+                    )
+                    .await
+            }
             UsersStoreImpl::Memory(users) => {
                 users
                     .purge_federated_attribute_owner(
@@ -5819,6 +7167,27 @@ impl AppState {
         };
         let canonical_namespace = authority.canonical_namespace().to_string();
         let outcome = match (&*self.users, &*self.attribute_namespaces) {
+            #[cfg(feature = "postgres")]
+            (
+                UsersStoreImpl::Postgres(users),
+                AttributeNamespaceStoreImpl::Postgres(namespaces),
+            ) => {
+                if !users.belongs_to(namespaces) {
+                    return Err(StoreError::Permanent(
+                        "attribute user and namespace stores do not share a pool".into(),
+                    ));
+                }
+                users
+                    .put_attributes_authorized(
+                        tenant,
+                        user_id,
+                        requested_namespace,
+                        &authority,
+                        kv,
+                        expected_revision,
+                    )
+                    .await?
+            }
             (UsersStoreImpl::Memory(users), AttributeNamespaceStoreImpl::Memory(_)) => {
                 users
                     .put_attributes(tenant, user_id, &canonical_namespace, kv, expected_revision)
@@ -8138,7 +9507,7 @@ impl AppState {
                 m.fail_next_delete_session();
                 true
             }
-            #[cfg(feature = "aws")]
+            #[cfg(any(feature = "aws", feature = "postgres"))]
             _ => false,
         }
     }
@@ -8147,7 +9516,7 @@ impl AppState {
     pub async fn admin_auth_flows(&self) -> Vec<crate::ports::AdminOidcFlow> {
         match self.admin_auth.as_ref() {
             AdminAuthStoreImpl::Memory(m) => m.flows().await,
-            #[cfg(feature = "aws")]
+            #[cfg(any(feature = "aws", feature = "postgres"))]
             _ => Vec::new(),
         }
     }

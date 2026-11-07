@@ -266,7 +266,10 @@ async fn memory_security_event_contract() {
 
 #[tokio::test]
 async fn postgres_security_event_contract() {
-    security_event_contract(database().await).await;
+    security_event_contract(agent_auth_http::state::SecurityEventStoreImpl::Postgres(
+        database().await,
+    ))
+    .await;
 }
 
 #[cfg(feature = "aws")]

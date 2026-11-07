@@ -167,7 +167,10 @@ async fn memory_recovery_contract() {
 
 #[tokio::test]
 async fn postgres_recovery_contract() {
-    recovery_contract(database().await).await;
+    recovery_contract(agent_auth_http::state::RecoveryStoreImpl::Postgres(
+        database().await,
+    ))
+    .await;
 }
 
 #[cfg(feature = "aws")]

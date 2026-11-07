@@ -14,6 +14,7 @@ mod codes;
 mod device;
 mod domain_map;
 mod federation;
+mod federation_authority;
 mod federation_mappings;
 mod governance;
 mod grace;
@@ -58,6 +59,10 @@ pub struct PostgresStore {
 }
 
 impl PostgresStore {
+    pub(crate) fn shares_pool_with(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.identity, &other.identity)
+    }
+
     /// Open a pool without changing schema. Schema migration is an explicit
     /// deployment step so ordinary runtime roles need no DDL privileges.
     pub async fn connect(database_url: &str, max_connections: u32) -> Result<Self, StoreError> {

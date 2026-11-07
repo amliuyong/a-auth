@@ -281,7 +281,10 @@ async fn memory_password_contract() {
 
 #[tokio::test]
 async fn postgres_password_contract() {
-    password_contract(database().await).await;
+    password_contract(agent_auth_http::state::PasswordStoreImpl::Postgres(
+        database().await,
+    ))
+    .await;
 }
 
 #[cfg(feature = "aws")]

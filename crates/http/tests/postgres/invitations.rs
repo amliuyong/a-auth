@@ -339,10 +339,12 @@ async fn postgres_invitation_contract() {
     let base = database().await;
     let users = PostgresUsersStore::new(base.clone(), UserAuthorityKey::new([0x57; 32]).unwrap());
     invitation_contract(
-        PostgresInvitationStore::new(users.clone()),
-        users,
-        base.clone(),
-        base,
+        agent_auth_http::state::InvitationStoreImpl::Postgres(PostgresInvitationStore::new(
+            users.clone(),
+        )),
+        agent_auth_http::state::UsersStoreImpl::Postgres(users),
+        agent_auth_http::state::PasswordStoreImpl::Postgres(base.clone()),
+        agent_auth_http::state::SessionStoreImpl::Postgres(base),
     )
     .await;
 }

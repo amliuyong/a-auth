@@ -1024,8 +1024,8 @@ async fn injected_exchange_failure_leaves_code_issued_session_retriable() {
         .expect("authorization session");
     match state.codes.as_ref() {
         CodeStoreImpl::Memory(store) => store.fail_next_exchange_failure(),
-        #[cfg(feature = "aws")]
-        CodeStoreImpl::Dynamo(_) => panic!("test requires memory code store"),
+        #[cfg(any(feature = "aws", feature = "postgres"))]
+        _ => panic!("test requires memory code store"),
     }
 
     let form = format!(

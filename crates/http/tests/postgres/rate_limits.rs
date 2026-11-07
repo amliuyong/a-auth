@@ -93,7 +93,10 @@ async fn memory_rate_limit_contract() {
 
 #[tokio::test]
 async fn postgres_rate_limit_contract() {
-    rate_limit_contract(database().await).await;
+    rate_limit_contract(agent_auth_http::state::RateLimitStoreImpl::Postgres(
+        database().await,
+    ))
+    .await;
 }
 
 #[cfg(feature = "aws")]

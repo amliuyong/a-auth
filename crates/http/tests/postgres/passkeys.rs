@@ -224,7 +224,10 @@ async fn memory_passkey_contract() {
 
 #[tokio::test]
 async fn postgres_passkey_contract() {
-    passkey_contract(database().await).await;
+    passkey_contract(agent_auth_http::state::PasskeyStoreImpl::Postgres(
+        database().await,
+    ))
+    .await;
 }
 
 #[cfg(feature = "aws")]

@@ -493,7 +493,10 @@ async fn memory_federation_mapping_contract() {
 
 #[tokio::test]
 async fn postgres_federation_mapping_contract() {
-    contract(database().await).await;
+    contract(
+        agent_auth_http::state::FederationAttributeMappingsStoreImpl::Postgres(database().await),
+    )
+    .await;
 }
 
 #[cfg(feature = "aws")]

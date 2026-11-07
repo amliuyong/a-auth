@@ -143,7 +143,10 @@ async fn memory_grant_contract() {
 
 #[tokio::test]
 async fn postgres_grant_contract() {
-    grant_contract(database().await).await;
+    grant_contract(agent_auth_http::state::GrantStoreImpl::Postgres(
+        database().await,
+    ))
+    .await;
 }
 
 async fn policy_version_contract(store: impl PolicyVersionStore + Clone + 'static) {
@@ -178,7 +181,10 @@ async fn memory_policy_version_contract() {
 
 #[tokio::test]
 async fn postgres_policy_version_contract() {
-    policy_version_contract(database().await).await;
+    policy_version_contract(agent_auth_http::state::PolicyVersionStoreImpl::Postgres(
+        database().await,
+    ))
+    .await;
 }
 
 #[cfg(feature = "aws")]

@@ -204,7 +204,10 @@ async fn memory_session_contract() {
 
 #[tokio::test]
 async fn postgres_session_contract() {
-    session_contract(database().await).await;
+    session_contract(agent_auth_http::state::SessionStoreImpl::Postgres(
+        database().await,
+    ))
+    .await;
 }
 
 #[cfg(feature = "aws")]

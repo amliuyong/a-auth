@@ -169,7 +169,10 @@ async fn memory_device_contract() {
 
 #[tokio::test]
 async fn postgres_device_contract() {
-    device_contract(database().await).await;
+    device_contract(agent_auth_http::state::DeviceStoreImpl::Postgres(
+        database().await,
+    ))
+    .await;
 }
 
 #[cfg(feature = "aws")]

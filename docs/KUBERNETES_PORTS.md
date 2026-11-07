@@ -6,7 +6,8 @@ It records the storage and external dependencies that must be accounted for
 before [the delivery ledger](KUBERNETES_DELIVERY.md) can pass.
 
 An adapter implementation does not establish production wiring or deployment
-acceptance. `AppState` does not select PostgreSQL yet. Startup must construct
+acceptance. Runtime enums now expose all thirty-five PostgreSQL ports, but
+production `AppState` startup does not select them yet. Startup must construct
 every enabled authority and transport explicitly; development memory stores
 must not become production fallback authority.
 
@@ -32,7 +33,7 @@ it does not establish native KMS acceptance.
 | `JtiStore` | Root/delegation namespaces, immutable delegated authority, monotonic revoke |
 | `AuthzSessionStore` | Locked legal transitions, sequence increment, immutable user binding |
 | `RateLimitStore` | Locked token-bucket admission; read-only availability check |
-| `FederationConfigStore` | Tenant/IdP composite key; resolved secret is absent |
+| `FederationConfigStore` | Tenant/IdP composite key and physical identity validation; mapping-fenced issuer replacement/deletion; resolved secret is absent |
 | `FederationFlowStore` | One-time upstream/downstream binding; expiry after lock wait |
 | `MagicLinkStore` | Browser-bound consume; subject and cooldown erasure in one transaction |
 | `WorkloadTrustStore` | Tenant-scoped binding identity and authoritative listing |
@@ -45,7 +46,7 @@ it does not establish native KMS acceptance.
 | `GraceStore` | Per-record encrypted responses, authenticated family/version/expiry, external key rotation and delete-only capability |
 | [`SecurityEventStore`](../crates/http/src/security_event.rs) | Immutable typed events, idempotent admission, atomic source-history reconciliation and tenant/time pagination |
 | [`FederationAttributeMappingsStore`](../crates/http/src/federation_attributes.rs) | Tenant-locked registry/mapping CAS, unique enabled target owners, permanent retired IDs and validated snapshots |
-| `UsersStore` | Tenant-fenced canonical/SCIM alias admission, operation-owned credential epochs, attribute CAS, irreversible erasure fence and authenticated pagination |
+| `UsersStore` | Tenant-fenced canonical/SCIM alias admission, operation-owned credential epochs, namespace-fenced attribute CAS, mapping-fenced reconciliation/owner purge, irreversible erasure fence and authenticated pagination |
 | `ScimGroupsStore` | Tenant-fenced unique active aliases, irreversible group IDs, explicit role mappings and atomic membership batches |
 | `SessionStore` | Captured user generation, session ID collision rejection, actor-fenced revocation and atomic retained-session generation changes |
 | `RecoveryStore` | Locked one-time code consumption, bounded failures and lockout, complete private success receipts and atomic tenant cleanup |

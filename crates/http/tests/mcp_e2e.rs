@@ -1018,8 +1018,8 @@ async fn large_rar_uses_bounded_summary_and_grant_backed_introspection() {
 
     match grants.as_ref() {
         agent_auth_http::state::GrantStoreImpl::Memory(store) => store.fail_next_get_permanent(),
-        #[cfg(feature = "aws")]
-        agent_auth_http::state::GrantStoreImpl::Dynamo(_) => {
+        #[cfg(any(feature = "aws", feature = "postgres"))]
+        _ => {
             panic!("test requires memory Grant store")
         }
     }
@@ -1132,8 +1132,8 @@ async fn large_rar_uses_bounded_summary_and_grant_backed_introspection() {
         .expect("authorization code");
     match grants.as_ref() {
         agent_auth_http::state::GrantStoreImpl::Memory(store) => store.fail_next_put(),
-        #[cfg(feature = "aws")]
-        agent_auth_http::state::GrantStoreImpl::Dynamo(_) => {
+        #[cfg(any(feature = "aws", feature = "postgres"))]
+        _ => {
             panic!("test requires memory Grant store")
         }
     }
@@ -1223,8 +1223,8 @@ async fn large_rar_uses_bounded_summary_and_grant_backed_introspection() {
         .expect("authorization code");
     match grants.as_ref() {
         agent_auth_http::state::GrantStoreImpl::Memory(store) => store.fail_next_put(),
-        #[cfg(feature = "aws")]
-        agent_auth_http::state::GrantStoreImpl::Dynamo(_) => {
+        #[cfg(any(feature = "aws", feature = "postgres"))]
+        _ => {
             panic!("test requires memory Grant store")
         }
     }

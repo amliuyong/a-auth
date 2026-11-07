@@ -328,7 +328,10 @@ async fn memory_attribute_namespace_contract() {
 
 #[tokio::test]
 async fn postgres_attribute_namespace_contract() {
-    namespace_contract(database().await).await;
+    namespace_contract(
+        agent_auth_http::state::AttributeNamespaceStoreImpl::Postgres(database().await),
+    )
+    .await;
 }
 
 #[tokio::test]

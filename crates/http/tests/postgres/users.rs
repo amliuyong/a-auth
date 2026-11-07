@@ -617,7 +617,7 @@ async fn memory_user_contract() {
 async fn postgres_user_contract() {
     let store =
         PostgresUsersStore::new(database().await, UserAuthorityKey::new([0x57; 32]).unwrap());
-    user_contract(store).await;
+    user_contract(agent_auth_http::state::UsersStoreImpl::Postgres(store)).await;
 }
 
 #[cfg(feature = "aws")]

@@ -563,7 +563,10 @@ async fn memory_governance_contract() {
 
 #[tokio::test]
 async fn postgres_governance_contract() {
-    governance_contract(PostgresGovernanceStore::new(database().await)).await;
+    governance_contract(agent_auth_http::governance::GovernanceStoreImpl::Postgres(
+        PostgresGovernanceStore::new(database().await),
+    ))
+    .await;
 }
 
 #[cfg(feature = "aws")]

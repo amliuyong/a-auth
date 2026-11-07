@@ -1,7 +1,20 @@
 use super::{db_error, PostgresStore};
 use crate::ports::{FederationConfigStore, FederationFlowState, FederationFlowStore, StoreError};
 use agent_auth_authn::federation::FederationConfig;
-use sqlx::types::Json;
+use sqlx::{types::Json, Row};
+
+pub(super) fn validate_config_identity(
+    config: &FederationConfig,
+    tenant: &str,
+    idp: &str,
+) -> Result<(), StoreError> {
+    if config.tenant_id != tenant || config.upstream_idp_id != idp {
+        return Err(StoreError::Permanent(
+            "Federation config identity mismatch".into(),
+        ));
+    }
+    Ok(())
+}
 
 impl FederationConfigStore for PostgresStore {
     async fn get(
@@ -17,18 +30,32 @@ impl FederationConfigStore for PostgresStore {
         .fetch_optional(&self.pool)
         .await
         .map_err(db_error)?;
-        Ok(record.map(|Json(record)| record))
+        record
+            .map(|Json(record)| {
+                validate_config_identity(&record, tenant_id, upstream_idp_id)?;
+                Ok(record)
+            })
+            .transpose()
     }
 
     async fn list_by_tenant(&self, tenant_id: &str) -> Result<Vec<FederationConfig>, StoreError> {
-        let records: Vec<Json<FederationConfig>> = sqlx::query_scalar(
-            "SELECT record FROM a_auth.federation_configs WHERE tenant = $1 ORDER BY upstream_idp_id",
+        let records = sqlx::query(
+            "SELECT upstream_idp_id, record FROM a_auth.federation_configs \
+             WHERE tenant = $1 ORDER BY upstream_idp_id",
         )
         .bind(tenant_id)
         .fetch_all(&self.pool)
         .await
         .map_err(db_error)?;
-        Ok(records.into_iter().map(|Json(record)| record).collect())
+        records
+            .into_iter()
+            .map(|row| {
+                let idp: String = row.try_get("upstream_idp_id").map_err(db_error)?;
+                let Json(record) = row.try_get("record").map_err(db_error)?;
+                validate_config_identity(&record, tenant_id, &idp)?;
+                Ok(record)
+            })
+            .collect()
     }
 
     async fn put(&self, config: FederationConfig) -> Result<(), StoreError> {

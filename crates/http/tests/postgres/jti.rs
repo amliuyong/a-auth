@@ -120,7 +120,10 @@ async fn memory_jti_contract() {
 
 #[tokio::test]
 async fn postgres_jti_contract() {
-    jti_contract(database().await).await;
+    jti_contract(agent_auth_http::state::JtiStoreImpl::Postgres(
+        database().await,
+    ))
+    .await;
 }
 
 #[cfg(feature = "aws")]

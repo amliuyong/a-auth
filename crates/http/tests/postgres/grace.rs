@@ -77,7 +77,10 @@ async fn memory_grace_contract() {
 #[tokio::test]
 async fn postgres_grace_contract() {
     let keys = EncryptionKeyring::new("fixture-v1", vec![("fixture-v1".into(), [19; 32])]).unwrap();
-    grace_contract(PostgresGraceStore::new(database().await, keys)).await;
+    grace_contract(agent_auth_http::state::GraceStoreImpl::Postgres(
+        PostgresGraceStore::new(database().await, keys),
+    ))
+    .await;
 }
 
 #[cfg(feature = "aws")]

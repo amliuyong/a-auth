@@ -993,8 +993,8 @@ async fn code_flow_uses_grant_authority_when_refresh_persistence_fails() {
     let code = query_param(&location, "code").unwrap();
     match state.refresh.as_ref() {
         RefreshStoreImpl::Memory(store) => store.fail_next_create(),
-        #[cfg(feature = "aws")]
-        RefreshStoreImpl::Dynamo(_) => panic!("test requires memory refresh store"),
+        #[cfg(any(feature = "aws", feature = "postgres"))]
+        _ => panic!("test requires memory refresh store"),
     }
 
     let response = exchange_response(&router, &code, verifier).await;
@@ -1047,13 +1047,13 @@ async fn code_flow_suppresses_tokens_when_all_authority_persistence_fails() {
     let code = query_param(&location, "code").unwrap();
     match state.refresh.as_ref() {
         RefreshStoreImpl::Memory(store) => store.fail_next_create(),
-        #[cfg(feature = "aws")]
-        RefreshStoreImpl::Dynamo(_) => panic!("test requires memory refresh store"),
+        #[cfg(any(feature = "aws", feature = "postgres"))]
+        _ => panic!("test requires memory refresh store"),
     }
     match state.grants.as_ref() {
         GrantStoreImpl::Memory(store) => store.fail_next_put(),
-        #[cfg(feature = "aws")]
-        GrantStoreImpl::Dynamo(_) => panic!("test requires memory Grant store"),
+        #[cfg(any(feature = "aws", feature = "postgres"))]
+        _ => panic!("test requires memory Grant store"),
     }
 
     let response = exchange_response(&router, &code, verifier).await;
@@ -1534,8 +1534,8 @@ async fn authorization_code_finalize_failure_keeps_lease_until_expiry_then_retri
     let code = query_param(&location, "code").unwrap();
     let codes = match state.codes.as_ref() {
         CodeStoreImpl::Memory(codes) => codes,
-        #[cfg(feature = "aws")]
-        CodeStoreImpl::Dynamo(_) => panic!("test requires memory code store"),
+        #[cfg(any(feature = "aws", feature = "postgres"))]
+        _ => panic!("test requires memory code store"),
     };
     let SignerImpl::Memory(signer) = state.signer.as_ref() else {
         panic!("dev state must use MemorySigner");
@@ -3088,8 +3088,8 @@ async fn authorization_code_rate_limit_release_failure_is_not_reported_as_429() 
     exhaust_client_rate_limit(&state, CLIENT).await;
     let codes = match state.codes.as_ref() {
         CodeStoreImpl::Memory(codes) => codes,
-        #[cfg(feature = "aws")]
-        CodeStoreImpl::Dynamo(_) => panic!("test requires memory code store"),
+        #[cfg(any(feature = "aws", feature = "postgres"))]
+        _ => panic!("test requires memory code store"),
     };
     codes.fail_next_release_lease();
 
@@ -3134,8 +3134,8 @@ async fn authorization_code_rate_limit_permanent_release_failure_is_server_error
     exhaust_client_rate_limit(&state, CLIENT).await;
     let codes = match state.codes.as_ref() {
         CodeStoreImpl::Memory(codes) => codes,
-        #[cfg(feature = "aws")]
-        CodeStoreImpl::Dynamo(_) => panic!("test requires memory code store"),
+        #[cfg(any(feature = "aws", feature = "postgres"))]
+        _ => panic!("test requires memory code store"),
     };
     codes.fail_next_release_lease_permanently();
 
@@ -3426,8 +3426,8 @@ async fn refresh_finalize_failure_keeps_version_and_blocks_resign_until_lease_ex
     let (family_id, _) = refresh.rsplit_once('.').unwrap();
     let refresh_store = match state.refresh.as_ref() {
         RefreshStoreImpl::Memory(store) => store,
-        #[cfg(feature = "aws")]
-        RefreshStoreImpl::Dynamo(_) => panic!("test requires memory refresh store"),
+        #[cfg(any(feature = "aws", feature = "postgres"))]
+        _ => panic!("test requires memory refresh store"),
     };
     let SignerImpl::Memory(signer) = state.signer.as_ref() else {
         panic!("dev state must use MemorySigner");
@@ -4000,8 +4000,8 @@ async fn concurrent_refresh_rotation_has_single_winner_then_reuse_revokes_family
                 .synchronize_next_lease_acquisitions(CONCURRENT_REQUESTS)
                 .await;
         }
-        #[cfg(feature = "aws")]
-        RefreshStoreImpl::Dynamo(_) => panic!("test requires memory refresh store"),
+        #[cfg(any(feature = "aws", feature = "postgres"))]
+        _ => panic!("test requires memory refresh store"),
     }
 
     let mut handles = Vec::new();
@@ -4335,8 +4335,8 @@ async fn grace_window_origin_pkce_challenge_is_bound() {
                 )
                 .await;
         }
-        #[cfg(feature = "aws")]
-        RefreshStoreImpl::Dynamo(_) => panic!("test requires memory refresh store"),
+        #[cfg(any(feature = "aws", feature = "postgres"))]
+        _ => panic!("test requires memory refresh store"),
     }
 
     let (replay_status, replay) = refresh_exchange(&router, refresh_r0).await;
@@ -4431,8 +4431,8 @@ async fn grace_window_reuse_cleanup_failures_are_retriable() {
 
     match state.refresh.as_ref() {
         RefreshStoreImpl::Memory(store) => store.fail_next_revoke(true),
-        #[cfg(feature = "aws")]
-        RefreshStoreImpl::Dynamo(_) => panic!("test requires memory refresh store"),
+        #[cfg(any(feature = "aws", feature = "postgres"))]
+        _ => panic!("test requires memory refresh store"),
     }
     let (revoke_failure_status, revoke_failure) =
         refresh_exchange_for_client(&router, refresh_r0, OTHER_CLIENT).await;
@@ -4480,8 +4480,8 @@ async fn grace_window_reuse_cleanup_failures_are_retriable() {
 
     match state.grace.as_deref() {
         Some(GraceStoreImpl::Memory(store)) => store.fail_next_delete_family(true),
-        #[cfg(feature = "aws")]
-        Some(GraceStoreImpl::Dynamo(_)) => panic!("test requires memory grace store"),
+        #[cfg(any(feature = "aws", feature = "postgres"))]
+        Some(_) => panic!("test requires memory grace store"),
         None => panic!("test requires grace store"),
     }
     let (delete_failure_status, delete_failure) =
@@ -4537,8 +4537,8 @@ async fn grace_window_reuse_cleanup_failures_are_retriable() {
 
     match state.refresh.as_ref() {
         RefreshStoreImpl::Memory(store) => store.fail_next_revoke(false),
-        #[cfg(feature = "aws")]
-        RefreshStoreImpl::Dynamo(_) => panic!("test requires memory refresh store"),
+        #[cfg(any(feature = "aws", feature = "postgres"))]
+        _ => panic!("test requires memory refresh store"),
     }
     let (permanent_revoke_status, permanent_revoke) =
         refresh_exchange_for_client(&router, permanent_r0, OTHER_CLIENT).await;
@@ -4571,8 +4571,8 @@ async fn grace_window_reuse_cleanup_failures_are_retriable() {
 
     match state.grace.as_deref() {
         Some(GraceStoreImpl::Memory(store)) => store.fail_next_delete_family(false),
-        #[cfg(feature = "aws")]
-        Some(GraceStoreImpl::Dynamo(_)) => panic!("test requires memory grace store"),
+        #[cfg(any(feature = "aws", feature = "postgres"))]
+        Some(_) => panic!("test requires memory grace store"),
         None => panic!("test requires grace store"),
     }
     let (permanent_delete_status, permanent_delete) =
@@ -5200,8 +5200,8 @@ async fn replay_between_finalize_and_authority_writes_suppresses_first_response(
     let code = query_param(&location, "code").unwrap();
     let (create_started, resume_create) = match state.refresh.as_ref() {
         RefreshStoreImpl::Memory(store) => store.pause_next_create().await,
-        #[cfg(feature = "aws")]
-        RefreshStoreImpl::Dynamo(_) => panic!("test requires memory refresh store"),
+        #[cfg(any(feature = "aws", feature = "postgres"))]
+        _ => panic!("test requires memory refresh store"),
     };
 
     let first_router = router.clone();

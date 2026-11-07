@@ -271,7 +271,10 @@ async fn postgres_ciba_contract() {
         vec![("fixture-ciba-v1".into(), [31; 32])],
     )
     .unwrap();
-    ciba_contract(PostgresCibaStore::new(database().await, keys)).await;
+    ciba_contract(agent_auth_http::state::CibaStoreImpl::Postgres(
+        PostgresCibaStore::new(database().await, keys),
+    ))
+    .await;
 }
 
 #[cfg(feature = "aws")]

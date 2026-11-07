@@ -239,7 +239,10 @@ async fn memory_admin_auth_contract() {
 
 #[tokio::test]
 async fn postgres_admin_auth_contract() {
-    admin_auth_contract(database().await).await;
+    admin_auth_contract(agent_auth_http::state::AdminAuthStoreImpl::Postgres(
+        database().await,
+    ))
+    .await;
 }
 
 #[cfg(feature = "aws")]

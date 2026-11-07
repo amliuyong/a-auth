@@ -68,6 +68,9 @@ mod security_event_contracts;
 #[path = "postgres/federation_mappings.rs"]
 mod federation_mapping_contracts;
 
+#[path = "postgres/federation_authority.rs"]
+mod federation_authority_contracts;
+
 #[path = "postgres/users.rs"]
 mod user_contracts;
 
@@ -232,7 +235,10 @@ async fn memory_par_contract() {
 
 #[tokio::test]
 async fn postgres_par_contract() {
-    par_contract(database().await).await;
+    par_contract(agent_auth_http::state::ParStoreImpl::Postgres(
+        database().await,
+    ))
+    .await;
 }
 
 async fn replay_contract(store: impl ReplayStore + Clone + 'static) {
@@ -295,7 +301,10 @@ async fn memory_replay_contract() {
 
 #[tokio::test]
 async fn postgres_replay_contract() {
-    replay_contract(database().await).await;
+    replay_contract(agent_auth_http::state::ReplayStoreImpl::Postgres(
+        database().await,
+    ))
+    .await;
 }
 
 fn initial_access_token(token_id: &str) -> agent_auth_http::credential::InitialAccessTokenRecord {
@@ -406,7 +415,10 @@ async fn memory_initial_access_token_contract() {
 
 #[tokio::test]
 async fn postgres_initial_access_token_contract() {
-    initial_access_token_contract(database().await).await;
+    initial_access_token_contract(
+        agent_auth_http::state::InitialAccessTokenStoreImpl::Postgres(database().await),
+    )
+    .await;
 }
 
 async fn client_contract(store: impl ClientStore + Clone + 'static) {
@@ -536,7 +548,10 @@ async fn memory_client_contract() {
 
 #[tokio::test]
 async fn postgres_client_contract() {
-    client_contract(database().await).await;
+    client_contract(agent_auth_http::state::ClientStoreImpl::Postgres(
+        database().await,
+    ))
+    .await;
 }
 
 fn code_record() -> CodeRecord {
@@ -679,7 +694,11 @@ async fn memory_code_contract() {
 #[tokio::test]
 async fn postgres_code_contract() {
     let store = database().await;
-    code_contract(store.clone(), store).await;
+    code_contract(
+        agent_auth_http::state::CodeStoreImpl::Postgres(store.clone()),
+        agent_auth_http::state::ClientStoreImpl::Postgres(store),
+    )
+    .await;
 }
 
 fn refresh_record() -> RefreshFamilyRecord {
@@ -835,7 +854,11 @@ async fn memory_refresh_contract() {
 #[tokio::test]
 async fn postgres_refresh_contract() {
     let store = database().await;
-    refresh_contract(store.clone(), store).await;
+    refresh_contract(
+        agent_auth_http::state::RefreshStoreImpl::Postgres(store.clone()),
+        agent_auth_http::state::ClientStoreImpl::Postgres(store),
+    )
+    .await;
 }
 
 #[tokio::test]

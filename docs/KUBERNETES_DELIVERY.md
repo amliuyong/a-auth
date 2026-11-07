@@ -113,8 +113,24 @@ capability. Thirty-six embedded forward
 migrations create their authority tables and credential-free client reclaim
 audit metadata.
 
-The current shared suite contains 163 cases: thirty-five contracts run through each of
-the memory, AWS, and PostgreSQL adapters, plus fifty-five PostgreSQL-specific
+All thirty-five ports now have runtime enum variants and trait delegation.
+The shared contracts select those variants rather than invoking the raw
+PostgreSQL adapters. This covers dispatch only; production startup still
+needs an explicit PostgreSQL constructor. Failed code exchange and encrypted
+refresh finalization select their existing atomic helpers and reject stores
+from different pool identities. Other authorized transactions remain pending.
+
+Federated attribute reconciliation locks namespace, mapping and user authority
+in that order. Owner purge locks the mapping registry before the user and
+preserves the complete private user record. Configuration and mapping changes
+share the mapping catalog lock, preventing issuer replacement or deletion
+while mappings exist. Configuration reads validate the decoded tenant and
+IdP against the physical row identity. Authorized administrator attribute
+writes also lock namespace authority before the user, recheck the captured
+authority and retain the raw attribute CAS and federation ownership rules.
+
+The current shared suite contains 167 cases: thirty-five contracts run through each of
+the memory, AWS, and PostgreSQL adapters, plus fifty-nine PostgreSQL-specific
 transaction/durability cases and three AWS recovery interleaving/compatibility
 cases. AWS adapters run against a loopback DynamoDB
 emulator; PostgreSQL adapters run against PostgreSQL 16. This does not establish
@@ -160,8 +176,8 @@ delete-only instance cannot read or write even an absent entry.
 The refresh finalization helper commits the owner/version-fenced increment and
 encrypted cache together. An actual second-write constraint failure rolls back
 the version and lease mutation; sixteen concurrent retries have one winner.
-The helper rejects a grace instance from another store pool. Production state
-dispatch has not selected this transaction yet.
+The helper rejects a grace instance from another store pool. Runtime enum
+dispatch selects this transaction; production startup remains pending.
 An expired real lease cannot be extended using a stale caller timestamp;
 finalization checks the clock after acquiring the family row lock.
 Security events use a global immutable event ID and validated typed envelope.
@@ -555,8 +571,8 @@ These are implemented adapter capabilities. Production startup, mount
 isolation and cluster rotation acceptance remain pending.
 
 The production server does not select PostgreSQL yet. Remaining work includes
-every other self-hosted storage port, cross-port credential/user/session/grant
-transactions, encrypted-grace transaction dispatch and startup,
-mounted signing keys, portable transports/notifications, workers, chart/image
+startup for every enabled self-hosted port, the remaining cross-port
+credential/user/session/grant and governance transactions, encrypted-state
+and mounted-signer startup, portable transports/notifications, workers, chart/image
 delivery, and all acceptance campaigns in the ledger above. Keep the PR in
 draft and the issue open until these requirements are implemented and verified.
