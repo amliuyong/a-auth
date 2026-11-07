@@ -53,6 +53,9 @@ mod device_contracts;
 #[path = "postgres/admin_auth.rs"]
 mod admin_auth_contracts;
 
+#[path = "postgres/attribute_namespaces.rs"]
+mod attribute_namespace_contracts;
+
 #[cfg(feature = "aws")]
 #[path = "postgres/aws.rs"]
 mod aws_contract_database;

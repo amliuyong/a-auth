@@ -84,12 +84,13 @@ The `postgres` feature currently provides `PostgresStore` implementations for
 `RefreshStore`, `GrantStore`, `PolicyVersionStore`, `PolicyArtifactStore`,
 `JtiStore`, `AuthzSessionStore`, `RateLimitStore`, `FederationConfigStore`,
 `FederationFlowStore`, `MagicLinkStore`, `WorkloadTrustStore`, `DomainMapStore`,
-`PasskeyChallengeStore`, `DeviceStore`, and `AdminAuthStore`. Twenty embedded forward
+`PasskeyChallengeStore`, `DeviceStore`, `AdminAuthStore`, and
+`AttributeNamespaceStore`. Twenty-one embedded forward
 migrations create their authority tables and credential-free client reclaim
 audit metadata.
 
-The current shared suite passes 65 cases: twenty contracts run through each of
-the memory, AWS, and PostgreSQL adapters, plus five PostgreSQL-specific
+The current shared suite passes 69 cases: twenty-one contracts run through each of
+the memory, AWS, and PostgreSQL adapters, plus six PostgreSQL-specific
 transaction/durability cases. AWS adapters run against a loopback DynamoDB
 emulator; PostgreSQL adapters run against PostgreSQL 16. This does not establish
 native AWS deployment acceptance.
@@ -107,6 +108,14 @@ foreign tenant. Device tests race sixteen consumers against sixteen decisions
 and check that each has one winner while preserving poll and credential
 metadata. Admin OIDC tests check configuration CAS, hashed flow/session
 create-once behavior, binding identity and tenant-scoped erasure.
+Namespace contracts race sixteen exact-audience claims and sixteen migration
+checkpoints, check pending/active/retired authority, and replay cancellation
+without reusing an operation ID. PostgreSQL locks a per-tenant catalog row,
+including claims for names that are not yet bound. The durable snapshot stores
+escaped JSON as text so valid operation IDs containing U+0000 round-trip.
+Missing or malformed snapshot fields fail closed; fault injection verifies
+that a truncated snapshot cannot become unbound authorization.
+Memory and PostgreSQL share the extracted namespace transition rules.
 Cross-table tests check that code/family creation updates the client authority
 revision atomically, that failed conditions roll back the new row, and that
 duplicate creation cannot resurrect consumed codes or revoked families.
@@ -139,7 +148,8 @@ AWS race. Memory domain records now normalize their stored domain, and memory
 Admin flow/session creation rejects overwriting existing hashed bindings.
 
 Current local validation also passes 1,057 workspace library tests, 680 HTTP
-library tests with both `postgres` and `aws`, and 64 BYOD, passkey, device,
+library tests with both `postgres` and `aws`, and 33 RS attribute and federation
+mapping regression tests. Earlier increments passed 64 BYOD, passkey, device,
 and Admin SSO regression tests. Three library tests explicitly require native
 AWS disposable tables and remain ignored/`NOT_RUN`. Development signing
 fixtures now share cached key material while keeping signing counters and

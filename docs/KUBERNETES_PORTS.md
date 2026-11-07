@@ -12,7 +12,7 @@ must not become production fallback authority.
 
 ## Implemented PostgreSQL authority
 
-These twenty traits have PostgreSQL adapters. Shared contracts exercise the
+These twenty-one traits have PostgreSQL adapters. Shared contracts exercise the
 memory, actual AWS adapters against a loopback emulator, and PostgreSQL
 implementations. The delivery ledger records the candidate validation results.
 
@@ -38,6 +38,7 @@ implementations. The delivery ledger records the candidate validation results.
 | `PasskeyChallengeStore` | Tenant-bound one-time ceremony, complete RP binding, expiry after lock wait |
 | `DeviceStore` | Tenant-scoped user-code lookup, field CAS for polling/decision/consumption |
 | `AdminAuthStore` | Config revision CAS, create-once hashed flows/sessions, tenant cleanup transaction |
+| [`AttributeNamespaceStore`](../crates/http/src/attribute_namespace.rs) | Tenant-locked exact-audience claims, migration revision CAS, durable cancellation receipts and burned operation IDs |
 
 Cross-port work remains necessary even when individual traits are implemented.
 Raw port CRUD must not replace an authorized transaction involving user,
@@ -45,7 +46,7 @@ credential, session, client, grant, or attribute authority.
 
 ## Remaining persistent authority
 
-The first eleven traits below are in `ports.rs`; the last six are in their
+The first eleven traits below are in `ports.rs`; the last five are in their
 linked modules. Optional protocol surfaces need either a complete production
 implementation or an explicit disabled capability with its existing
 fail-closed behavior. They must never silently select memory stores.
@@ -63,7 +64,6 @@ fail-closed behavior. They must never silently select memory stores.
 | `RecoveryStore` | Code HMACs, bounded failures, exact-operation success receipt and credential/session transaction |
 | `MessageOutbox` | Notification observation/delivery state, subject erasure and secret protection where retained |
 | `CibaStore` | Claim/consume fencing, encrypted durable push response, callback state |
-| [`AttributeNamespaceStore`](../crates/http/src/attribute_namespace.rs) | Audience/namespace authority, policy revision and migration blocking |
 | [`FederationAttributeMappingsStore`](../crates/http/src/federation_attributes.rs) | Versioned mappings, source ownership and authorized reconciliation |
 | [`SecurityEventStore`](../crates/http/src/security_event.rs) | Idempotent typed event ledger, batch outcomes and subject/tenant queries |
 | [`SsfStore`](../crates/http/src/ssf.rs) | Stream ownership/config generation, durable outbox and delivery receipts |

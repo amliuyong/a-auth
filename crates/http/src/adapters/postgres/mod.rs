@@ -6,6 +6,7 @@ use sqlx::{postgres::PgPoolOptions, PgPool, Row};
 use std::time::Duration;
 
 mod admin_auth;
+mod attribute_namespaces;
 mod authz_sessions;
 mod clients;
 mod codes;
