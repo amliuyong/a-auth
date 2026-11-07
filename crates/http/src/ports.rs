@@ -59,6 +59,7 @@ pub enum SignerError {
 
 /// `/authorize` 阶段落地的授权码记录(`/token` 兑换时读取并消费)。
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "postgres", derive(Serialize, Deserialize))]
 pub struct CodeRecord {
     /// Exact registered workload explicitly approved on the single resource.
     /// Missing on existing codes means no delegation authority.
@@ -289,6 +290,7 @@ pub struct RegisteredClientJwks {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "postgres", derive(Serialize, Deserialize))]
 pub struct ClientRecord {
     pub client_id: String,
     pub redirect_uris: Vec<String>,
@@ -749,6 +751,7 @@ pub enum StoreError {
 /// refresh token family 记录(C3:rotation + 复用检测的载体;P0/P1 = refresh-family,P2 起 = Grant)。
 /// refresh token 不透明(查库随机串);family 绑定 authorize 的整个 resource 集合(C3.6 rotation 保集合)。
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "postgres", derive(Serialize, Deserialize))]
 pub struct RefreshFamilyRecord {
     pub family_id: String,
     /// 当前有效版本;呈现非当前版本 = 复用 → 全链吊销(C3.1)。

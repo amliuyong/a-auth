@@ -4,5 +4,8 @@ pub mod memory;
 pub mod memory_attribute_namespaces;
 pub mod memory_federation_attributes;
 
+#[cfg(feature = "postgres")]
+pub mod postgres;
+
 #[cfg(feature = "aws")]
 pub mod aws;

@@ -77,12 +77,15 @@ tokio-rustls = { version = "0.26", optional = true }
 time = { version = "0.3", features = ["formatting"] }
 url = "2"
 httpdate = "1"
+# Portable PostgreSQL deployment; no AWS SDK dependencies.
+sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio-rustls", "postgres", "json", "migrate", "macros"], optional = true }
 
 [features]
 default = []
 lambda = ["dep:lambda_http", "dep:lambda_runtime"]
 aws = ["dep:aws-config", "dep:aws-sdk-kms", "dep:aws-sdk-lambda", "dep:aws-sdk-resourcegroupstagging", "dep:aws-sdk-dynamodb", "dep:aws-sdk-backup", "dep:aws-sdk-cloudwatchlogs", "dep:aws-sdk-s3", "dep:aws-sdk-sqs", "dep:aws-sdk-secretsmanager", "dep:aws-sdk-eventbridge", "dep:reqwest"]
 transport-test = ["aws", "dep:rcgen", "dep:tokio-rustls"]
+postgres = ["dep:sqlx"]
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
@@ -145,3 +148,8 @@ path = "src/bin/governance_worker.rs"
 [[bin]]
 name = "agent-auth-restored-tenant-signer-probe" # DR-only read path: restored registry → production signer
 path = "src/bin/restored_tenant_signer_probe.rs"
+
+[[test]]
+name = "postgres_contracts"
+path = "tests/postgres_contracts.rs"
+required-features = ["postgres"]
