@@ -3164,6 +3164,12 @@ pub struct DynamoRecoveryStore {
     pub(super) table: String,
 }
 
+struct RecoveryWriteCondition {
+    expression: String,
+    names: HashMap<String, String>,
+    values: HashMap<String, AttributeValue>,
+}
+
 impl DynamoRecoveryStore {
     pub fn new(db: aws_sdk_dynamodb::Client, table: impl Into<String>) -> Self {
         DynamoRecoveryStore {
@@ -3177,6 +3183,7 @@ impl DynamoRecoveryStore {
         tenant: &str,
         r: &RecoveryRecord,
         version: u64,
+        generation: &str,
     ) -> HashMap<String, AttributeValue> {
         // code_hashes 编码为并行两列表(hash + consumed),简单可读。主键 = tpk(tenant, user_lookup)。
         let hashes: Vec<AttributeValue> = r
@@ -3213,7 +3220,38 @@ impl DynamoRecoveryStore {
                 "version".to_string(),
                 AttributeValue::N(version.to_string()),
             ),
+            (
+                "code_set_generation".to_string(),
+                AttributeValue::S(generation.to_string()),
+            ),
         ])
+    }
+
+    fn new_generation() -> String {
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(rand::random::<[u8; 32]>())
+    }
+
+    fn consumption_condition(version: u64, generation: Option<&str>) -> RecoveryWriteCondition {
+        let mut values = HashMap::from([(":v".into(), AttributeValue::N(version.to_string()))]);
+        let generation_condition = if let Some(generation) = generation {
+            values.insert(":g".into(), AttributeValue::S(generation.into()));
+            "#g = :g"
+        } else {
+            // Existing records without a generation are upgraded on consumption.
+            // A replacement always has a fresh generation and cannot satisfy this.
+            "attribute_not_exists(#g)"
+        };
+        RecoveryWriteCondition {
+            expression: format!(
+                "attribute_exists(user_lookup) AND \
+                 (attribute_not_exists(#v) OR #v = :v) AND {generation_condition}"
+            ),
+            names: HashMap::from([
+                ("#v".into(), "version".into()),
+                ("#g".into(), "code_set_generation".into()),
+            ]),
+            values,
+        }
     }
 
     fn success_result_key(tenant: &str, operation_key: &str) -> String {
@@ -3377,7 +3415,7 @@ impl DynamoRecoveryStore {
         &self,
         tenant: &str,
         user_lookup: &str,
-    ) -> Result<Option<(RecoveryRecord, u64)>, StoreError> {
+    ) -> Result<Option<(RecoveryRecord, u64, Option<String>)>, StoreError> {
         let out = self
             .db
             .get_item()
@@ -3425,7 +3463,24 @@ impl DynamoRecoveryStore {
             .and_then(|a| a.as_n().ok())
             .and_then(|n| n.parse().ok())
             .unwrap_or(0);
-        Ok(Some((rec, version)))
+        let generation = match item.get("code_set_generation") {
+            None => None,
+            Some(value) => {
+                let value = value.as_s().map_err(|_| {
+                    StoreError::Permanent("Invalid recovery code-set generation".into())
+                })?;
+                if !base64::engine::general_purpose::URL_SAFE_NO_PAD
+                    .decode(value)
+                    .is_ok_and(|bytes| bytes.len() == 32)
+                {
+                    return Err(StoreError::Permanent(
+                        "Invalid recovery code-set generation".into(),
+                    ));
+                }
+                Some(value.clone())
+            }
+        };
+        Ok(Some((rec, version, generation)))
     }
 
     pub(crate) async fn commit_rotation(
@@ -3448,9 +3503,10 @@ impl DynamoRecoveryStore {
             updated_at,
             Some(expected_email),
         )?;
+        let generation = Self::new_generation();
         let recovery_put = Put::builder()
             .table_name(&self.table)
-            .set_item(Some(self.record_to_item(tenant, &record, 0)))
+            .set_item(Some(self.record_to_item(tenant, &record, 0, &generation)))
             .build()
             .map_err(|error| {
                 StoreError::Permanent(format!("build recovery rotation put: {error}"))
@@ -3469,7 +3525,11 @@ impl DynamoRecoveryStore {
                         .get_by_id(tenant, &record.user_id)
                         .await?
                         .is_some_and(|user| user.email == expected_email)
-                    && stored.is_some_and(|(stored, version)| stored == record && version == 0)
+                    && stored.is_some_and(|(stored, version, stored_generation)| {
+                        stored == record
+                            && version == 0
+                            && stored_generation.as_deref() == Some(generation.as_str())
+                    })
                 {
                     Ok(true)
                 } else {
@@ -3515,7 +3575,7 @@ impl DynamoRecoveryStore {
         }
 
         for attempt in 0..TRANSACTION_RETRY_ATTEMPTS {
-            let Some((mut record, version)) =
+            let Some((mut record, version, generation)) =
                 self.load(request.tenant, request.user_lookup).await?
             else {
                 return Ok(RecoveryAuthorityConsume::NotFound);
@@ -3556,17 +3616,18 @@ impl DynamoRecoveryStore {
                 return Ok(RecoveryAuthorityConsume::PasswordChangeRequired);
             }
 
-            let mut item = self.record_to_item(request.tenant, &record, version + 1);
-            item.insert(
-                "version".to_string(),
-                AttributeValue::N((version + 1).to_string()),
-            );
+            let next_version = version.checked_add(1).ok_or_else(|| {
+                StoreError::Permanent("Recovery code-set version exhausted".into())
+            })?;
+            let condition = Self::consumption_condition(version, generation.as_deref());
+            let next_generation = generation.unwrap_or_else(Self::new_generation);
+            let item = self.record_to_item(request.tenant, &record, next_version, &next_generation);
             let recovery_put = Put::builder()
                 .table_name(&self.table)
                 .set_item(Some(item))
-                .condition_expression("attribute_not_exists(#version) OR #version = :version")
-                .expression_attribute_names("#version", "version")
-                .expression_attribute_values(":version", AttributeValue::N(version.to_string()))
+                .condition_expression(condition.expression)
+                .set_expression_attribute_names(Some(condition.names))
+                .set_expression_attribute_values(Some(condition.values))
                 .build()
                 .map_err(|error| {
                     StoreError::Permanent(format!("build recovery epoch-guarded consume: {error}"))
@@ -3760,8 +3821,8 @@ impl DynamoRecoveryStore {
 
 impl RecoveryStore for DynamoRecoveryStore {
     async fn put(&self, tenant: &str, record: RecoveryRecord) -> Result<(), StoreError> {
-        // 下发/regenerate:version 从 0 起(覆盖旧集使旧码失效)。
-        let item = self.record_to_item(tenant, &record, 0);
+        // Each replacement has a fresh generation even though its version resets.
+        let item = self.record_to_item(tenant, &record, 0, &Self::new_generation());
         self.db
             .put_item()
             .table_name(&self.table)
@@ -3776,7 +3837,7 @@ impl RecoveryStore for DynamoRecoveryStore {
         tenant: &str,
         user_lookup: &str,
     ) -> Result<Option<RecoveryRecord>, StoreError> {
-        Ok(self.load(tenant, user_lookup).await?.map(|(r, _)| r))
+        Ok(self.load(tenant, user_lookup).await?.map(|(r, _, _)| r))
     }
     async fn get_success_result(
         &self,
@@ -3798,7 +3859,7 @@ impl RecoveryStore for DynamoRecoveryStore {
         // (评审 codex#5)。重试上界防活锁;每轮重新 load 拿最新 version + consumed 状态。
         const MAX_RETRY: u32 = 5;
         for _ in 0..MAX_RETRY {
-            let Some((mut rec, version)) = self.load(tenant, user_lookup).await? else {
+            let Some((mut rec, version, generation)) = self.load(tenant, user_lookup).await? else {
                 return Ok(RecoveryConsume::NotFound);
             };
             if is_locked(rec.locked_until, now) {
@@ -3829,20 +3890,20 @@ impl RecoveryStore for DynamoRecoveryStore {
                 }
             };
             // 乐观并发条件写:仅当 version 未变才写(并发验同码只一个成功,防双消费)。
-            let mut item = self.record_to_item(tenant, &rec, version + 1);
-            item.insert(
-                "version".to_string(),
-                AttributeValue::N((version + 1).to_string()),
-            );
-            // `version` 是 DynamoDB 保留字 → 用别名。首次(无 version 属性)也允许写。
+            let next_version = version.checked_add(1).ok_or_else(|| {
+                StoreError::Permanent("Recovery code-set version exhausted".into())
+            })?;
+            let condition = Self::consumption_condition(version, generation.as_deref());
+            let next_generation = generation.unwrap_or_else(Self::new_generation);
+            let item = self.record_to_item(tenant, &rec, next_version, &next_generation);
             let res = self
                 .db
                 .put_item()
                 .table_name(&self.table)
                 .set_item(Some(item))
-                .condition_expression("attribute_not_exists(#v) OR #v = :v")
-                .expression_attribute_names("#v", "version")
-                .expression_attribute_values(":v", AttributeValue::N(version.to_string()))
+                .condition_expression(condition.expression)
+                .set_expression_attribute_names(Some(condition.names))
+                .set_expression_attribute_values(Some(condition.values))
                 .send()
                 .await;
             match res {

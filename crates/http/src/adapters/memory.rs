@@ -25,6 +25,7 @@ use base64::Engine;
 use p256::ecdsa::{signature::Signer as _, Signature, SigningKey};
 
 use crate::federation_attributes::FederationAttributeMappingsStore;
+use crate::recovery_state::consume_recovery_record;
 
 #[derive(Clone, Default)]
 pub struct MemoryGovernanceJobQueue {
@@ -5284,41 +5285,6 @@ pub struct MemoryRecoveryStore {
     results: Arc<Mutex<HashMap<(String, String), RecoverySuccessResult>>>,
 }
 
-fn consume_recovery_record(
-    record: &mut RecoveryRecord,
-    presented_hash: &str,
-    now: i64,
-) -> RecoveryConsume {
-    use agent_auth_authn::recovery::{hash_eq_b64, is_locked, on_failed_attempt};
-
-    if is_locked(record.locked_until, now) {
-        return RecoveryConsume::Locked {
-            retry_after_secs: record.locked_until - now,
-        };
-    }
-    if let Some(entry) = record
-        .code_hashes
-        .iter_mut()
-        .find(|entry| !entry.consumed && hash_eq_b64(&entry.hash_b64, presented_hash))
-    {
-        entry.consumed = true;
-        record.attempt_count = 0;
-        record.locked_until = 0;
-        RecoveryConsume::Valid
-    } else {
-        let (attempt_count, locked_until) = on_failed_attempt(record.attempt_count, now);
-        record.attempt_count = attempt_count;
-        record.locked_until = locked_until;
-        if is_locked(locked_until, now) {
-            RecoveryConsume::Locked {
-                retry_after_secs: locked_until - now,
-            }
-        } else {
-            RecoveryConsume::Invalid
-        }
-    }
-}
-
 impl MemoryRecoveryStore {
     pub(crate) async fn commit_rotation(
         &self,
@@ -5598,9 +5564,14 @@ impl RecoveryStore for MemoryRecoveryStore {
 
     async fn delete_all_by_tenant(&self, tenant: &str) -> Result<usize, StoreError> {
         let mut map = self.map.lock().await;
+        let mut results = self.results.lock().await;
         let before = map.len();
         map.retain(|(entry_tenant, _), _| entry_tenant != tenant);
-        Ok(before.saturating_sub(map.len()))
+        let results_before = results.len();
+        results.retain(|(entry_tenant, _), _| entry_tenant != tenant);
+        Ok(before
+            .saturating_sub(map.len())
+            .saturating_add(results_before.saturating_sub(results.len())))
     }
 }
 
@@ -10101,6 +10072,26 @@ mod tests {
                 .is_none(),
             "another tenant must not retrieve the operation result"
         );
+        recovery.results.lock().await.insert(
+            ("t2".to_string(), result.operation_key.clone()),
+            result.clone(),
+        );
+        assert_eq!(recovery.delete_all_by_tenant("t1").await.unwrap(), 1);
+        assert_eq!(
+            recovery
+                .get_success_result("t1", &result.operation_key)
+                .await
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            recovery
+                .get_success_result("t2", &result.operation_key)
+                .await
+                .unwrap(),
+            Some(result)
+        );
+        assert_eq!(recovery.delete_all_by_tenant("t1").await.unwrap(), 0);
     }
 
     #[tokio::test]

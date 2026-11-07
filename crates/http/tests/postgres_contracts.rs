@@ -86,6 +86,16 @@ mod login_session_contracts;
 #[path = "postgres/sessions_faults.rs"]
 mod login_session_fault_contracts;
 
+#[path = "postgres/recovery.rs"]
+mod recovery_contracts;
+
+#[path = "postgres/recovery_faults.rs"]
+mod recovery_fault_contracts;
+
+#[cfg(feature = "aws")]
+#[path = "postgres/recovery_aws_races.rs"]
+mod recovery_aws_race_contracts;
+
 #[cfg(feature = "aws")]
 #[path = "postgres/aws.rs"]
 mod aws_contract_database;

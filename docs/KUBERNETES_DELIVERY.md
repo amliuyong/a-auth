@@ -86,18 +86,20 @@ The `postgres` feature currently provides `PostgresStore` implementations for
 `FederationFlowStore`, `MagicLinkStore`, `WorkloadTrustStore`, `DomainMapStore`,
 `PasskeyChallengeStore`, `DeviceStore`, `AdminAuthStore`,
 `AttributeNamespaceStore`, `PasswordStore`, `SecurityEventStore`, and
-`FederationAttributeMappingsStore`, `ScimGroupsStore`, and `SessionStore`.
+`FederationAttributeMappingsStore`, `ScimGroupsStore`, `SessionStore`, and
+`RecoveryStore`.
 `PostgresUsersStore` implements all twenty-five `UsersStore` methods with a
 required external HMAC authority key.
 `PostgresGraceStore` implements
 `GraceStore` with an explicit external encryption key ring or a delete-only
-capability. Twenty-nine embedded forward
+capability. Thirty embedded forward
 migrations create their authority tables and credential-free client reclaim
 audit metadata.
 
-The current shared suite passes 110 cases: twenty-eight contracts run through each of
-the memory, AWS, and PostgreSQL adapters, plus twenty-six PostgreSQL-specific
-transaction/durability cases. AWS adapters run against a loopback DynamoDB
+The current shared suite passes 120 cases: twenty-nine contracts run through each of
+the memory, AWS, and PostgreSQL adapters, plus thirty PostgreSQL-specific
+transaction/durability cases and three AWS recovery interleaving/compatibility
+cases. AWS adapters run against a loopback DynamoDB
 emulator; PostgreSQL adapters run against PostgreSQL 16. This does not establish
 native AWS deployment acceptance.
 The grace contract's KMS responses come from a loopback fixture. This does not
@@ -240,6 +242,24 @@ standby HTTP runtime policies grant transaction reads on the exact user table;
 the configuration tests inspect each role's inline and managed policies.
 The authorized user/password/recovery/session transactions and production
 dispatch remain pending.
+Recovery code consumption locks the tenant directory and complete code set
+within one transaction. It preserves the existing constant-time verifier,
+failed-attempt limit, lockout boundary and regeneration behavior. Only HMAC
+verifiers enter storage. Private codecs require every code-set and receipt
+field and compare physical lookup, user, activation and receipt metadata;
+NUL identities, `u32` attempt counts and `u64` credential epochs round-trip.
+Actual rejected admission/consumption writes preserve the previous authority.
+A failed second deletion rolls back both code-set and receipt cleanup.
+The raw port reads complete success receipts; creating those receipts in the
+authorized credential/session transaction and production dispatch remain pending.
+Shared tests reproduced memory tenant cleanup leaving successful-operation
+receipts behind; cleanup now removes both maps in the existing lock order.
+Real loopback DynamoDB interleavings reproduced stale consumption adopting a
+regenerated code set or recreating a deleted one. Each new set now has a random
+generation, and both raw and authorized consumption require the row, version
+and captured generation. Legacy records gain a generation on consumption.
+Malformed generations and exhausted versions fail closed. Retries of an
+ambiguous transaction retain the same generation and transaction payload.
 Cross-table tests check that code/family creation updates the client authority
 revision atomically, that failed conditions roll back the new row, and that
 duplicate creation cannot resurrect consumed codes or revoked families.
@@ -280,6 +300,11 @@ whose name shared a prefix. Cleanup now compares the exact family identity.
 
 Current local validation passes 1,269 workspace library tests, including 685
 HTTP library tests with both `postgres` and `aws`.
+The recovery increment passes ten focused contract, rollback, codec and real
+loopback DynamoDB interleaving/compatibility cases and 118 account, credential,
+password, recovery, invitation, SCIM and session HTTP regressions.
+Recovery library regressions also preserve ambiguous-commit reconciliation
+and private receipt redaction.
 The group increment `34050c9670abf64d610fad85e41aa8a9baac47ae` passed
 47 SCIM, Admin SSO and data-governance HTTP
 regressions, along with six focused group contract/fault cases.

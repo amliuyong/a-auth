@@ -23,6 +23,7 @@ mod passkey_challenges;
 mod passwords;
 mod policy;
 mod rate_limits;
+mod recovery;
 mod refresh;
 mod replay;
 mod scim_groups;
