@@ -1,4 +1,4 @@
-use super::{db_error, PostgresStore};
+use super::{db_error, PostgresStore, PostgresUsersStore};
 use crate::ports::{PasswordCredential, PasswordStore, StoreError};
 use agent_auth_authn::password::EncodedPasswordHash;
 use sqlx::{postgres::PgRow, Row};
@@ -58,6 +58,8 @@ impl PasswordStore for PostgresStore {
         tenant: &str,
         credential: PasswordCredential,
     ) -> Result<bool, StoreError> {
+        let mut transaction = self.pool.begin().await.map_err(db_error)?;
+        PostgresUsersStore::lock_directory(&mut transaction, tenant).await?;
         let result = sqlx::query(
             "INSERT INTO a_auth.password_credentials \
              (tenant, user_id, password_hash, must_change, revocation_pending, \
@@ -78,9 +80,10 @@ impl PasswordStore for PostgresStore {
         )
         .bind(credential.version.to_string())
         .bind(credential.updated_at)
-        .execute(&self.pool)
+        .execute(&mut *transaction)
         .await
         .map_err(db_error)?;
+        transaction.commit().await.map_err(db_error)?;
         Ok(result.rows_affected() == 1)
     }
 
@@ -140,6 +143,8 @@ impl PasswordStore for PostgresStore {
         updated_at: i64,
     ) -> Result<Option<u64>, StoreError> {
         let next = expected_version.map(next_version).transpose()?.unwrap_or(1);
+        let mut transaction = self.pool.begin().await.map_err(db_error)?;
+        PostgresUsersStore::lock_directory(&mut transaction, tenant).await?;
         let result = match expected_version {
             Some(expected) => sqlx::query(
                 "UPDATE a_auth.password_credentials SET password_hash = $3, \
@@ -153,7 +158,7 @@ impl PasswordStore for PostgresStore {
             .bind(next.to_string())
             .bind(updated_at)
             .bind(expected.to_string())
-            .execute(&self.pool)
+            .execute(&mut *transaction)
             .await
             .map_err(db_error)?,
             None => sqlx::query(
@@ -166,10 +171,11 @@ impl PasswordStore for PostgresStore {
             .bind(user_id)
             .bind(new_hash.expose())
             .bind(updated_at)
-            .execute(&self.pool)
+            .execute(&mut *transaction)
             .await
             .map_err(db_error)?,
         };
+        transaction.commit().await.map_err(db_error)?;
         Ok((result.rows_affected() == 1).then_some(next))
     }
 

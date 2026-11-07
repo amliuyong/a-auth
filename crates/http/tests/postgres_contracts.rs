@@ -102,6 +102,12 @@ mod passkey_contracts;
 #[path = "postgres/passkeys_faults.rs"]
 mod passkey_fault_contracts;
 
+#[path = "postgres/invitations.rs"]
+mod invitation_contracts;
+
+#[path = "postgres/invitations_faults.rs"]
+mod invitation_fault_contracts;
+
 #[cfg(feature = "aws")]
 #[path = "postgres/aws.rs"]
 mod aws_contract_database;

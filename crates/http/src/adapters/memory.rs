@@ -3014,6 +3014,10 @@ impl InvitationStore for MemoryInvitationStore {
             .get(&(tenant.to_string(), snapshot.user_id.clone()))
             .copied()
             .unwrap_or(0);
+        let expires_at = request
+            .now
+            .checked_add(crate::login::SESSION_TTL_SECS)
+            .ok_or_else(|| StoreError::Permanent("Invited session lifetime exhausted".into()))?;
         let session = SessionRecord {
             session_id: request.session_id.clone(),
             user_id: snapshot.user_id.clone(),
@@ -3022,7 +3026,7 @@ impl InvitationStore for MemoryInvitationStore {
             created_at: request.now,
             last_used_at: request.now,
             device: request.device,
-            expires_at: request.now + crate::login::SESSION_TTL_SECS,
+            expires_at,
             acr: None,
             amr: vec!["invite".to_string()],
         };

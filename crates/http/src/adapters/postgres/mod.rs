@@ -37,7 +37,7 @@ mod workload_trust;
 pub use codes::ExchangeFailureRequest;
 pub use grace::PostgresGraceStore;
 pub use refresh::RefreshRotationRequest;
-pub use users::{PostgresUsersStore, UserAuthorityKey};
+pub use users::{PostgresInvitationStore, PostgresUsersStore, UserAuthorityKey};
 
 static MIGRATIONS: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 

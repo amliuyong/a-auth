@@ -154,18 +154,26 @@ async fn set_generation(
     Ok(())
 }
 
+pub(super) async fn create_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    tenant: &str,
+    record: SessionRecord,
+) -> Result<(), StoreError> {
+    let generation = lock_generation(transaction, tenant, &record.user_id).await?;
+    write(
+        transaction,
+        tenant,
+        &StoredSession { record, generation },
+        true,
+    )
+    .await
+}
+
 impl SessionStore for PostgresStore {
     async fn create(&self, tenant: &str, record: SessionRecord) -> Result<(), StoreError> {
         let mut transaction = self.pool.begin().await.map_err(db_error)?;
         PostgresUsersStore::lock_directory(&mut transaction, tenant).await?;
-        let generation = lock_generation(&mut transaction, tenant, &record.user_id).await?;
-        write(
-            &mut transaction,
-            tenant,
-            &StoredSession { record, generation },
-            true,
-        )
-        .await?;
+        create_in_transaction(&mut transaction, tenant, record).await?;
         transaction.commit().await.map_err(db_error)
     }
 

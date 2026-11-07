@@ -88,16 +88,18 @@ The `postgres` feature currently provides `PostgresStore` implementations for
 `AttributeNamespaceStore`, `PasswordStore`, `SecurityEventStore`, and
 `FederationAttributeMappingsStore`, `ScimGroupsStore`, `SessionStore`, and
 `RecoveryStore` and `PasskeyStore`.
+`PostgresInvitationStore` implements `InvitationStore` using the same pool and
+configured user authority as `PostgresUsersStore`.
 `PostgresUsersStore` implements all twenty-five `UsersStore` methods with a
 required external HMAC authority key.
 `PostgresGraceStore` implements
 `GraceStore` with an explicit external encryption key ring or a delete-only
-capability. Thirty-one embedded forward
+capability. Thirty-two embedded forward
 migrations create their authority tables and credential-free client reclaim
 audit metadata.
 
-The current shared suite passes 125 cases: thirty contracts run through each of
-the memory, AWS, and PostgreSQL adapters, plus thirty-two PostgreSQL-specific
+The current shared suite contains 132 cases: thirty-one contracts run through each of
+the memory, AWS, and PostgreSQL adapters, plus thirty-six PostgreSQL-specific
 transaction/durability cases and three AWS recovery interleaving/compatibility
 cases. AWS adapters run against a loopback DynamoDB
 emulator; PostgreSQL adapters run against PostgreSQL 16. This does not establish
@@ -274,6 +276,21 @@ Assertion verification and all three stores now use one existing WebAuthn rule:
 positive counters must advance; counterless zero-to-zero transitions remain
 permitted. User/epoch/session-authorized registration and authentication
 transactions and production dispatch remain pending.
+Invitation issuance checks active local user identity, credential epoch and
+password absence under the tenant directory fence. Password creation and
+missing-password reset participate in that fence, following two reproduced
+PostgreSQL races. Acceptance rechecks the complete invitation and user/password
+authority, then creates the login session and consumes the verifier in one
+transaction. Sixteen competing accepts create one `amr=["invite"]` session.
+Resending invalidates the old verifier; wrong activation, tenant, expiry,
+password or moved user authority cannot create a session.
+An actual failed invitation deletion rolls back the session and its generation.
+Failed resends and corrupt complete records preserve the previous authority;
+private codecs require every field and match physical identity/epoch/expiry.
+NUL locator and activation IDs and full `i64` timestamps round-trip.
+Shared contracts reproduced memory and AWS session lifetime overflow; both now
+return an error without consuming the invitation. Production invitation dispatch
+and the remaining credential lifecycle transactions remain pending.
 Cross-table tests check that code/family creation updates the client authority
 revision atomically, that failed conditions roll back the new row, and that
 duplicate creation cannot resurrect consumed codes or revoked families.

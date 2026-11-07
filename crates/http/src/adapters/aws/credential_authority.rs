@@ -5105,6 +5105,10 @@ impl InvitationStore for DynamoInvitationStore {
             });
         }
 
+        let expires_at = request
+            .now
+            .checked_add(crate::login::SESSION_TTL_SECS)
+            .ok_or_else(|| StoreError::Permanent("Invited session lifetime exhausted".into()))?;
         for _ in 0..3 {
             let generation = self
                 .sessions
@@ -5118,7 +5122,7 @@ impl InvitationStore for DynamoInvitationStore {
                 created_at: request.now,
                 last_used_at: request.now,
                 device: request.device.clone(),
-                expires_at: request.now + crate::login::SESSION_TTL_SECS,
+                expires_at,
                 acr: None,
                 amr: vec!["invite".to_string()],
             };

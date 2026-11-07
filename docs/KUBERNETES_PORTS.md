@@ -12,7 +12,7 @@ must not become production fallback authority.
 
 ## Implemented PostgreSQL authority
 
-These thirty traits have PostgreSQL adapters. Shared contracts exercise the
+These thirty-one traits have PostgreSQL adapters. Shared contracts exercise the
 memory, actual AWS adapters against a loopback emulator, and PostgreSQL
 implementations. The delivery ledger records the candidate validation results.
 The AWS grace contract additionally uses a loopback KMS response fixture;
@@ -50,6 +50,7 @@ it does not establish native KMS acceptance.
 | `SessionStore` | Captured user generation, session ID collision rejection, actor-fenced revocation and atomic retained-session generation changes |
 | `RecoveryStore` | Locked one-time code consumption, bounded failures and lockout, complete private success receipts and atomic tenant cleanup |
 | `PasskeyStore` | Create-once credential IDs, owner-fenced rename/deletion, monotonic counter CAS and atomic user/tenant cleanup |
+| `InvitationStore` | Verifier-only issue bound to active local user/password absence, atomic consume/session creation and scoped invalidation |
 
 Cross-port work remains necessary even when individual traits are implemented.
 Raw port CRUD must not replace an authorized transaction involving user,
@@ -57,7 +58,7 @@ credential, session, client, grant, or attribute authority.
 
 ## Remaining persistent authority
 
-The first four traits below are in `ports.rs`; the last three are in their
+The first three traits below are in `ports.rs`; the last three are in their
 linked modules. Optional protocol surfaces need either a complete production
 implementation or an explicit disabled capability with its existing
 fail-closed behavior. They must never silently select memory stores.
@@ -65,7 +66,6 @@ fail-closed behavior. They must never silently select memory stores.
 | Trait | Required durable behavior |
 | --- | --- |
 | `GovernanceStore` | Legal holds, job ownership/checkpoints, suppression and retention evidence |
-| `InvitationStore` | Verifier-only persistence, idempotent issue and atomic onboarding/session commit |
 | `MessageOutbox` | Notification observation/delivery state, subject erasure and secret protection where retained |
 | `CibaStore` | Claim/consume fencing, encrypted durable push response, callback state |
 | [`SsfStore`](../crates/http/src/ssf.rs) | Stream ownership/config generation, durable outbox and delivery receipts |
