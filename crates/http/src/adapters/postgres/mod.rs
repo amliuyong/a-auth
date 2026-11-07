@@ -8,6 +8,7 @@ use std::{sync::Arc, time::Duration};
 mod admin_auth;
 mod attribute_namespaces;
 mod authz_sessions;
+mod ciba;
 mod clients;
 mod codes;
 mod device;
@@ -36,6 +37,7 @@ mod sessions;
 mod users;
 mod workload_trust;
 
+pub use ciba::PostgresCibaStore;
 pub use codes::ExchangeFailureRequest;
 pub use governance::PostgresGovernanceStore;
 pub use grace::PostgresGraceStore;

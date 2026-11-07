@@ -3369,7 +3369,9 @@ impl crate::ports::CibaStore for MemoryCibaStore {
         let key = (tenant.to_string(), user_id.to_string());
         match map.get(&key) {
             // 窗内(上次 + window > now)→ 拒,不覆盖(窗口不因被拒请求延长)。
-            Some(&last) if last + window_secs > now => Ok(false),
+            Some(&last) if i128::from(last) + i128::from(window_secs) > i128::from(now) => {
+                Ok(false)
+            }
             // 无记录或窗外 → 占用,写 now,放行。
             _ => {
                 map.insert(key, now);

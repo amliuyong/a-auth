@@ -94,16 +94,18 @@ configured user authority as `PostgresUsersStore`.
 external encryption keys or a delete-only capability.
 `PostgresGovernanceStore` implements all thirty-one `GovernanceStore` methods
 using tenant-locked durable control snapshots and permanent suppression rows.
+`PostgresCibaStore` implements all ten `CibaStore` methods with complete encrypted
+request/callback snapshots and a delete-only capability.
 `PostgresUsersStore` implements all twenty-five `UsersStore` methods with a
 required external HMAC authority key.
 `PostgresGraceStore` implements
 `GraceStore` with an explicit external encryption key ring or a delete-only
-capability. Thirty-four embedded forward
+capability. Thirty-five embedded forward
 migrations create their authority tables and credential-free client reclaim
 audit metadata.
 
-The current shared suite contains 148 cases: thirty-three contracts run through each of
-the memory, AWS, and PostgreSQL adapters, plus forty-six PostgreSQL-specific
+The current shared suite contains 155 cases: thirty-four contracts run through each of
+the memory, AWS, and PostgreSQL adapters, plus fifty PostgreSQL-specific
 transaction/durability cases and three AWS recovery interleaving/compatibility
 cases. AWS adapters run against a loopback DynamoDB
 emulator; PostgreSQL adapters run against PostgreSQL 16. This does not establish
@@ -343,6 +345,33 @@ match its reference, following a reproduced memory/AWS contract failure.
 The control snapshot rewrites tenant state on mutation; this does not establish
 performance acceptance. Governance-authorized data-plane transactions, production
 dispatch, durable queues and native worker acceptance remain required.
+CIBA request snapshots use per-record encryption, including the per-request
+notification credential, binding message, delivery destination and captured
+password version. Authentication binds the CIBA purpose, tenant, request,
+client, user, expiry and physical polling/decision/consumption metadata.
+Private codecs require all seventeen fields, reject unknown or duplicate fields
+and compare authenticated physical metadata. Modified envelopes, independently
+authenticated incomplete/rebound payloads and moved outbox ciphertext fail
+without overwrite. Key overlap permits old and new records; retired or wrong
+keys fail closed. A delete-only capability cannot read, arm a throttle, issue
+or mutate a request, but can erase ciphertext without decryption keys.
+Tenant directory transactions serialize field CAS and request/throttle cleanup.
+Sixteen pollers and concurrent sets of sixteen decisions and sixteen consumers
+each have one winner while preserving unrelated fields.
+Rejected mutations retain the original envelope; an actual second-delete
+failure rolls back both request and throttle cleanup.
+Separate pools preserve NUL-bearing identifiers and full timestamp/version
+domains. Throttle admission uses wider arithmetic so boundary timestamps cannot
+panic or change its inclusive expiry rule.
+Shared tests reproduced memory window overflow, AWS TTL overflow and concurrent
+AWS subject cleanup reporting sixteen requests as 256 removals.
+Memory and AWS now use wider comparison arithmetic; AWS clamps only its
+garbage-collection deadline. Subject cleanup counts successful conditional
+deletions, rechecks the subject and separates the empty profile from named
+tenant keys. This helper also serves device, recovery and authorization-session
+cleanup. Encrypted issued push responses, durable callback dispatch/receipts,
+production state, authorized credential/session transactions and native CIBA
+worker acceptance remain required.
 Cross-table tests check that code/family creation updates the client authority
 revision atomically, that failed conditions roll back the new row, and that
 duplicate creation cannot resurrect consumed codes or revoked families.

@@ -3458,12 +3458,12 @@ pub struct DeviceAuthGrant {
     pub password_credential_version: Option<u64>,
 }
 
-/// CIBA 授权请求存储端口(spec 013)。真机 = DynamoDB;本地 = 内存。
+/// CIBA 授权请求存储端口(spec 013)。生产 = DynamoDB 或 PostgreSQL;本地 = 内存。
 ///
 /// 并发/一次性语义与 [`DeviceStore`] 同源(evaluated 教训:device flow 评审 F1/F2 揭示"整对象读-改-写"
 /// 会重开已消费码/踩并发批准)。故轮询/批准/消费一律走**字段级/条件 CAS**,`update` 只用于非并发路径。
 ///
-/// **tenant 分区(spec 020 §2.3)**:全 8 方法首参 `tenant`(物理键 `tpk(tenant, auth_req_id)` +
+/// **tenant 分区(spec 020 §2.3)**:全 10 方法首参 `tenant`(AWS 物理键 `tpk(tenant, auth_req_id)` +
 /// throttle 键 tenant-scope)——否则 SaaS 下 CIBA 请求可被他租户审批/签发(跨租户隔离漏洞)。
 /// 空 tenant(flag 关)→ tpk 透传 = 分区前字节等价。照 DeviceStore 同一范式。
 pub trait CibaStore: Send + Sync {

@@ -39,13 +39,42 @@ pub(super) async fn governance_delete_by_subject(
                     "{table} governance inventory row is missing {key_name}"
                 ))
             })?;
-            db.delete_item()
+            let physical = key.as_s().map_err(|_| {
+                StoreError::Permanent(format!("{table} governance key {key_name} is not a string"))
+            })?;
+            // The unpartitioned profile must not select a named tenant with
+            // the same subject. Recheck ownership in the deletion too.
+            if tenant.is_empty() && physical.contains(crate::tenant::SEP) {
+                continue;
+            }
+            let result = match db
+                .delete_item()
                 .table_name(table)
                 .key(key_name, key)
+                .condition_expression("attribute_exists(#key) AND #subject = :subject")
+                .expression_attribute_names("#key", key_name)
+                .expression_attribute_names("#subject", subject_name)
+                .expression_attribute_values(
+                    ":subject",
+                    AttributeValue::S(subject_value.to_string()),
+                )
+                .return_values(aws_sdk_dynamodb::types::ReturnValue::AllOld)
                 .send()
                 .await
-                .map_err(ddb_err)?;
-            deleted += 1;
+            {
+                Ok(result) => result,
+                Err(error)
+                    if error
+                        .code()
+                        .is_some_and(|code| code.contains("ConditionalCheckFailed")) =>
+                {
+                    continue
+                }
+                Err(error) => return Err(ddb_err(error)),
+            };
+            if result.attributes().is_some_and(|old| !old.is_empty()) {
+                deleted += 1;
+            }
         }
         match output.last_evaluated_key() {
             Some(key) if !key.is_empty() => start_key = Some(key.clone()),

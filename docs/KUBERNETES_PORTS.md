@@ -12,7 +12,7 @@ must not become production fallback authority.
 
 ## Implemented PostgreSQL authority
 
-These thirty-three traits have PostgreSQL adapters. Shared contracts exercise the
+These thirty-four traits have PostgreSQL adapters. Shared contracts exercise the
 memory, actual AWS adapters against a loopback emulator, and PostgreSQL
 implementations. The delivery ledger records the candidate validation results.
 The AWS grace contract additionally uses a loopback KMS response fixture;
@@ -53,6 +53,7 @@ it does not establish native KMS acceptance.
 | `InvitationStore` | Verifier-only issue bound to active local user/password absence, atomic consume/session creation and scoped invalidation |
 | `MessageOutbox` | Encrypted immutable delivery observations, deterministic tenant/time selection, recipient erasure and keyless tenant cleanup |
 | `GovernanceStore` | Tenant-locked legal holds, job/lease/continuation CAS, permanent suppression, immutable evidence and atomic task completion |
+| `CibaStore` | Complete encrypted callback/request snapshots, field-level polling/decision/consumption CAS, bounded-arithmetic throttle and atomic request/throttle cleanup |
 
 Cross-port work remains necessary even when individual traits are implemented.
 Raw port CRUD must not replace an authorized transaction involving user,
@@ -60,14 +61,13 @@ credential, session, client, grant, or attribute authority.
 
 ## Remaining persistent authority
 
-The first trait below is in `ports.rs`; the last three are in their
-linked modules. Optional protocol surfaces need either a complete production
+These traits are in their linked modules. Optional protocol surfaces need either
+a complete production
 implementation or an explicit disabled capability with its existing
 fail-closed behavior. They must never silently select memory stores.
 
 | Trait | Required durable behavior |
 | --- | --- |
-| `CibaStore` | Claim/consume fencing, encrypted durable push response, callback state |
 | [`SsfStore`](../crates/http/src/ssf.rs) | Stream ownership/config generation, durable outbox and delivery receipts |
 | [`PaymentRegistry`](../crates/http/src/payment/registry.rs) | Trusted owner/version-bound funding and payee records when payments are enabled |
 | [`PaymentStore`](../crates/http/src/payment/store.rs) | Order uniqueness, status/revision CAS and durable unsettled attempts when payments are enabled |

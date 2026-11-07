@@ -120,6 +120,12 @@ mod governance_contracts;
 #[path = "postgres/governance_faults.rs"]
 mod governance_fault_contracts;
 
+#[path = "postgres/ciba.rs"]
+mod ciba_contracts;
+
+#[path = "postgres/ciba_faults.rs"]
+mod ciba_fault_contracts;
+
 #[cfg(feature = "aws")]
 #[path = "postgres/aws.rs"]
 mod aws_contract_database;

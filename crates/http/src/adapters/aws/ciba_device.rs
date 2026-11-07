@@ -370,7 +370,7 @@ impl crate::ports::CibaStore for DynamoCibaStore {
         // pk 亦 tpk 化(spec 020 §2.3:防跨租户冷却串扰)。
         // 条件写 CAS:仅当**无记录 或 上次受理 ≤ now-window(窗外)**才 SET last_authorize_at=now,
         // 成功=占用(true,放行);ConditionalCheckFailed=窗内(false,拒)。expires_at=TTL GC 兜底。
-        let threshold = now - window_secs;
+        let threshold = i128::from(now) - i128::from(window_secs);
         let res = self
             .db
             .update_item()
@@ -384,7 +384,10 @@ impl crate::ports::CibaStore for DynamoCibaStore {
                 "attribute_not_exists(last_authorize_at) OR last_authorize_at <= :threshold",
             )
             .expression_attribute_values(":now", AttributeValue::N(now.to_string()))
-            .expression_attribute_values(":ttl", AttributeValue::N((now + 3600).to_string()))
+            .expression_attribute_values(
+                ":ttl",
+                AttributeValue::N(now.saturating_add(3600).to_string()),
+            )
             .expression_attribute_values(":threshold", AttributeValue::N(threshold.to_string()))
             .send()
             .await;
