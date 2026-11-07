@@ -1614,6 +1614,21 @@ impl PasskeyStoreImpl {
         now: i64,
     ) -> Result<crate::ports::PasskeyRegistrationOutcome, StoreError> {
         match (self, users, sessions) {
+            #[cfg(feature = "postgres")]
+            (
+                PasskeyStoreImpl::Postgres(passkeys),
+                UsersStoreImpl::Postgres(users),
+                SessionStoreImpl::Postgres(sessions),
+            ) => {
+                if !users.belongs_to(passkeys) || !passkeys.shares_pool_with(sessions) {
+                    return Err(StoreError::Permanent(
+                        "passkey, user and session stores are not co-located".into(),
+                    ));
+                }
+                users
+                    .put_passkey_authorized(tenant, session, credential, now)
+                    .await
+            }
             (
                 PasskeyStoreImpl::Memory(passkeys),
                 UsersStoreImpl::Memory(users),
@@ -1650,6 +1665,17 @@ impl PasskeyStoreImpl {
         updated_at: i64,
     ) -> Result<bool, StoreError> {
         match (self, users) {
+            #[cfg(feature = "postgres")]
+            (PasskeyStoreImpl::Postgres(passkeys), UsersStoreImpl::Postgres(users)) => {
+                if !users.belongs_to(passkeys) {
+                    return Err(StoreError::Permanent(
+                        "passkey and user stores are not co-located".into(),
+                    ));
+                }
+                users
+                    .delete_passkey_and_complete(tenant, user_id, credential_id, owner, updated_at)
+                    .await
+            }
             (PasskeyStoreImpl::Memory(passkeys), UsersStoreImpl::Memory(users)) => {
                 passkeys
                     .delete_owned_and_complete(
@@ -3184,6 +3210,17 @@ impl RecoveryStoreImpl {
         updated_at: i64,
     ) -> Result<bool, StoreError> {
         match (self, users) {
+            #[cfg(feature = "postgres")]
+            (RecoveryStoreImpl::Postgres(recovery), UsersStoreImpl::Postgres(users)) => {
+                if !users.belongs_to(recovery) {
+                    return Err(StoreError::Permanent(
+                        "recovery and user stores are not co-located".into(),
+                    ));
+                }
+                users
+                    .commit_recovery_rotation(tenant, record, expected_email, owner, updated_at)
+                    .await
+            }
             (RecoveryStoreImpl::Memory(recovery), UsersStoreImpl::Memory(users)) => {
                 recovery
                     .commit_rotation(users, tenant, record, expected_email, owner, updated_at)
@@ -3212,6 +3249,25 @@ impl RecoveryStoreImpl {
         result: RecoverySuccessResult,
     ) -> Result<RecoveryAuthorityConsume, StoreError> {
         match (self, users, passwords, sessions) {
+            #[cfg(feature = "postgres")]
+            (
+                RecoveryStoreImpl::Postgres(recovery),
+                UsersStoreImpl::Postgres(users),
+                PasswordStoreImpl::Postgres(passwords),
+                SessionStoreImpl::Postgres(sessions),
+            ) => {
+                if !users.belongs_to(recovery)
+                    || !recovery.shares_pool_with(passwords)
+                    || !recovery.shares_pool_with(sessions)
+                {
+                    return Err(StoreError::Permanent(
+                        "recovery, user, password and session stores are not co-located".into(),
+                    ));
+                }
+                users
+                    .consume_recovery_at_epoch(request, session, result)
+                    .await
+            }
             (
                 RecoveryStoreImpl::Memory(recovery),
                 UsersStoreImpl::Memory(users),

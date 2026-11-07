@@ -49,8 +49,8 @@ it does not establish native KMS acceptance.
 | `UsersStore` | Tenant-fenced canonical/SCIM alias admission, operation-owned credential epochs, namespace-fenced attribute CAS, mapping-fenced reconciliation/owner purge, irreversible erasure fence and authenticated pagination |
 | `ScimGroupsStore` | Tenant-fenced unique active aliases, irreversible group IDs, explicit role mappings and atomic membership batches |
 | `SessionStore` | Captured user generation, session ID collision rejection, actor-fenced revocation and atomic retained-session generation changes |
-| `RecoveryStore` | Locked one-time code consumption, bounded failures and lockout, complete private success receipts and atomic tenant cleanup |
-| `PasskeyStore` | Create-once credential IDs, owner-fenced rename/deletion, monotonic counter CAS and atomic user/tenant cleanup |
+| `RecoveryStore` | Operation-owned rotation, atomic code/user/session generation/receipt consumption, current-authority replay, bounded failures/lockout and atomic tenant cleanup |
+| `PasskeyStore` | User/session generation-authorized registration, operation-owned deletion/completion, create-once credential IDs, monotonic counter CAS and atomic user/tenant cleanup |
 | `InvitationStore` | Verifier-only issue bound to active local user/password absence, atomic consume/session creation and scoped invalidation |
 | `MessageOutbox` | Encrypted immutable delivery observations, deterministic tenant/time selection, recipient erasure and keyless tenant cleanup |
 | `GovernanceStore` | Tenant-locked legal holds, job/lease/continuation CAS, permanent suppression, immutable evidence and atomic task completion |

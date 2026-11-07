@@ -60,7 +60,7 @@ fn decode(row: PgRow) -> Result<PasskeyCredential, StoreError> {
     })
 }
 
-async fn get_locked(
+pub(super) async fn get_locked(
     transaction: &mut Transaction<'_, Postgres>,
     tenant: &str,
     id: &str,
@@ -97,6 +97,29 @@ async fn update(
     Ok(())
 }
 
+pub(super) async fn insert(
+    transaction: &mut Transaction<'_, Postgres>,
+    tenant: &str,
+    credential: &PasskeyCredential,
+) -> Result<bool, StoreError> {
+    let result = sqlx::query(
+        "INSERT INTO a_auth.passkey_credentials \
+         (tenant, credential_id, user_id, sign_count, created_at, record) \
+         VALUES ($1, $2, $3, $4, $5, $6) \
+         ON CONFLICT (tenant, credential_id) DO NOTHING",
+    )
+    .bind(tenant.as_bytes())
+    .bind(credential.credential_id.as_bytes())
+    .bind(credential.user_id.as_bytes())
+    .bind(i64::from(credential.sign_count))
+    .bind(credential.created_at)
+    .bind(encode(credential)?)
+    .execute(&mut **transaction)
+    .await
+    .map_err(db_error)?;
+    Ok(result.rows_affected() == 1)
+}
+
 impl PasskeyStore for PostgresStore {
     async fn put_new(
         &self,
@@ -111,22 +134,9 @@ impl PasskeyStore for PostgresStore {
         {
             return Ok(false);
         }
-        sqlx::query(
-            "INSERT INTO a_auth.passkey_credentials \
-             (tenant, credential_id, user_id, sign_count, created_at, record) \
-             VALUES ($1, $2, $3, $4, $5, $6)",
-        )
-        .bind(tenant.as_bytes())
-        .bind(credential.credential_id.as_bytes())
-        .bind(credential.user_id.as_bytes())
-        .bind(i64::from(credential.sign_count))
-        .bind(credential.created_at)
-        .bind(encode(&credential)?)
-        .execute(&mut *transaction)
-        .await
-        .map_err(db_error)?;
+        let inserted = insert(&mut transaction, tenant, &credential).await?;
         transaction.commit().await.map_err(db_error)?;
-        Ok(true)
+        Ok(inserted)
     }
 
     async fn get(

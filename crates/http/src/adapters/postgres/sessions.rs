@@ -7,10 +7,10 @@ mod record;
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct StoredSession {
+pub(super) struct StoredSession {
     #[serde(with = "record")]
-    record: SessionRecord,
-    generation: u64,
+    pub(super) record: SessionRecord,
+    pub(super) generation: u64,
 }
 
 const COLUMNS: &str = "s.session_id, s.user_id, s.credential_epoch::TEXT AS credential_epoch, \
@@ -41,7 +41,7 @@ fn decode(row: PgRow) -> Result<StoredSession, StoreError> {
     Ok(stored)
 }
 
-async fn lock_generation(
+pub(super) async fn lock_generation(
     transaction: &mut Transaction<'_, Postgres>,
     tenant: &str,
     user: &str,
@@ -67,7 +67,7 @@ async fn lock_generation(
     value.parse().map_err(|_| invalid())
 }
 
-async fn get_locked(
+pub(super) async fn get_locked(
     transaction: &mut Transaction<'_, Postgres>,
     tenant: &str,
     id: &str,
@@ -124,13 +124,13 @@ async fn write(
     Ok(())
 }
 
-fn next_generation(current: u64) -> Result<u64, StoreError> {
+pub(super) fn next_generation(current: u64) -> Result<u64, StoreError> {
     current
         .checked_add(1)
         .ok_or_else(|| StoreError::Permanent("Login session generation exhausted".into()))
 }
 
-async fn set_generation(
+pub(super) async fn set_generation(
     transaction: &mut Transaction<'_, Postgres>,
     tenant: &str,
     user: &str,

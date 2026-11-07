@@ -21,7 +21,7 @@ struct StoredRecord {
     locked_until: i64,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StoredResult {
     operation_key: String,
@@ -117,4 +117,21 @@ pub(super) fn decode_result(row: PgRow) -> Result<RecoverySuccessResult, StoreEr
         created_at: stored.created_at,
         expires_at: stored.expires_at,
     })
+}
+
+pub(super) fn encode_result(result: &RecoverySuccessResult) -> Result<String, StoreError> {
+    if result.expires_at <= result.created_at {
+        return Err(invalid());
+    }
+    serde_json::to_string(&StoredResult {
+        operation_key: result.operation_key.clone(),
+        user_lookup: result.user_lookup.clone(),
+        user_id: result.user_id.clone(),
+        presented_hash: result.presented_hash.clone(),
+        credential_epoch: result.credential_epoch,
+        session_id: result.session_id.clone(),
+        created_at: result.created_at,
+        expires_at: result.expires_at,
+    })
+    .map_err(|_| StoreError::Permanent("Recovery result encoding failed".into()))
 }

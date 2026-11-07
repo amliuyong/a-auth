@@ -120,8 +120,9 @@ needs an explicit PostgreSQL constructor. Failed code exchange and encrypted
 refresh finalization select their existing atomic helpers and reject stores
 from different pool identities. User-authorized code issuance, active-client
 Grant admission, password enrollment/rotation and operation-owned administrator
-password reset now use PostgreSQL transactions as well. Other authorized
-transactions remain pending.
+password reset now use PostgreSQL transactions as well. Recovery rotation,
+consumption/receipt creation and passkey registration/deletion are wired too.
+Governance-authorized data-plane operations remain pending.
 
 Client authority reads and locked writes require the complete stored typed
 record, including nullable retirement fields, and its physical client ID.
@@ -142,6 +143,25 @@ retained revocation fences and same-operation reset recovery. These mixed
 development fixtures do not establish production AppState or deployment
 acceptance.
 
+Recovery rotation requires the exact user fence and contact email. Consumption
+commits the code, user epoch, session generation, recovered session and complete
+success receipt together. Same-operation retry rechecks current user, password
+and session authority and returns the committed session. Expiry and freshness
+decisions use the clock after waiting for locks. Sixteen same-operation HTTP
+requests through two separate pools create one session/receipt. An actual
+receipt-write rejection rolls back the code, user and session generation;
+after repair, retry succeeds and blocked-user replay returns no cookie.
+
+Passkey registration rechecks active user/epoch and the stored session's current
+generation, expiry and recent authentication under directory/user/session locks.
+Sixteen separate ceremonies through two pools persist their validated public
+credentials. Deterministic held-row tests change user status or session
+generation after HTTP preflight and prove the waiting transaction refuses
+registration. Operation-owned deletion commits key removal and user-fence
+completion together; an actual second-write rejection retains both the key and
+revocation fence. These ceremonies use a test `fmt=none` authenticator and do
+not establish hardware-authenticator or installed conformance acceptance.
+
 Federated attribute reconciliation locks namespace, mapping and user authority
 in that order. Owner purge locks the mapping registry before the user and
 preserves the complete private user record. Configuration and mapping changes
@@ -151,8 +171,8 @@ IdP against the physical row identity. Authorized administrator attribute
 writes also lock namespace authority before the user, recheck the captured
 authority and retain the raw attribute CAS and federation ownership rules.
 
-The current shared suite contains 173 cases: thirty-five contracts run through each of
-the memory, AWS, and PostgreSQL adapters, plus sixty-five PostgreSQL-specific
+The current shared suite contains 177 cases: thirty-five contracts run through each of
+the memory, AWS, and PostgreSQL adapters, plus sixty-nine PostgreSQL-specific
 transaction/durability cases and three AWS recovery interleaving/compatibility
 cases. AWS adapters run against a loopback DynamoDB
 emulator; PostgreSQL adapters run against PostgreSQL 16. This does not establish
@@ -296,9 +316,9 @@ captures that mixed snapshot. Alias classification now reads both rows in one
 DynamoDB transaction with bounded retry for transaction contention. Primary and
 standby HTTP runtime policies grant transaction reads on the exact user table;
 the configuration tests inspect each role's inline and managed policies.
-Password enrollment/rotation and administrator reset are wired as described
-above. Other authorized recovery/session/passkey transactions and production
-startup remain pending.
+Password enrollment/rotation, administrator reset, recovery consumption/rotation
+and passkey registration/deletion are wired as described above. Production
+startup, governance data authorization and installed acceptance remain pending.
 Recovery code consumption locks the tenant directory and complete code set
 within one transaction. It preserves the existing constant-time verifier,
 failed-attempt limit, lockout boundary and regeneration behavior. Only HMAC
@@ -307,8 +327,9 @@ field and compare physical lookup, user, activation and receipt metadata;
 NUL identities, `u32` attempt counts and `u64` credential epochs round-trip.
 Actual rejected admission/consumption writes preserve the previous authority.
 A failed second deletion rolls back both code-set and receipt cleanup.
-The raw port reads complete success receipts; creating those receipts in the
-authorized credential/session transaction and production dispatch remain pending.
+The authorized credential/session transaction now creates those complete
+success receipts. Production startup and installed recovery acceptance remain
+pending.
 Shared tests reproduced memory tenant cleanup leaving successful-operation
 receipts behind; cleanup now removes both maps in the existing lock order.
 Real loopback DynamoDB interleavings reproduced stale consumption adopting a
@@ -329,8 +350,9 @@ NUL-bearing records and full `u32` counter/`i64` registration limits round-trip.
 Shared contracts reproduced memory and AWS accepting a counter decrease.
 Assertion verification and all three stores now use one existing WebAuthn rule:
 positive counters must advance; counterless zero-to-zero transitions remain
-permitted. User/epoch/session-authorized registration and authentication
-transactions and production dispatch remain pending.
+permitted. User/epoch/session-authorized registration and operation-owned
+deletion are wired above. Production startup and installed authentication
+acceptance remain pending.
 Invitation issuance checks active local user identity, credential epoch and
 password absence under the tenant directory fence. Password creation and
 missing-password reset participate in that fence, following two reproduced
@@ -344,8 +366,8 @@ Failed resends and corrupt complete records preserve the previous authority;
 private codecs require every field and match physical identity/epoch/expiry.
 NUL locator and activation IDs and full `i64` timestamps round-trip.
 Shared contracts reproduced memory and AWS session lifetime overflow; both now
-return an error without consuming the invitation. Production invitation dispatch
-and the remaining credential lifecycle transactions remain pending.
+return an error without consuming the invitation. Production invitation startup
+and full installed credential lifecycle acceptance remain pending.
 Delivery observations retain their immutable message identity and encrypted
 complete payload. Per-record AES-256-GCM envelopes bind the outbox purpose,
 tenant, message, kind, recipient and timestamps to external encryption authority.

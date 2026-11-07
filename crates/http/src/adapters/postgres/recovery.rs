@@ -7,7 +7,7 @@ use sqlx::{Postgres, Transaction};
 
 mod record;
 
-async fn get_locked(
+pub(super) async fn get_locked(
     transaction: &mut Transaction<'_, Postgres>,
     tenant: &str,
     lookup: &str,
@@ -25,7 +25,7 @@ async fn get_locked(
     .transpose()
 }
 
-async fn write(
+pub(super) async fn write(
     transaction: &mut Transaction<'_, Postgres>,
     tenant: &str,
     record: &RecoveryRecord,
@@ -44,6 +44,57 @@ async fn write(
     .execute(&mut **transaction)
     .await
     .map_err(db_error)?;
+    Ok(())
+}
+
+pub(super) async fn get_result_locked(
+    transaction: &mut Transaction<'_, Postgres>,
+    tenant: &str,
+    operation_key: &str,
+) -> Result<Option<RecoverySuccessResult>, StoreError> {
+    sqlx::query(
+        "SELECT operation_key, user_lookup, user_id, credential_epoch::TEXT AS credential_epoch, \
+         session_id, created_at, expires_at, record FROM a_auth.recovery_success_results \
+         WHERE tenant = $1 AND operation_key = $2 FOR UPDATE",
+    )
+    .bind(tenant.as_bytes())
+    .bind(operation_key.as_bytes())
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(db_error)?
+    .map(record::decode_result)
+    .transpose()
+}
+
+pub(super) async fn write_result(
+    transaction: &mut Transaction<'_, Postgres>,
+    tenant: &str,
+    result: &RecoverySuccessResult,
+) -> Result<(), StoreError> {
+    let inserted = sqlx::query(
+        "INSERT INTO a_auth.recovery_success_results \
+         (tenant, operation_key, user_lookup, user_id, credential_epoch, session_id, \
+          created_at, expires_at, record) \
+         VALUES ($1, $2, $3, $4, $5::TEXT::NUMERIC, $6, $7, $8, $9) \
+         ON CONFLICT (tenant, operation_key) DO NOTHING",
+    )
+    .bind(tenant.as_bytes())
+    .bind(result.operation_key.as_bytes())
+    .bind(result.user_lookup.as_bytes())
+    .bind(result.user_id.as_bytes())
+    .bind(result.credential_epoch.to_string())
+    .bind(result.session_id.as_bytes())
+    .bind(result.created_at)
+    .bind(result.expires_at)
+    .bind(record::encode_result(result)?)
+    .execute(&mut **transaction)
+    .await
+    .map_err(db_error)?;
+    if inserted.rows_affected() != 1 {
+        return Err(StoreError::Transient(
+            "Recovery operation already exists".into(),
+        ));
+    }
     Ok(())
 }
 
