@@ -588,7 +588,7 @@ impl DynamoUsersStore {
                     federation_owners: federation_owners.clone(),
                 },
             );
-            if crate::adapters::memory::attributes_serialized_len(&candidate)
+            if crate::user_attributes::attributes_serialized_len(&candidate)
                 > crate::ports::ATTRIBUTES_MAX_BYTES
             {
                 return Ok(Some(PutAttrOutcome::TooLarge));
@@ -1304,7 +1304,15 @@ impl DynamoUsersStore {
             .send()
             .await
             .map_err(ddb_err)?;
-        let Some(item) = output.item() else {
+        Self::scim_alias_identity(output.item(), kind, value)
+    }
+
+    fn scim_alias_identity(
+        item: Option<&HashMap<String, AttributeValue>>,
+        kind: &str,
+        value: &str,
+    ) -> Result<Option<String>, StoreError> {
+        let Some(item) = item else {
             return Ok(None);
         };
         if item
@@ -1336,13 +1344,65 @@ impl DynamoUsersStore {
         external_id: &str,
         user_name: &str,
     ) -> Result<(Option<String>, Option<String>), StoreError> {
-        let external = self
-            .lookup_scim_alias(tenant, SCIM_ALIAS_EXTERNAL, external_id)
-            .await?;
-        let user_name = self
-            .lookup_scim_alias(tenant, SCIM_ALIAS_USERNAME, user_name)
-            .await?;
-        Ok((external, user_name))
+        use aws_sdk_dynamodb::{
+            operation::transact_get_items::TransactGetItemsError,
+            types::{Get, TransactGetItem},
+        };
+
+        // An atomic alias admission can commit between separate strong reads.
+        // Read both identities from one transaction snapshot before classifying.
+        let mut request = self.db.transact_get_items();
+        for (kind, value) in [
+            (SCIM_ALIAS_EXTERNAL, external_id),
+            (SCIM_ALIAS_USERNAME, user_name),
+        ] {
+            let get = Get::builder()
+                .table_name(&self.table)
+                .key(
+                    "user_id",
+                    AttributeValue::S(Self::scim_alias_key(tenant, kind, value)),
+                )
+                .build()
+                .map_err(|_| StoreError::Permanent("Build SCIM alias snapshot failed".into()))?;
+            request = request.transact_items(TransactGetItem::builder().get(get).build());
+        }
+        for attempt in 0..TRANSACTION_RETRY_ATTEMPTS {
+            let error = match request.clone().send().await {
+                Ok(output) => {
+                    let rows = output.responses();
+                    if rows.len() != 2 {
+                        return Err(StoreError::Permanent(
+                            "SCIM alias snapshot is incomplete".into(),
+                        ));
+                    }
+                    return Ok((
+                        Self::scim_alias_identity(
+                            rows[0].item(),
+                            SCIM_ALIAS_EXTERNAL,
+                            external_id,
+                        )?,
+                        Self::scim_alias_identity(rows[1].item(), SCIM_ALIAS_USERNAME, user_name)?,
+                    ));
+                }
+                Err(error) => match error.as_service_error() {
+                    Some(TransactGetItemsError::TransactionCanceledException(canceled)) => {
+                        let action = classify_transaction_cancellation(canceled);
+                        transaction_cancellation_error(canceled, action)
+                    }
+                    _ => ddb_err(error),
+                },
+            };
+            if matches!(error, StoreError::Transient(_)) {
+                if let Some(delay) = transaction_retry_delay(attempt) {
+                    tokio::time::sleep(delay).await;
+                    continue;
+                }
+            }
+            return Err(error);
+        }
+        Err(StoreError::Transient(
+            "SCIM alias snapshot contention did not converge".into(),
+        ))
     }
 
     async fn lookup_by_email(
@@ -3356,7 +3416,7 @@ impl crate::ports::UsersStore for DynamoUsersStore {
                 }
                 MigrationDecision::Replace { attributes } => attributes,
             };
-            if crate::adapters::memory::attributes_serialized_len(&attributes)
+            if crate::user_attributes::attributes_serialized_len(&attributes)
                 > crate::ports::ATTRIBUTES_MAX_BYTES
             {
                 return Ok(AttributeMigrationOutcome::TooLarge);
@@ -4248,6 +4308,10 @@ impl DynamoUsersStore {
 #[cfg(test)]
 #[path = "credential_change_idempotency_tests.rs"]
 mod credential_change_idempotency_tests;
+
+#[cfg(test)]
+#[path = "scim_alias_snapshot_tests.rs"]
+mod scim_alias_snapshot_tests;
 
 #[cfg(test)]
 mod tests {

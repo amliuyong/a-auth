@@ -1067,6 +1067,51 @@ async fn legacy_refresh_family_without_password_version_fails_closed() {
 }
 
 #[tokio::test]
+async fn admin_reset_exhausted_version_preserves_credential_and_keeps_user_fenced() {
+    let state = AppState::dev(HOST);
+    let email = "exhausted-reset@example.com";
+    let user_id = "user:exhausted-reset@example.com";
+    state
+        .users
+        .create_or_get_by_email("", email, user_id, 100)
+        .await
+        .unwrap();
+    let original = PasswordCredential {
+        user_id: user_id.into(),
+        password_hash: agent_auth_authn::password::hash_password(INITIAL).unwrap(),
+        must_change: false,
+        revocation_pending: false,
+        credential_change_id: None,
+        version: u64::MAX,
+        updated_at: 100,
+    };
+    assert!(state
+        .passwords
+        .create_if_absent("", original.clone())
+        .await
+        .unwrap());
+    let (router, _) = build_router(state.clone());
+    let response = admin_reset(&router, user_id, RESET_TEMPORARY).await;
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let after = state.passwords.get("", user_id).await.unwrap().unwrap();
+    assert!(
+        after.password_hash == original.password_hash,
+        "a failed reset must retain the original password hash"
+    );
+    assert_eq!(after.must_change, original.must_change);
+    assert_eq!(after.revocation_pending, original.revocation_pending);
+    assert_eq!(after.credential_change_id, original.credential_change_id);
+    assert_eq!(after.version, original.version);
+    assert_eq!(after.updated_at, original.updated_at);
+    let user = state.users.get_by_id("", user_id).await.unwrap().unwrap();
+    assert_eq!(user.credential_epoch, 1);
+    assert!(
+        user.revocation_pending,
+        "failed credential staging must retain the user fence"
+    );
+}
+
+#[tokio::test]
 async fn admin_reset_rejects_legacy_markerless_pending_password() {
     let state = AppState::dev(HOST);
     let (router, _) = build_router(state.clone());

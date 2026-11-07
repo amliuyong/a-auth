@@ -1009,11 +1009,13 @@ fn validate_tenant(value: &str) -> Result<(), &'static str> {
 }
 
 pub trait SecurityEventStore: Send + Sync {
-    /// Insert an immutable event. Returns false when the event ID already exists.
+    /// Insert an immutable event. Exact duplicates return false; a conflicting
+    /// envelope for an existing ID fails permanently.
     fn put(&self, event: &SecurityEvent) -> impl Future<Output = Result<bool, StoreError>> + Send;
 
     /// Insert an immutable event with delivery attempts accumulated before the
-    /// hot ledger became available.
+    /// hot ledger became available. A duplicate extends source attempt/history
+    /// evidence atomically and returns false without changing the event.
     fn put_with_delivery(
         &self,
         event: &SecurityEvent,
@@ -1078,7 +1080,56 @@ pub enum SecurityEventFallbackOutcome {
 
 #[derive(Clone, Default)]
 pub struct MemorySecurityEventStore {
-    events: Arc<Mutex<BTreeMap<String, StoredSecurityEvent>>>,
+    state: Arc<Mutex<MemorySecurityEventState>>,
+}
+
+#[derive(Default)]
+struct MemorySecurityEventState {
+    events: BTreeMap<String, StoredSecurityEvent>,
+    source_delivery: BTreeMap<String, SecurityEventDelivery>,
+}
+
+/// Merge source-ingress evidence into the current archive/delivery state.
+/// Timestamps reconstructed during retries do not replace already accepted
+/// history. Only an extending status sequence may contribute a new suffix.
+pub(crate) fn reconcile_source_delivery(
+    current: &SecurityEventDelivery,
+    prior_source: &SecurityEventDelivery,
+    incoming: &SecurityEventDelivery,
+    now: i64,
+) -> Result<Option<SecurityEventDelivery>, StoreError> {
+    fn prefix(
+        left: &[SecurityEventDeliveryAttempt],
+        right: &[SecurityEventDeliveryAttempt],
+    ) -> bool {
+        left.len() <= right.len() && left.iter().zip(right).all(|(a, b)| a.status == b.status)
+    }
+    if incoming.attempts < prior_source.attempts
+        || (incoming.attempts == prior_source.attempts
+            && prefix(&incoming.history, &prior_source.history))
+    {
+        return Ok(None);
+    }
+    if !prefix(&prior_source.history, &incoming.history) {
+        return Err(StoreError::Permanent(
+            "security event duplicate has divergent delivery history".into(),
+        ));
+    }
+    let attempts = current
+        .attempts
+        .checked_add(incoming.attempts - prior_source.attempts)
+        .ok_or_else(|| StoreError::Permanent("Security event attempt counter exhausted".into()))?;
+    let mut next = current.clone();
+    next.attempts = attempts;
+    next.history
+        .extend_from_slice(&incoming.history[prior_source.history.len()..]);
+    if matches!(
+        current.status,
+        SecurityEventDeliveryStatus::Archived | SecurityEventDeliveryStatus::ArchiveRefreshPending
+    ) {
+        next.record(SecurityEventDeliveryStatus::ArchiveRefreshPending, now);
+    }
+    Ok(Some(next))
 }
 
 impl SecurityEventStore for MemorySecurityEventStore {
@@ -1092,17 +1143,44 @@ impl SecurityEventStore for MemorySecurityEventStore {
         event: &SecurityEvent,
         delivery: &SecurityEventDelivery,
     ) -> Result<bool, StoreError> {
-        let mut events = self.events.lock().await;
-        if events.contains_key(&event.event_id) {
+        let mut state = self.state.lock().await;
+        if let Some(stored) = state.events.get(&event.event_id) {
+            if stored.event != *event {
+                return Err(StoreError::Permanent(
+                    "security event id collision has a different envelope".into(),
+                ));
+            }
+            let source = state.source_delivery.get(&event.event_id).ok_or_else(|| {
+                StoreError::Permanent("Missing security event source evidence".into())
+            })?;
+            let next = reconcile_source_delivery(
+                &stored.delivery,
+                source,
+                delivery,
+                crate::current_unix_secs(),
+            )?;
+            if let Some(next) = next {
+                state
+                    .events
+                    .get_mut(&event.event_id)
+                    .expect("locked existing event")
+                    .delivery = next;
+                state
+                    .source_delivery
+                    .insert(event.event_id.clone(), delivery.clone());
+            }
             return Ok(false);
         }
-        events.insert(
+        state.events.insert(
             event.event_id.clone(),
             StoredSecurityEvent {
                 event: event.clone(),
                 delivery: delivery.clone(),
             },
         );
+        state
+            .source_delivery
+            .insert(event.event_id.clone(), delivery.clone());
         Ok(true)
     }
 
@@ -1119,9 +1197,10 @@ impl SecurityEventStore for MemorySecurityEventStore {
             tenant_id
         };
         let mut events = self
-            .events
+            .state
             .lock()
             .await
+            .events
             .values()
             .filter(|event| {
                 event.event.tenant_id == tenant_id
@@ -1156,9 +1235,10 @@ impl SecurityEventStore for MemorySecurityEventStore {
         };
         let limit = limit.clamp(1, 1000);
         let mut events = self
-            .events
+            .state
             .lock()
             .await
+            .events
             .values()
             .filter(|event| {
                 event.event.tenant_id == tenant_id

@@ -48,6 +48,12 @@ fn default_passkey_name() -> String {
     "Passkey".to_string()
 }
 
+/// Counter-bearing authenticators must advance; counterless authenticators
+/// retain WebAuthn's permitted zero-to-zero transition.
+pub fn permits_sign_count_update(previous: u32, next: u32) -> bool {
+    (previous == 0 && next == 0) || next > previous
+}
+
 /// assertion 验证的输入(浏览器 navigator.credentials.get 的产物,已 base64url 解码为字节)。
 pub struct AssertionInput<'a> {
     /// authenticatorData(前 32 字节 rpIdHash + 1 字节 flags + 4 字节 signCount + …)。
@@ -188,7 +194,7 @@ pub fn verify_assertion(
         .map_err(|_| AssertionError::BadSignature)?;
 
     // ⑤ signCount 严格递增(防克隆)。两边都为 0 是"认证器不支持计数",放行(WebAuthn 允许)。
-    if (sign_count != 0 || cred.sign_count != 0) && sign_count <= cred.sign_count {
+    if !permits_sign_count_update(cred.sign_count, sign_count) {
         return Err(AssertionError::CounterNotIncreasing);
     }
     Ok(sign_count)

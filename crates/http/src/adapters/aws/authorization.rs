@@ -390,15 +390,27 @@ impl crate::ports::ParStore for DynamoParStore {
         now: i64,
     ) -> Result<Option<crate::ports::ParRecord>, StoreError> {
         // 一次性:条件删取旧值。fail-closed:expires_at <= now 视作无效(不靠 TTL 惰性删,H4/C10.4)。
-        let out = self
+        let result = self
             .db
             .delete_item()
             .table_name(&self.table)
             .key("request_uri", AttributeValue::S(tpk(tenant, request_uri)))
+            .condition_expression("attribute_exists(request_uri)")
             .return_values(aws_sdk_dynamodb::types::ReturnValue::AllOld)
             .send()
-            .await
-            .map_err(ddb_err)?;
+            .await;
+        let out = match result {
+            Ok(out) => out,
+            Err(error)
+                if error
+                    .code()
+                    .unwrap_or("")
+                    .contains("ConditionalCheckFailed") =>
+            {
+                return Ok(None);
+            }
+            Err(error) => return Err(ddb_err(error)),
+        };
         let Some(item) = out.attributes() else {
             return Ok(None); // 不存在/已消费
         };
@@ -985,21 +997,45 @@ impl crate::ports::GrantStore for DynamoGrantStore {
         mut grant: agent_auth_grant::Grant,
         expected_revision: u64,
     ) -> Result<bool, StoreError> {
-        // CAS(spec 005 §7 补强 ⑫):仅当 revision==expected 且未 Revoked 才写,revision→expected+1。
-        // status 存于 grant_json blob 内、非顶层属性,无法直接在 condition 里比对——但吊销走 `revoke()`
-        // 会置 blob 内 status=Revoked **并不改 revision**,故"已吊销"场景 revision 仍等于 expected 会误过。
-        // 解决:revoke 时也 bump revision(下方 revoke 已改),使吊销后 expected 必不符 → CAS 落败;
-        // 双保险:重算读到 Revoked 的 Grant 时调用方本就跳过(recompute 只处理非终态)。此处以 revision 为准。
-        grant.revision = expected_revision + 1;
+        let out = self
+            .db
+            .get_item()
+            .table_name(&self.table)
+            .key("grant_id", AttributeValue::S(tpk(tenant, &grant.grant_id)))
+            .consistent_read(true)
+            .send()
+            .await
+            .map_err(ddb_err)?;
+        let Some(before) = out.item() else {
+            return Ok(false);
+        };
+        let current = Self::from_item(before)
+            .ok_or_else(|| StoreError::Permanent("invalid stored grant".into()))?;
+        if current.revision != expected_revision
+            || current.status == agent_auth_grant::GrantStatus::Revoked
+        {
+            return Ok(false);
+        }
+        // Compare the stored bytes as well as the revision. The atomic condition
+        // fences concurrent revocation and preserves legacy JSON representations.
+        let before_json = before
+            .get("grant_json")
+            .cloned()
+            .ok_or_else(|| StoreError::Permanent("invalid stored grant".into()))?;
+        grant.revision = expected_revision
+            .checked_add(1)
+            .ok_or_else(|| StoreError::Permanent("grant revision exhausted".into()))?;
         let item = Self::to_item(tenant, &grant)?;
         let res = self
             .db
             .put_item()
             .table_name(&self.table)
             .set_item(Some(item))
-            // 条件:记录存在 且 顶层 revision == expected(并发吊销/更新会 bump revision → 不符 → 落败)。
-            .condition_expression("attribute_exists(grant_id) AND revision = :exp")
+            .condition_expression(
+                "attribute_exists(grant_id) AND revision = :exp AND grant_json = :before",
+            )
             .expression_attribute_values(":exp", AttributeValue::N(expected_revision.to_string()))
+            .expression_attribute_values(":before", before_json)
             .send()
             .await;
         match res {
@@ -1324,17 +1360,35 @@ impl crate::ports::PolicyArtifactStore for DynamoPolicyArtifactStore {
                 "grant_id".to_string(),
                 AttributeValue::S(Self::pk(tenant, version)),
             ),
-            ("policy_text".to_string(), AttributeValue::S(text)),
-            ("policy_digest".to_string(), AttributeValue::S(digest)),
+            ("policy_text".to_string(), AttributeValue::S(text.clone())),
+            (
+                "policy_digest".to_string(),
+                AttributeValue::S(digest.clone()),
+            ),
         ]);
-        self.db
+        let result = self.db
             .put_item()
             .table_name(&self.table)
             .set_item(Some(item))
+            .condition_expression(
+                "attribute_not_exists(grant_id) OR (policy_text = :text AND policy_digest = :digest)",
+            )
+            .expression_attribute_values(":text", AttributeValue::S(text))
+            .expression_attribute_values(":digest", AttributeValue::S(digest))
             .send()
-            .await
-            .map_err(ddb_err)?;
-        Ok(())
+            .await;
+        match result {
+            Ok(_) => Ok(()),
+            Err(error)
+                if error
+                    .code()
+                    .unwrap_or("")
+                    .contains("ConditionalCheckFailed") =>
+            {
+                Err(StoreError::Permanent("policy artifact is immutable".into()))
+            }
+            Err(error) => Err(ddb_err(error)),
+        }
     }
     async fn get(
         &self,
@@ -1571,8 +1625,54 @@ impl crate::ports::JtiStore for DynamoJtiStore {
     }
 
     async fn delete_by_user(&self, tenant_id: &str, user_id: &str) -> Result<usize, StoreError> {
-        governance_delete_by_subject(&self.db, &self.table, "pk", tenant_id, "user_id", user_id)
-            .await
+        // Delegated authority uses a different key prefix. Match the stored
+        // tenant/subject instead of inferring ownership from the root keyspace.
+        let mut deleted = 0;
+        let mut start_key: Option<HashMap<String, AttributeValue>> = None;
+        loop {
+            let output = self
+                .db
+                .scan()
+                .table_name(&self.table)
+                .projection_expression("pk")
+                .filter_expression("tenant_id = :tenant AND user_id = :user")
+                .expression_attribute_values(":tenant", AttributeValue::S(tenant_id.into()))
+                .expression_attribute_values(":user", AttributeValue::S(user_id.into()))
+                .consistent_read(true)
+                .set_exclusive_start_key(start_key.clone())
+                .send()
+                .await
+                .map_err(ddb_err)?;
+            for item in output.items() {
+                let key = item.get("pk").cloned().ok_or_else(|| {
+                    StoreError::Permanent("JTI governance row is missing pk".into())
+                })?;
+                let result = self
+                    .db
+                    .delete_item()
+                    .table_name(&self.table)
+                    .key("pk", key)
+                    .condition_expression("tenant_id = :tenant AND user_id = :user")
+                    .expression_attribute_values(":tenant", AttributeValue::S(tenant_id.into()))
+                    .expression_attribute_values(":user", AttributeValue::S(user_id.into()))
+                    .send()
+                    .await;
+                match result {
+                    Ok(_) => deleted += 1,
+                    Err(error)
+                        if error
+                            .code()
+                            .unwrap_or("")
+                            .contains("ConditionalCheckFailed") => {}
+                    Err(error) => return Err(ddb_err(error)),
+                }
+            }
+            match output.last_evaluated_key() {
+                Some(key) if !key.is_empty() => start_key = Some(key.clone()),
+                _ => break,
+            }
+        }
+        Ok(deleted)
     }
 
     async fn delete_all_by_tenant(&self, tenant_id: &str) -> Result<usize, StoreError> {

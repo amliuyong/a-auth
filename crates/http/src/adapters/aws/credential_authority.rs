@@ -1668,14 +1668,16 @@ impl DynamoSessionStore {
         user_id: &str,
         actor_session_id: &str,
         generation: u64,
+        invocation: &[u8; 32],
     ) -> String {
         let mut digest = Sha256::new();
-        digest.update(b"credential-session-fence:v1");
+        digest.update(b"credential-session-fence:v2");
         for value in [tenant, user_id, actor_session_id] {
             digest.update((value.len() as u64).to_be_bytes());
             digest.update(value.as_bytes());
         }
         digest.update(generation.to_be_bytes());
+        digest.update(invocation);
         base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&digest.finalize()[..27])
     }
 
@@ -2380,10 +2382,18 @@ impl SessionStore for DynamoSessionStore {
         let actor_key = tpk(tenant, actor_session_id);
         let physical_user_id = tpk(tenant, user_id);
         let generation_key = Self::generation_key(tenant, user_id);
+        // Recover a lost response only for this invocation. Independent callers
+        // must not adopt another caller's successful credential-mutation fence.
+        let invocation: [u8; 32] = rand::random();
         for attempt in 0..TRANSACTION_RETRY_ATTEMPTS {
             let generation = self.current_generation(tenant, user_id).await?;
-            let fence_id =
-                Self::credential_session_fence_id(tenant, user_id, actor_session_id, generation);
+            let fence_id = Self::credential_session_fence_id(
+                tenant,
+                user_id,
+                actor_session_id,
+                generation,
+                &invocation,
+            );
             if !self
                 .is_authoritative_session(tenant, user_id, actor_session_id, generation)
                 .await?
@@ -2473,30 +2483,58 @@ impl SessionStore for DynamoSessionStore {
         session_id: &str,
         now: i64,
     ) -> Result<bool, StoreError> {
-        let result = self
-            .db
-            .update_item()
+        use aws_sdk_dynamodb::types::{ConditionCheck, TransactWriteItem, Update};
+
+        let Some(stored) = self.get_stored(tenant, session_id).await? else {
+            return Ok(false);
+        };
+        let generation = self
+            .current_generation(tenant, &stored.record.user_id)
+            .await?;
+        if stored.generation != generation || now < stored.record.last_used_at {
+            return Ok(false);
+        }
+        let generation_check = ConditionCheck::builder()
+            .table_name(&self.table)
+            .key(
+                "session_id",
+                AttributeValue::S(Self::generation_key(tenant, &stored.record.user_id)),
+            )
+            .condition_expression(Self::generation_marker_condition(generation))
+            .expression_attribute_names("#generation", "generation")
+            .expression_attribute_values(":expected", AttributeValue::N(generation.to_string()))
+            .build()
+            .map_err(|_| {
+                StoreError::Permanent("Build login session observation fence failed".into())
+            })?;
+        let update = Update::builder()
             .table_name(&self.table)
             .key("session_id", AttributeValue::S(tpk(tenant, session_id)))
             .update_expression("SET last_used_at = :now")
-            .condition_expression(
-                "attribute_exists(session_id) AND \
-                 (attribute_not_exists(last_used_at) OR last_used_at <= :now)",
+            .condition_expression(format!(
+                "{} AND (attribute_not_exists(last_used_at) OR last_used_at <= :now)",
+                Self::authoritative_session_condition(generation),
+            ))
+            .expression_attribute_values(
+                ":u",
+                AttributeValue::S(tpk(tenant, &stored.record.user_id)),
             )
+            .expression_attribute_values(":expected", AttributeValue::N(generation.to_string()))
             .expression_attribute_values(":now", AttributeValue::N(now.to_string()))
-            .send()
-            .await;
-        match result {
-            Ok(_) => Ok(true),
-            Err(error)
-                if error
-                    .code()
-                    .is_some_and(|code| code.contains("ConditionalCheckFailed")) =>
-            {
-                Ok(false)
-            }
-            Err(error) => Err(ddb_err(error)),
-        }
+            .build()
+            .map_err(|_| {
+                StoreError::Permanent("Build login session observation update failed".into())
+            })?;
+        let request = self
+            .db
+            .transact_write_items()
+            .transact_items(
+                TransactWriteItem::builder()
+                    .condition_check(generation_check)
+                    .build(),
+            )
+            .transact_items(TransactWriteItem::builder().update(update).build());
+        send_idempotent_transaction(request).await
     }
     async fn delete_by_user(&self, tenant: &str, user_id: &str) -> Result<usize, StoreError> {
         // Query tenant-qualified user_id GSI first, then delete after pagination so
@@ -3044,16 +3082,33 @@ impl MessageOutbox for DynamoNotifier {
                 _ => break,
             }
         }
+        let mut deleted = 0;
         for message_id in &message_ids {
-            self.db
+            let result = match self
+                .db
                 .delete_item()
                 .table_name(&self.table)
                 .key("message_id", message_id.clone())
+                .condition_expression("attribute_exists(message_id)")
+                .return_values(aws_sdk_dynamodb::types::ReturnValue::AllOld)
                 .send()
                 .await
-                .map_err(ddb_err)?;
+            {
+                Ok(result) => result,
+                Err(error)
+                    if error
+                        .code()
+                        .is_some_and(|code| code.contains("ConditionalCheckFailed")) =>
+                {
+                    continue;
+                }
+                Err(error) => return Err(ddb_err(error)),
+            };
+            if result.attributes().is_some_and(|old| !old.is_empty()) {
+                deleted += 1;
+            }
         }
-        Ok(message_ids.len())
+        Ok(deleted)
     }
 
     async fn delete_all_by_tenant(&self, tenant: &str) -> Result<usize, StoreError> {
@@ -3126,6 +3181,12 @@ pub struct DynamoRecoveryStore {
     pub(super) table: String,
 }
 
+struct RecoveryWriteCondition {
+    expression: String,
+    names: HashMap<String, String>,
+    values: HashMap<String, AttributeValue>,
+}
+
 impl DynamoRecoveryStore {
     pub fn new(db: aws_sdk_dynamodb::Client, table: impl Into<String>) -> Self {
         DynamoRecoveryStore {
@@ -3139,6 +3200,7 @@ impl DynamoRecoveryStore {
         tenant: &str,
         r: &RecoveryRecord,
         version: u64,
+        generation: &str,
     ) -> HashMap<String, AttributeValue> {
         // code_hashes 编码为并行两列表(hash + consumed),简单可读。主键 = tpk(tenant, user_lookup)。
         let hashes: Vec<AttributeValue> = r
@@ -3175,7 +3237,38 @@ impl DynamoRecoveryStore {
                 "version".to_string(),
                 AttributeValue::N(version.to_string()),
             ),
+            (
+                "code_set_generation".to_string(),
+                AttributeValue::S(generation.to_string()),
+            ),
         ])
+    }
+
+    fn new_generation() -> String {
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(rand::random::<[u8; 32]>())
+    }
+
+    fn consumption_condition(version: u64, generation: Option<&str>) -> RecoveryWriteCondition {
+        let mut values = HashMap::from([(":v".into(), AttributeValue::N(version.to_string()))]);
+        let generation_condition = if let Some(generation) = generation {
+            values.insert(":g".into(), AttributeValue::S(generation.into()));
+            "#g = :g"
+        } else {
+            // Existing records without a generation are upgraded on consumption.
+            // A replacement always has a fresh generation and cannot satisfy this.
+            "attribute_not_exists(#g)"
+        };
+        RecoveryWriteCondition {
+            expression: format!(
+                "attribute_exists(user_lookup) AND \
+                 (attribute_not_exists(#v) OR #v = :v) AND {generation_condition}"
+            ),
+            names: HashMap::from([
+                ("#v".into(), "version".into()),
+                ("#g".into(), "code_set_generation".into()),
+            ]),
+            values,
+        }
     }
 
     fn success_result_key(tenant: &str, operation_key: &str) -> String {
@@ -3339,7 +3432,7 @@ impl DynamoRecoveryStore {
         &self,
         tenant: &str,
         user_lookup: &str,
-    ) -> Result<Option<(RecoveryRecord, u64)>, StoreError> {
+    ) -> Result<Option<(RecoveryRecord, u64, Option<String>)>, StoreError> {
         let out = self
             .db
             .get_item()
@@ -3387,7 +3480,24 @@ impl DynamoRecoveryStore {
             .and_then(|a| a.as_n().ok())
             .and_then(|n| n.parse().ok())
             .unwrap_or(0);
-        Ok(Some((rec, version)))
+        let generation = match item.get("code_set_generation") {
+            None => None,
+            Some(value) => {
+                let value = value.as_s().map_err(|_| {
+                    StoreError::Permanent("Invalid recovery code-set generation".into())
+                })?;
+                if !base64::engine::general_purpose::URL_SAFE_NO_PAD
+                    .decode(value)
+                    .is_ok_and(|bytes| bytes.len() == 32)
+                {
+                    return Err(StoreError::Permanent(
+                        "Invalid recovery code-set generation".into(),
+                    ));
+                }
+                Some(value.clone())
+            }
+        };
+        Ok(Some((rec, version, generation)))
     }
 
     pub(crate) async fn commit_rotation(
@@ -3410,9 +3520,10 @@ impl DynamoRecoveryStore {
             updated_at,
             Some(expected_email),
         )?;
+        let generation = Self::new_generation();
         let recovery_put = Put::builder()
             .table_name(&self.table)
-            .set_item(Some(self.record_to_item(tenant, &record, 0)))
+            .set_item(Some(self.record_to_item(tenant, &record, 0, &generation)))
             .build()
             .map_err(|error| {
                 StoreError::Permanent(format!("build recovery rotation put: {error}"))
@@ -3431,7 +3542,11 @@ impl DynamoRecoveryStore {
                         .get_by_id(tenant, &record.user_id)
                         .await?
                         .is_some_and(|user| user.email == expected_email)
-                    && stored.is_some_and(|(stored, version)| stored == record && version == 0)
+                    && stored.is_some_and(|(stored, version, stored_generation)| {
+                        stored == record
+                            && version == 0
+                            && stored_generation.as_deref() == Some(generation.as_str())
+                    })
                 {
                     Ok(true)
                 } else {
@@ -3477,7 +3592,7 @@ impl DynamoRecoveryStore {
         }
 
         for attempt in 0..TRANSACTION_RETRY_ATTEMPTS {
-            let Some((mut record, version)) =
+            let Some((mut record, version, generation)) =
                 self.load(request.tenant, request.user_lookup).await?
             else {
                 return Ok(RecoveryAuthorityConsume::NotFound);
@@ -3518,17 +3633,18 @@ impl DynamoRecoveryStore {
                 return Ok(RecoveryAuthorityConsume::PasswordChangeRequired);
             }
 
-            let mut item = self.record_to_item(request.tenant, &record, version + 1);
-            item.insert(
-                "version".to_string(),
-                AttributeValue::N((version + 1).to_string()),
-            );
+            let next_version = version.checked_add(1).ok_or_else(|| {
+                StoreError::Permanent("Recovery code-set version exhausted".into())
+            })?;
+            let condition = Self::consumption_condition(version, generation.as_deref());
+            let next_generation = generation.unwrap_or_else(Self::new_generation);
+            let item = self.record_to_item(request.tenant, &record, next_version, &next_generation);
             let recovery_put = Put::builder()
                 .table_name(&self.table)
                 .set_item(Some(item))
-                .condition_expression("attribute_not_exists(#version) OR #version = :version")
-                .expression_attribute_names("#version", "version")
-                .expression_attribute_values(":version", AttributeValue::N(version.to_string()))
+                .condition_expression(condition.expression)
+                .set_expression_attribute_names(Some(condition.names))
+                .set_expression_attribute_values(Some(condition.values))
                 .build()
                 .map_err(|error| {
                     StoreError::Permanent(format!("build recovery epoch-guarded consume: {error}"))
@@ -3722,8 +3838,8 @@ impl DynamoRecoveryStore {
 
 impl RecoveryStore for DynamoRecoveryStore {
     async fn put(&self, tenant: &str, record: RecoveryRecord) -> Result<(), StoreError> {
-        // 下发/regenerate:version 从 0 起(覆盖旧集使旧码失效)。
-        let item = self.record_to_item(tenant, &record, 0);
+        // Each replacement has a fresh generation even though its version resets.
+        let item = self.record_to_item(tenant, &record, 0, &Self::new_generation());
         self.db
             .put_item()
             .table_name(&self.table)
@@ -3738,7 +3854,7 @@ impl RecoveryStore for DynamoRecoveryStore {
         tenant: &str,
         user_lookup: &str,
     ) -> Result<Option<RecoveryRecord>, StoreError> {
-        Ok(self.load(tenant, user_lookup).await?.map(|(r, _)| r))
+        Ok(self.load(tenant, user_lookup).await?.map(|(r, _, _)| r))
     }
     async fn get_success_result(
         &self,
@@ -3760,7 +3876,7 @@ impl RecoveryStore for DynamoRecoveryStore {
         // (评审 codex#5)。重试上界防活锁;每轮重新 load 拿最新 version + consumed 状态。
         const MAX_RETRY: u32 = 5;
         for _ in 0..MAX_RETRY {
-            let Some((mut rec, version)) = self.load(tenant, user_lookup).await? else {
+            let Some((mut rec, version, generation)) = self.load(tenant, user_lookup).await? else {
                 return Ok(RecoveryConsume::NotFound);
             };
             if is_locked(rec.locked_until, now) {
@@ -3791,20 +3907,20 @@ impl RecoveryStore for DynamoRecoveryStore {
                 }
             };
             // 乐观并发条件写:仅当 version 未变才写(并发验同码只一个成功,防双消费)。
-            let mut item = self.record_to_item(tenant, &rec, version + 1);
-            item.insert(
-                "version".to_string(),
-                AttributeValue::N((version + 1).to_string()),
-            );
-            // `version` 是 DynamoDB 保留字 → 用别名。首次(无 version 属性)也允许写。
+            let next_version = version.checked_add(1).ok_or_else(|| {
+                StoreError::Permanent("Recovery code-set version exhausted".into())
+            })?;
+            let condition = Self::consumption_condition(version, generation.as_deref());
+            let next_generation = generation.unwrap_or_else(Self::new_generation);
+            let item = self.record_to_item(tenant, &rec, next_version, &next_generation);
             let res = self
                 .db
                 .put_item()
                 .table_name(&self.table)
                 .set_item(Some(item))
-                .condition_expression("attribute_not_exists(#v) OR #v = :v")
-                .expression_attribute_names("#v", "version")
-                .expression_attribute_values(":v", AttributeValue::N(version.to_string()))
+                .condition_expression(condition.expression)
+                .set_expression_attribute_names(Some(condition.names))
+                .set_expression_attribute_values(Some(condition.values))
                 .send()
                 .await;
             match res {
@@ -4587,6 +4703,9 @@ impl crate::ports::PasswordStore for DynamoPasswordStore {
         expected_version: u64,
         updated_at: i64,
     ) -> Result<bool, StoreError> {
+        let next_version = expected_version
+            .checked_add(1)
+            .ok_or_else(|| StoreError::Permanent("password version overflow".into()))?;
         let result = self
             .db
             .update_item()
@@ -4606,7 +4725,7 @@ impl crate::ports::PasswordStore for DynamoPasswordStore {
             .expression_attribute_values(":false", AttributeValue::Bool(false))
             .expression_attribute_values(
                 ":next",
-                AttributeValue::N((expected_version + 1).to_string()),
+                AttributeValue::N(next_version.to_string()),
             )
             .expression_attribute_values(":now", AttributeValue::N(updated_at.to_string()))
             .expression_attribute_values(
@@ -5003,6 +5122,10 @@ impl InvitationStore for DynamoInvitationStore {
             });
         }
 
+        let expires_at = request
+            .now
+            .checked_add(crate::login::SESSION_TTL_SECS)
+            .ok_or_else(|| StoreError::Permanent("Invited session lifetime exhausted".into()))?;
         for _ in 0..3 {
             let generation = self
                 .sessions
@@ -5016,7 +5139,7 @@ impl InvitationStore for DynamoInvitationStore {
                 created_at: request.now,
                 last_used_at: request.now,
                 device: request.device.clone(),
-                expires_at: request.now + crate::login::SESSION_TTL_SECS,
+                expires_at,
                 acr: None,
                 amr: vec!["invite".to_string()],
             };
@@ -5520,6 +5643,9 @@ impl crate::ports::PasskeyStore for DynamoPasskeyStore {
         new_count: u32,
         expected_prev: u32,
     ) -> Result<bool, StoreError> {
+        if !agent_auth_authn::passkey::permits_sign_count_update(expected_prev, new_count) {
+            return Ok(false);
+        }
         // 条件 UpdateItem CAS:仅当 sign_count == expected_prev 才写 new(防克隆并发/回退)。
         // 同步更新 cred_json 里的 sign_count 需读-改-写;为原子性,这里只更新独立 sign_count 属性,
         // 且 from_item 以 cred_json 为准——故 CAS 后须回写 json。简化:读当前、CAS 校验、条件写整条。

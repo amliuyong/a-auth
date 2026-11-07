@@ -38,6 +38,57 @@ jobs:
       - name: Lint Markdown
         run: npm run lint:markdown
 
+  postgres-contracts:
+    name: Memory, AWS and PostgreSQL port contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres@sha256:f9a7b9ebf6f56201f949db745e47bc423c0f0f8294bafe991cc10bf74b029657
+        env:
+          POSTGRES_USER: a_auth_test
+          POSTGRES_PASSWORD: local-contract-test-only
+          POSTGRES_DB: a_auth_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U a_auth_test -d a_auth_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      dynamodb:
+        image: amazon/dynamodb-local@sha256:ff89bd48ff32cd8d9be5fee8873b65b8854dc408f1afe881be6eb00247bc0dab
+        ports:
+          - 8000:8000
+    env:
+      A_AUTH_TEST_DATABASE_URL: postgres://a_auth_test:local-contract-test-only@127.0.0.1:5432/a_auth_test
+      A_AUTH_TEST_AWS_ADAPTERS: "1"
+      A_AUTH_TEST_DYNAMODB_ENDPOINT: http://127.0.0.1:8000
+      CARGO_BUILD_JOBS: 2
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy
+          rustup default stable
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - name: Check PostgreSQL feature
+        run: cargo clippy -p agent-auth-http --all-targets --features postgres --locked
+      - name: Verify adapter dependency tree excludes AWS SDK and Lambda
+        run: |
+          cargo tree -p agent-auth-http --no-default-features --features postgres \
+            --edges normal --locked > postgres-dependencies.txt
+          if grep -Eq 'aws-sdk-|aws-config |aws-smithy-|lambda_runtime |lambda_http ' postgres-dependencies.txt; then
+            cat postgres-dependencies.txt
+            exit 1
+          fi
+      - name: Run shared contracts against all three adapters
+        run: bash scripts/test_postgres_contracts.sh
+
   rust-quality:
     name: Rust quality
     runs-on: ubuntu-latest
@@ -437,6 +488,7 @@ jobs:
     if: ${{ always() }}
     needs:
       - markdownlint
+      - postgres-contracts
       - rust-quality
       - rust-tests
       - conformance-exact
