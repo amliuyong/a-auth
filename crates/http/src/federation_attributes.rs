@@ -452,7 +452,7 @@ pub(crate) fn plan_federated_user_reconciliation(
             changed: false,
         });
     }
-    if crate::adapters::memory::attributes_serialized_len(&user.attributes)
+    if crate::user_attributes::attributes_serialized_len(&user.attributes)
         > crate::ports::ATTRIBUTES_MAX_BYTES
     {
         return Ok(FederationAttributeReconciliationOutcome::TooLarge);

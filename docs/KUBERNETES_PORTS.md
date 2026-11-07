@@ -12,7 +12,7 @@ must not become production fallback authority.
 
 ## Implemented PostgreSQL authority
 
-These twenty-five traits have PostgreSQL adapters. Shared contracts exercise the
+These twenty-six traits have PostgreSQL adapters. Shared contracts exercise the
 memory, actual AWS adapters against a loopback emulator, and PostgreSQL
 implementations. The delivery ledger records the candidate validation results.
 The AWS grace contract additionally uses a loopback KMS response fixture;
@@ -45,6 +45,7 @@ it does not establish native KMS acceptance.
 | `GraceStore` | Per-record encrypted responses, authenticated family/version/expiry, external key rotation and delete-only capability |
 | [`SecurityEventStore`](../crates/http/src/security_event.rs) | Immutable typed events, idempotent admission, atomic source-history reconciliation and tenant/time pagination |
 | [`FederationAttributeMappingsStore`](../crates/http/src/federation_attributes.rs) | Tenant-locked registry/mapping CAS, unique enabled target owners, permanent retired IDs and validated snapshots |
+| `UsersStore` | Tenant-fenced canonical/SCIM alias admission, operation-owned credential epochs, attribute CAS, irreversible erasure fence and authenticated pagination |
 
 Cross-port work remains necessary even when individual traits are implemented.
 Raw port CRUD must not replace an authorized transaction involving user,
@@ -52,7 +53,7 @@ credential, session, client, grant, or attribute authority.
 
 ## Remaining persistent authority
 
-The first nine traits below are in `ports.rs`; the last three are in their
+The first eight traits below are in `ports.rs`; the last three are in their
 linked modules. Optional protocol surfaces need either a complete production
 implementation or an explicit disabled capability with its existing
 fail-closed behavior. They must never silently select memory stores.
@@ -62,7 +63,6 @@ fail-closed behavior. They must never silently select memory stores.
 | `PasskeyStore` | Credential uniqueness, signature-counter CAS, user/epoch/session authority |
 | `ScimGroupsStore` | Atomic group/membership and tenant-role mapping changes |
 | `GovernanceStore` | Legal holds, job ownership/checkpoints, suppression and retention evidence |
-| `UsersStore` | Canonical identity, SCIM aliases, lifecycle/credential fences and attributes |
 | `InvitationStore` | Verifier-only persistence, idempotent issue and atomic onboarding/session commit |
 | `SessionStore` | User generation, actor authority, atomic user-wide revocation |
 | `RecoveryStore` | Code HMACs, bounded failures, exact-operation success receipt and credential/session transaction |

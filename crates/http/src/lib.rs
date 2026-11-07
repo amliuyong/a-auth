@@ -85,6 +85,7 @@ pub mod tenant_key_provisioner;
 pub mod tenant_keys;
 pub mod token;
 pub mod token_exchange;
+mod user_attributes;
 pub mod user_gate;
 pub mod user_lifecycle;
 pub mod userinfo;

@@ -882,7 +882,7 @@ pub async fn advance_namespace_registration(
             ) {
                 MigrationDecision::Conflict { .. } | MigrationDecision::RevisionExhausted => true,
                 MigrationDecision::Replace { attributes } => {
-                    crate::adapters::memory::attributes_serialized_len(&attributes)
+                    crate::user_attributes::attributes_serialized_len(&attributes)
                         > crate::ports::ATTRIBUTES_MAX_BYTES
                 }
                 MigrationDecision::Noop => false,
@@ -1042,7 +1042,7 @@ pub async fn advance_namespace_registration(
         ) {
             MigrationDecision::Noop => false,
             MigrationDecision::Replace { attributes } => {
-                if crate::adapters::memory::attributes_serialized_len(&attributes)
+                if crate::user_attributes::attributes_serialized_len(&attributes)
                     > crate::ports::ATTRIBUTES_MAX_BYTES
                 {
                     let (conflict_count, conflict_user_ids) =

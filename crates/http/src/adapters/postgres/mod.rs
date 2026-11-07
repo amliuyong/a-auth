@@ -26,11 +26,13 @@ mod rate_limits;
 mod refresh;
 mod replay;
 mod security_events;
+mod users;
 mod workload_trust;
 
 pub use codes::ExchangeFailureRequest;
 pub use grace::PostgresGraceStore;
 pub use refresh::RefreshRotationRequest;
+pub use users::{PostgresUsersStore, UserAuthorityKey};
 
 static MIGRATIONS: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 

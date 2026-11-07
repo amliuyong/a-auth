@@ -588,7 +588,7 @@ impl DynamoUsersStore {
                     federation_owners: federation_owners.clone(),
                 },
             );
-            if crate::adapters::memory::attributes_serialized_len(&candidate)
+            if crate::user_attributes::attributes_serialized_len(&candidate)
                 > crate::ports::ATTRIBUTES_MAX_BYTES
             {
                 return Ok(Some(PutAttrOutcome::TooLarge));
@@ -3356,7 +3356,7 @@ impl crate::ports::UsersStore for DynamoUsersStore {
                 }
                 MigrationDecision::Replace { attributes } => attributes,
             };
-            if crate::adapters::memory::attributes_serialized_len(&attributes)
+            if crate::user_attributes::attributes_serialized_len(&attributes)
                 > crate::ports::ATTRIBUTES_MAX_BYTES
             {
                 return Ok(AttributeMigrationOutcome::TooLarge);

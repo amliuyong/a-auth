@@ -87,14 +87,16 @@ The `postgres` feature currently provides `PostgresStore` implementations for
 `PasskeyChallengeStore`, `DeviceStore`, `AdminAuthStore`,
 `AttributeNamespaceStore`, `PasswordStore`, `SecurityEventStore`, and
 `FederationAttributeMappingsStore`.
+`PostgresUsersStore` implements all twenty-five `UsersStore` methods with a
+required external HMAC authority key.
 `PostgresGraceStore` implements
 `GraceStore` with an explicit external encryption key ring or a delete-only
-capability. Twenty-five embedded forward
+capability. Twenty-seven embedded forward
 migrations create their authority tables and credential-free client reclaim
 audit metadata.
 
-The current shared suite passes 87 cases: twenty-five contracts run through each of
-the memory, AWS, and PostgreSQL adapters, plus twelve PostgreSQL-specific
+The current shared suite passes 97 cases: twenty-six contracts run through each of
+the memory, AWS, and PostgreSQL adapters, plus nineteen PostgreSQL-specific
 transaction/durability cases. AWS adapters run against a loopback DynamoDB
 emulator; PostgreSQL adapters run against PostgreSQL 16. This does not establish
 native AWS deployment acceptance.
@@ -169,6 +171,34 @@ Two additional domain regressions reproduced and corrected premature target
 release in the original memory disable/delete transitions.
 Raw mapping CRUD does not complete the required configuration, namespace and
 user-authorized reconciliation transaction.
+Canonical users have no expiry. PostgreSQL stores their private persistence
+format separately from the non-serializable public user record. Physical
+identities and aliases use `BYTEA`; escaped JSON text preserves NUL-bearing
+attribute and operation identifiers and the full `u64` counter range.
+Incomplete or inconsistent records fail closed without being overwritten.
+Tenant directory locks fence absent canonical IDs and SCIM aliases.
+SCIM creation commits the canonical user, unique visible aliases and immutable
+POST receipt together; moving aliases with PUT retains the old POST receipt
+and current user state. A single statement snapshot returns each SCIM page
+with its exact total. User row locks fence credential owners, disable/enable,
+attribute revision/generation and irreversible erasure. Version exhaustion and
+an actual second-write failure preserve the previous authority.
+Signed, expiring user cursors bind the tenant, normalized query, status filter
+and continuation key; separate pools share only the explicit external key.
+This authority key must remain stable for the lifetime of suppression records.
+A persisted one-way check rejects a differently configured replica without
+rebinding the database or storing the key. Runtime startup must call
+`verify_authority` before readiness; admission repeats the check in its
+transaction. Runtime roles must not update or delete this binding.
+Suppression admission checks durable digests under the same logical tenant
+directory fence, including the empty issuer tenant's `default` authority.
+A reproduced race initially admitted an empty-tenant user before a suppression
+writer committed; the shared fence now prevents that admission.
+SCIM adoption checks the selected canonical identity as well as the proposed
+ID, so another candidate cannot bypass its suppression.
+The governance writer, destructive-job authorization and production dispatch
+remain pending. Raw user lifecycle and attribute methods do not complete the
+required credential/session and namespace-authorized transactions.
 Cross-table tests check that code/family creation updates the client authority
 revision atomically, that failed conditions roll back the new row, and that
 duplicate creation cannot resurrect consumed codes or revoked families.
@@ -207,7 +237,10 @@ hash/metadata while keeping the already-started user revocation fence.
 The grace contract also reproduced memory cleanup deleting another family
 whose name shared a prefix. Cleanup now compares the exact family identity.
 
-Current local validation passes 682 HTTP library tests with both
+Current local validation passes 1,266 workspace library tests, including 682
+HTTP library tests with both `postgres` and `aws`, and 129 SCIM, Admin user,
+password/account/lifecycle and RS attribute/federation mapping HTTP regressions.
+The preceding mapping increment passed 682 HTTP library tests with both
 `postgres` and `aws`, and 33 RS attribute/federation mapping HTTP regressions.
 The security-event increment `c4bf77de6b236754118e1a7f35c468d7f27a65f7`
 passed 31 security-event/SCIM HTTP regressions.

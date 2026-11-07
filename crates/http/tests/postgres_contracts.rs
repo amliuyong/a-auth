@@ -68,6 +68,12 @@ mod security_event_contracts;
 #[path = "postgres/federation_mappings.rs"]
 mod federation_mapping_contracts;
 
+#[path = "postgres/users.rs"]
+mod user_contracts;
+
+#[path = "postgres/users_faults.rs"]
+mod user_fault_contracts;
+
 #[cfg(feature = "aws")]
 #[path = "postgres/aws.rs"]
 mod aws_contract_database;

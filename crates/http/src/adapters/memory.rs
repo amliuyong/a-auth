@@ -3040,33 +3040,7 @@ impl InvitationStore for MemoryInvitationStore {
     }
 }
 
-/// attributes 全量序列化字节数(与 Dynamo 侧同口径,稳定 BTreeMap 顺序)。
-/// spec 007 §6.1 体积上限判定用。
-pub(crate) fn attributes_serialized_len(
-    attrs: &std::collections::BTreeMap<String, crate::ports::NamespaceAttrs>,
-) -> usize {
-    #[derive(serde::Serialize)]
-    struct NamespaceView<'a> {
-        kv: &'a std::collections::BTreeMap<String, String>,
-        federation_owners:
-            &'a std::collections::BTreeMap<String, crate::ports::FederatedAttributeOwner>,
-    }
-    let view: std::collections::BTreeMap<&String, NamespaceView<'_>> = attrs
-        .iter()
-        .map(|(namespace, attributes)| {
-            (
-                namespace,
-                NamespaceView {
-                    kv: &attributes.kv,
-                    federation_owners: &attributes.federation_owners,
-                },
-            )
-        })
-        .collect();
-    serde_json::to_vec(&view)
-        .map(|v| v.len())
-        .unwrap_or(usize::MAX)
-}
+pub(crate) use crate::user_attributes::attributes_serialized_len;
 
 /// 内存联邦配置存储(本地/测试,spec 003 §4.1 / C10.19)。
 /// **键 = 复合 `(tenant_id, upstream_idp_id)`**——tenant_id 进 key 即物理隔离(与真机 tenant 分区键同构):
