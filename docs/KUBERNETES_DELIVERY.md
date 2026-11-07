@@ -46,7 +46,8 @@ tests do not establish cluster, deployment, or conformance acceptance.
 | Forward migrations, standard PostgreSQL | Versioned SQL, repeat/concurrent migration tests, PostgreSQL 16 run | IN_PROGRESS |
 | Secret/file signer and JWKS rotation | Independent ES256/RS256 verification across reload and retired-key removal; installed replica rotation | IN_PROGRESS |
 | Server and background work | Probe/shutdown tests, worker redelivery/lease fencing, cluster execution | NOT_RUN |
-| Secret resolver, SMTP, optional archives | Adapter tests and installed deployment evidence | NOT_RUN |
+| Secret resolver | Confined-file adapter tests and installed deployment evidence | IN_PROGRESS |
+| SMTP and optional archives | Adapter tests and installed deployment evidence | NOT_RUN |
 | Secure container and chart | Rendered manifests, authentication and reachability tests | NOT_RUN |
 | kind + in-cluster PostgreSQL | Installed chart and all required protocol flows including enterprise IdP | NOT_RUN |
 | EKS + external RDS PostgreSQL | Installed chart and all required protocol flows including enterprise IdP | NOT_RUN |
@@ -78,6 +79,13 @@ tests do not establish cluster, deployment, or conformance acceptance.
   in tracked evidence.
 
 ## Current implementation frontier
+
+`FileSecretResolver` resolves only explicitly mapped references from a
+dedicated mounted directory, reads current projected Secret generations and
+confines descriptor-relative reads. See [mounted external client
+secrets](MOUNTED_SECRETS.md) for bindings, permission limits and failure
+behavior. Production startup, chart mounts and installed federation remain
+pending.
 
 `MountedSignerRing` loads immutable ES256/RS256 file generations and
 `TenantKeyService::mounted` resolves them per request with disabled SaaS

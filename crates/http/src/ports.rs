@@ -1050,8 +1050,9 @@ pub trait StsCaller: Send + Sync {
 }
 
 /// **secret 引用名 → 明文**解析端口(spec 003 §4 Task 4.6,评审 Kiro F4)。联邦 config 只存 secret 的
-/// **引用名**(`secretsmanager:...` / `ssm:...`),绝不落库明文(守"secret 不进 repo/不落库"红线);
-/// 换 code 前经本端口解析成明文。真机 = Secrets Manager/SSM GetSecretValue;dev/测试 = 内存预置映射。
+/// **引用名**,绝不落库明文(守"secret 不进 repo/不落库"红线);
+/// 换 code 前经本端口解析成明文。AWS = Secrets Manager;portable = 显式映射的挂载 Secret 文件;
+/// dev/测试 = 内存预置映射。
 /// ⚠️ 引用名解析 MUST 在**调用边界内**完成(用完即弃),解析结果绝不写回 config、不进日志。
 /// 瞬时失败(网络/超时/限流)→ `Err(Transient)`(上层可 503,不误当"secret 不存在")。
 pub trait SecretResolver: Send + Sync {

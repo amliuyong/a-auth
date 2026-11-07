@@ -90,7 +90,7 @@ capability decision and reject unsupported payment settings at startup.
 | `JwksFetcher` | Bounded TLS fetch/cache, existing trust and SSRF restrictions |
 | `OidcMetadataFetcher` | Bounded TLS metadata fetch and cache |
 | `StsCaller` | Explicitly disabled in the AWS-free profile; retain the existing optional AWS path |
-| `SecretResolver` | Confined mounted-file reference resolution; no resolved secrets in PostgreSQL |
+| `SecretResolver` | [`FileSecretResolver`](MOUNTED_SECRETS.md) with explicit reference bindings and confined mounted-file reads; production wiring and installed proof pending |
 | `UpstreamTokenExchanger` | Portable TLS exchange, registered endpoint trust and secret reference resolution |
 | `GovernanceJobQueue` | PostgreSQL durable wake-ups, `SKIP LOCKED` claim, lease fencing and retry |
 | `Notifier` | SMTP delivery with durable/idempotent recovery notification handling |

@@ -1298,9 +1298,11 @@ impl crate::ports::UpstreamTokenExchanger for UpstreamTokenExchangerImpl {
     }
 }
 
-/// secret 解析器端口枚举分发(spec 003 §4)。dev/测试 = Memory(预置引用名→明文);真机 = Secrets Manager。
+/// Secret 解析器端口枚举分发。dev/测试 = Memory;AWS = Secrets Manager;portable = 挂载文件。
 #[derive(Clone)]
 pub enum SecretResolverImpl {
+    #[cfg(feature = "postgres")]
+    File(crate::adapters::file_secrets::FileSecretResolver),
     Memory(crate::adapters::memory::MemorySecretResolver),
     #[cfg(feature = "aws")]
     SecretsManager(crate::adapters::aws::SecretsManagerResolver),
@@ -1309,6 +1311,8 @@ pub enum SecretResolverImpl {
 impl crate::ports::SecretResolver for SecretResolverImpl {
     async fn resolve(&self, secret_ref: &str) -> Result<Option<String>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::File(s) => s.resolve(secret_ref).await,
             SecretResolverImpl::Memory(s) => s.resolve(secret_ref).await,
             #[cfg(feature = "aws")]
             SecretResolverImpl::SecretsManager(s) => s.resolve(secret_ref).await,
@@ -9536,7 +9540,7 @@ impl AppState {
     pub async fn secret_resolver_seed(&self, secret_ref: &str, plaintext: &str) {
         match self.secret_resolver.as_ref() {
             SecretResolverImpl::Memory(m) => m.seed(secret_ref, plaintext).await,
-            #[cfg(feature = "aws")]
+            #[cfg(any(feature = "aws", feature = "postgres"))]
             _ => {}
         }
     }

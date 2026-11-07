@@ -157,6 +157,7 @@ dependencies = [
  "httpdate",
  "lambda_http",
  "lambda_runtime 0.13.0",
+ "libc",
  "p256",
  "percent-encoding",
  "rand 0.8.6",

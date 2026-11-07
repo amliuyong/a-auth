@@ -1,5 +1,7 @@
 //! 端口的适配器实现:内存(本地/测试)+ AWS(真机,`aws` feature)。
 
+#[cfg(feature = "postgres")]
+pub mod file_secrets;
 pub(crate) mod governance_state;
 pub mod memory;
 pub mod memory_attribute_namespaces;
