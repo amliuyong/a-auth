@@ -12,7 +12,7 @@ must not become production fallback authority.
 
 ## Implemented PostgreSQL authority
 
-These twenty-four traits have PostgreSQL adapters. Shared contracts exercise the
+These twenty-five traits have PostgreSQL adapters. Shared contracts exercise the
 memory, actual AWS adapters against a loopback emulator, and PostgreSQL
 implementations. The delivery ledger records the candidate validation results.
 The AWS grace contract additionally uses a loopback KMS response fixture;
@@ -44,6 +44,7 @@ it does not establish native KMS acceptance.
 | `PasswordStore` | Separate validated PHC hashes, version CAS, temporary/pending predicates and exhaustion rejection |
 | `GraceStore` | Per-record encrypted responses, authenticated family/version/expiry, external key rotation and delete-only capability |
 | [`SecurityEventStore`](../crates/http/src/security_event.rs) | Immutable typed events, idempotent admission, atomic source-history reconciliation and tenant/time pagination |
+| [`FederationAttributeMappingsStore`](../crates/http/src/federation_attributes.rs) | Tenant-locked registry/mapping CAS, unique enabled target owners, permanent retired IDs and validated snapshots |
 
 Cross-port work remains necessary even when individual traits are implemented.
 Raw port CRUD must not replace an authorized transaction involving user,
@@ -51,7 +52,7 @@ credential, session, client, grant, or attribute authority.
 
 ## Remaining persistent authority
 
-The first nine traits below are in `ports.rs`; the last four are in their
+The first nine traits below are in `ports.rs`; the last three are in their
 linked modules. Optional protocol surfaces need either a complete production
 implementation or an explicit disabled capability with its existing
 fail-closed behavior. They must never silently select memory stores.
@@ -67,7 +68,6 @@ fail-closed behavior. They must never silently select memory stores.
 | `RecoveryStore` | Code HMACs, bounded failures, exact-operation success receipt and credential/session transaction |
 | `MessageOutbox` | Notification observation/delivery state, subject erasure and secret protection where retained |
 | `CibaStore` | Claim/consume fencing, encrypted durable push response, callback state |
-| [`FederationAttributeMappingsStore`](../crates/http/src/federation_attributes.rs) | Versioned mappings, source ownership and authorized reconciliation |
 | [`SsfStore`](../crates/http/src/ssf.rs) | Stream ownership/config generation, durable outbox and delivery receipts |
 | [`PaymentRegistry`](../crates/http/src/payment/registry.rs) | Trusted owner/version-bound funding and payee records when payments are enabled |
 | [`PaymentStore`](../crates/http/src/payment/store.rs) | Order uniqueness, status/revision CAS and durable unsettled attempts when payments are enabled |

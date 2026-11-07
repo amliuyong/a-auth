@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::ports::StoreError;
 
+pub(crate) mod catalog;
+
 pub const MAPPINGS_MAX_PER_IDP: usize = 32;
 pub const MAPPING_REGISTRY_MAX_BYTES: usize = 65_536;
 const MAPPING_ID_MAX_BYTES: usize = 128;

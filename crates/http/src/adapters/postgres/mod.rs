@@ -13,6 +13,7 @@ mod codes;
 mod device;
 mod domain_map;
 mod federation;
+mod federation_mappings;
 mod grace;
 mod grants;
 mod initial_access_tokens;

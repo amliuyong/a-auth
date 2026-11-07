@@ -85,15 +85,16 @@ The `postgres` feature currently provides `PostgresStore` implementations for
 `JtiStore`, `AuthzSessionStore`, `RateLimitStore`, `FederationConfigStore`,
 `FederationFlowStore`, `MagicLinkStore`, `WorkloadTrustStore`, `DomainMapStore`,
 `PasskeyChallengeStore`, `DeviceStore`, `AdminAuthStore`,
-`AttributeNamespaceStore`, `PasswordStore`, and `SecurityEventStore`.
+`AttributeNamespaceStore`, `PasswordStore`, `SecurityEventStore`, and
+`FederationAttributeMappingsStore`.
 `PostgresGraceStore` implements
 `GraceStore` with an explicit external encryption key ring or a delete-only
-capability. Twenty-four embedded forward
+capability. Twenty-five embedded forward
 migrations create their authority tables and credential-free client reclaim
 audit metadata.
 
-The current shared suite passes 83 cases: twenty-four contracts run through each of
-the memory, AWS, and PostgreSQL adapters, plus eleven PostgreSQL-specific
+The current shared suite passes 87 cases: twenty-five contracts run through each of
+the memory, AWS, and PostgreSQL adapters, plus twelve PostgreSQL-specific
 transaction/durability cases. AWS adapters run against a loopback DynamoDB
 emulator; PostgreSQL adapters run against PostgreSQL 16. This does not establish
 native AWS deployment acceptance.
@@ -154,6 +155,20 @@ neighbors; duplicate writes against corrupt authority still fail closed.
 The memory adapter now applies the same source-history merge, following a
 reproduced shared-contract failure. Durable fallback ingestion, archive workers
 and their multiple-worker acceptance remain pending.
+Federation attribute mappings share pure transition rules with memory and use
+a locked PostgreSQL tenant catalog. Registry/mapping revisions fence updates;
+enabled target ownership is unique across IdPs, and deleted mapping IDs remain
+unavailable for reuse. Sixteen competing IdPs admit one target owner. Contracts
+also check target release/reacquisition, issuer rebinding, the empty self-hosted
+tenant, bounded registries and logical governance counts.
+The complete JSON-text snapshot validates registry identities, target owners and
+permanent markers together. Missing or inconsistent data fails closed on reads
+and writes; it cannot become an empty registry. An actual second-write failure
+rolls back initial catalog admission. Exhausted revisions preserve ownership.
+Two additional domain regressions reproduced and corrected premature target
+release in the original memory disable/delete transitions.
+Raw mapping CRUD does not complete the required configuration, namespace and
+user-authorized reconciliation transaction.
 Cross-table tests check that code/family creation updates the client authority
 revision atomically, that failed conditions roll back the new row, and that
 duplicate creation cannot resurrect consumed codes or revoked families.
@@ -192,8 +207,10 @@ hash/metadata while keeping the already-started user revocation fence.
 The grace contract also reproduced memory cleanup deleting another family
 whose name shared a prefix. Cleanup now compares the exact family identity.
 
-Current local validation passes 680 HTTP library tests with both
-`postgres` and `aws`, and 31 security-event/SCIM HTTP regressions.
+Current local validation passes 682 HTTP library tests with both
+`postgres` and `aws`, and 33 RS attribute/federation mapping HTTP regressions.
+The security-event increment `c4bf77de6b236754118e1a7f35c468d7f27a65f7`
+passed 31 security-event/SCIM HTTP regressions.
 The grace increment `f5bdb5c7e64010b6beff5589804534a172538ad4` passed
 114 code-flow/refresh/revocation HTTP regressions and hosted CI.
 The password increment `f1b8604343396c7223174742937414c08c97f04d` passed
