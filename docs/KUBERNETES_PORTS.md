@@ -12,7 +12,7 @@ must not become production fallback authority.
 
 ## Implemented PostgreSQL authority
 
-These twenty-nine traits have PostgreSQL adapters. Shared contracts exercise the
+These thirty traits have PostgreSQL adapters. Shared contracts exercise the
 memory, actual AWS adapters against a loopback emulator, and PostgreSQL
 implementations. The delivery ledger records the candidate validation results.
 The AWS grace contract additionally uses a loopback KMS response fixture;
@@ -49,6 +49,7 @@ it does not establish native KMS acceptance.
 | `ScimGroupsStore` | Tenant-fenced unique active aliases, irreversible group IDs, explicit role mappings and atomic membership batches |
 | `SessionStore` | Captured user generation, session ID collision rejection, actor-fenced revocation and atomic retained-session generation changes |
 | `RecoveryStore` | Locked one-time code consumption, bounded failures and lockout, complete private success receipts and atomic tenant cleanup |
+| `PasskeyStore` | Create-once credential IDs, owner-fenced rename/deletion, monotonic counter CAS and atomic user/tenant cleanup |
 
 Cross-port work remains necessary even when individual traits are implemented.
 Raw port CRUD must not replace an authorized transaction involving user,
@@ -56,14 +57,13 @@ credential, session, client, grant, or attribute authority.
 
 ## Remaining persistent authority
 
-The first five traits below are in `ports.rs`; the last three are in their
+The first four traits below are in `ports.rs`; the last three are in their
 linked modules. Optional protocol surfaces need either a complete production
 implementation or an explicit disabled capability with its existing
 fail-closed behavior. They must never silently select memory stores.
 
 | Trait | Required durable behavior |
 | --- | --- |
-| `PasskeyStore` | Credential uniqueness, signature-counter CAS, user/epoch/session authority |
 | `GovernanceStore` | Legal holds, job ownership/checkpoints, suppression and retention evidence |
 | `InvitationStore` | Verifier-only persistence, idempotent issue and atomic onboarding/session commit |
 | `MessageOutbox` | Notification observation/delivery state, subject erasure and secret protection where retained |

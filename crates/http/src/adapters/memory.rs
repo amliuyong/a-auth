@@ -4520,6 +4520,9 @@ impl crate::ports::PasskeyStore for MemoryPasskeyStore {
         new_count: u32,
         expected_prev: u32,
     ) -> Result<bool, StoreError> {
+        if !agent_auth_authn::passkey::permits_sign_count_update(expected_prev, new_count) {
+            return Ok(false);
+        }
         // 锁内 CAS:仅当当前 sign_count == expected_prev 才写 new(防克隆并发/回退)。
         let mut map = self.map.lock().await;
         match map.get_mut(&(tenant.to_string(), credential_id.to_string())) {

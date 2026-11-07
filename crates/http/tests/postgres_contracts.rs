@@ -96,6 +96,12 @@ mod recovery_fault_contracts;
 #[path = "postgres/recovery_aws_races.rs"]
 mod recovery_aws_race_contracts;
 
+#[path = "postgres/passkeys.rs"]
+mod passkey_contracts;
+
+#[path = "postgres/passkeys_faults.rs"]
+mod passkey_fault_contracts;
+
 #[cfg(feature = "aws")]
 #[path = "postgres/aws.rs"]
 mod aws_contract_database;

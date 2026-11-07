@@ -87,17 +87,17 @@ The `postgres` feature currently provides `PostgresStore` implementations for
 `PasskeyChallengeStore`, `DeviceStore`, `AdminAuthStore`,
 `AttributeNamespaceStore`, `PasswordStore`, `SecurityEventStore`, and
 `FederationAttributeMappingsStore`, `ScimGroupsStore`, `SessionStore`, and
-`RecoveryStore`.
+`RecoveryStore` and `PasskeyStore`.
 `PostgresUsersStore` implements all twenty-five `UsersStore` methods with a
 required external HMAC authority key.
 `PostgresGraceStore` implements
 `GraceStore` with an explicit external encryption key ring or a delete-only
-capability. Thirty embedded forward
+capability. Thirty-one embedded forward
 migrations create their authority tables and credential-free client reclaim
 audit metadata.
 
-The current shared suite passes 120 cases: twenty-nine contracts run through each of
-the memory, AWS, and PostgreSQL adapters, plus thirty PostgreSQL-specific
+The current shared suite passes 125 cases: thirty contracts run through each of
+the memory, AWS, and PostgreSQL adapters, plus thirty-two PostgreSQL-specific
 transaction/durability cases and three AWS recovery interleaving/compatibility
 cases. AWS adapters run against a loopback DynamoDB
 emulator; PostgreSQL adapters run against PostgreSQL 16. This does not establish
@@ -260,6 +260,20 @@ generation, and both raw and authorized consumption require the row, version
 and captured generation. Legacy records gain a generation on consumption.
 Malformed generations and exhausted versions fail closed. Retries of an
 ambiguous transaction retain the same generation and transaction payload.
+Passkey credentials have no expiry. PostgreSQL locks the directory and complete
+credential row for create-once admission, signature-counter CAS, owner-bound
+rename/deletion and cleanup. Sixteen counter contenders have one winner;
+sixteen concurrent renamers preserve that counter and the complete public
+credential material. Actual rejected writes preserve admission, name and count.
+The private codec requires every field, including the public model's legacy
+defaulted name and registration time, and validates physical identity/counter
+metadata. Truncated or rebound rows fail without being overwritten.
+NUL-bearing records and full `u32` counter/`i64` registration limits round-trip.
+Shared contracts reproduced memory and AWS accepting a counter decrease.
+Assertion verification and all three stores now use one existing WebAuthn rule:
+positive counters must advance; counterless zero-to-zero transitions remain
+permitted. User/epoch/session-authorized registration and authentication
+transactions and production dispatch remain pending.
 Cross-table tests check that code/family creation updates the client authority
 revision atomically, that failed conditions roll back the new row, and that
 duplicate creation cannot resurrect consumed codes or revoked families.
@@ -305,6 +319,9 @@ loopback DynamoDB interleaving/compatibility cases and 118 account, credential,
 password, recovery, invitation, SCIM and session HTTP regressions.
 Recovery library regressions also preserve ambiguous-commit reconciliation
 and private receipt redaction.
+The passkey increment passes five new port/fault cases, three challenge
+regressions, 21 focused WebAuthn cryptographic tests and 108 passkey, account,
+credential, governance, invitation, password and recovery HTTP regressions.
 The group increment `34050c9670abf64d610fad85e41aa8a9baac47ae` passed
 47 SCIM, Admin SSO and data-governance HTTP
 regressions, along with six focused group contract/fault cases.

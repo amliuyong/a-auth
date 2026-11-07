@@ -5622,6 +5622,9 @@ impl crate::ports::PasskeyStore for DynamoPasskeyStore {
         new_count: u32,
         expected_prev: u32,
     ) -> Result<bool, StoreError> {
+        if !agent_auth_authn::passkey::permits_sign_count_update(expected_prev, new_count) {
+            return Ok(false);
+        }
         // 条件 UpdateItem CAS:仅当 sign_count == expected_prev 才写 new(防克隆并发/回退)。
         // 同步更新 cred_json 里的 sign_count 需读-改-写;为原子性,这里只更新独立 sign_count 属性,
         // 且 from_item 以 cred_json 为准——故 CAS 后须回写 json。简化:读当前、CAS 校验、条件写整条。

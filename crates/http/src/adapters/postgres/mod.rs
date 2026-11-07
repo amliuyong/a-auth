@@ -20,6 +20,7 @@ mod initial_access_tokens;
 mod jti;
 mod magic_links;
 mod passkey_challenges;
+mod passkeys;
 mod passwords;
 mod policy;
 mod rate_limits;
