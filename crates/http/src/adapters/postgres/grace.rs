@@ -61,7 +61,7 @@ impl PostgresGraceStore {
         })
     }
 
-    pub(super) fn belongs_to(&self, store: &PostgresStore) -> bool {
+    pub(crate) fn belongs_to(&self, store: &PostgresStore) -> bool {
         Arc::ptr_eq(&self.store.identity, &store.identity)
     }
 

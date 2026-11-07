@@ -24,6 +24,78 @@ impl PostgresSsfStore {
         Self { store, keys }
     }
 
+    pub(crate) fn belongs_to(&self, store: &PostgresStore) -> bool {
+        self.store.shares_pool_with(store)
+    }
+
+    pub(super) async fn governance_inventory(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        tenant: &str,
+    ) -> Result<[u64; 5], StoreError> {
+        let mut counts = [0; 5];
+        for stream in Self::streams(tx, tenant).await? {
+            counts[usize::from(stream.status == SsfStreamStatus::Revoked)] += 1;
+        }
+        let rows = sqlx::query(&format!(
+            "SELECT {DELIVERY_COLUMNS} FROM a_auth.ssf_deliveries WHERE tenant = $1 \
+             ORDER BY stream_id, stream_revision, event_id FOR UPDATE"
+        ))
+        .bind(tenant.as_bytes())
+        .fetch_all(&mut **tx)
+        .await
+        .map_err(db_error)?;
+        for row in rows {
+            let delivery = decode_delivery(row, &self.keys)?;
+            let category = match delivery.status {
+                SsfDeliveryStatus::Pending | SsfDeliveryStatus::RetryWait => 2,
+                SsfDeliveryStatus::Suppressed => 3,
+                SsfDeliveryStatus::Delivered
+                | SsfDeliveryStatus::Terminal
+                | SsfDeliveryStatus::DeadLettered => 4,
+            };
+            counts[category] += 1;
+        }
+        Ok(counts)
+    }
+
+    pub(super) async fn revoke_in_transaction(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        tenant_id: &str,
+        now: i64,
+    ) -> Result<usize, StoreError> {
+        timestamp(now)?;
+        let mut changed = 0;
+        for mut stream in Self::streams(tx, tenant_id).await? {
+            if stream.status == SsfStreamStatus::Revoked {
+                continue;
+            }
+            stream.revision = stream
+                .revision
+                .checked_add(1)
+                .ok_or_else(|| StoreError::Permanent("stream revision exhausted".into()))?;
+            stream.status = SsfStreamStatus::Revoked;
+            stream.updated_at = now;
+            write_stream(tx, &stream).await?;
+            changed += 1;
+        }
+        let rows = sqlx::query(&format!(
+            "SELECT {DELIVERY_COLUMNS} FROM a_auth.ssf_deliveries WHERE tenant = $1 \
+             AND status IN ('pending', 'retry_wait') ORDER BY stream_id, stream_revision, event_id FOR UPDATE"
+        )).bind(tenant_id.as_bytes()).fetch_all(&mut **tx).await.map_err(db_error)?;
+        for row in rows {
+            let mut delivery = decode_delivery(row, &self.keys)?;
+            delivery.status = SsfDeliveryStatus::Suppressed;
+            delivery.updated_at = now;
+            delivery.lease_id = None;
+            delivery.lease_expires_at = None;
+            write_delivery(tx, &self.keys, &delivery).await?;
+            changed += 1;
+        }
+        Ok(changed)
+    }
+
     async fn transaction(&self, tenant: &str) -> Result<Transaction<'_, Postgres>, StoreError> {
         let mut tx = self.store.pool.begin().await.map_err(db_error)?;
         PostgresUsersStore::lock_directory(&mut tx, tenant).await?;
@@ -605,35 +677,8 @@ impl SsfStore for PostgresSsfStore {
     }
 
     async fn revoke_all_by_tenant(&self, tenant_id: &str, now: i64) -> Result<usize, StoreError> {
-        timestamp(now)?;
         let mut tx = self.transaction(tenant_id).await?;
-        let mut changed = 0;
-        for mut stream in Self::streams(&mut tx, tenant_id).await? {
-            if stream.status == SsfStreamStatus::Revoked {
-                continue;
-            }
-            stream.revision = stream
-                .revision
-                .checked_add(1)
-                .ok_or_else(|| StoreError::Permanent("stream revision exhausted".into()))?;
-            stream.status = SsfStreamStatus::Revoked;
-            stream.updated_at = now;
-            write_stream(&mut tx, &stream).await?;
-            changed += 1;
-        }
-        let rows = sqlx::query(&format!(
-            "SELECT {DELIVERY_COLUMNS} FROM a_auth.ssf_deliveries WHERE tenant = $1 \
-             AND status IN ('pending', 'retry_wait') ORDER BY stream_id, stream_revision, event_id FOR UPDATE"
-        )).bind(tenant_id.as_bytes()).fetch_all(&mut *tx).await.map_err(db_error)?;
-        for row in rows {
-            let mut delivery = decode_delivery(row, &self.keys)?;
-            delivery.status = SsfDeliveryStatus::Suppressed;
-            delivery.updated_at = now;
-            delivery.lease_id = None;
-            delivery.lease_expires_at = None;
-            write_delivery(&mut tx, &self.keys, &delivery).await?;
-            changed += 1;
-        }
+        let changed = self.revoke_in_transaction(&mut tx, tenant_id, now).await?;
         tx.commit().await.map_err(db_error)?;
         Ok(changed)
     }

@@ -46,20 +46,25 @@ it does not establish native KMS acceptance.
 | `GraceStore` | Per-record encrypted responses, authenticated family/version/expiry, external key rotation and delete-only capability |
 | [`SecurityEventStore`](../crates/http/src/security_event.rs) | Immutable typed events, idempotent admission, atomic source-history reconciliation and tenant/time pagination |
 | [`FederationAttributeMappingsStore`](../crates/http/src/federation_attributes.rs) | Tenant-locked registry/mapping CAS, unique enabled target owners, permanent retired IDs and validated snapshots |
-| `UsersStore` | Tenant-fenced canonical/SCIM alias admission, operation-owned credential epochs, namespace-fenced attribute CAS, mapping-fenced reconciliation/owner purge, irreversible erasure fence and authenticated pagination |
+| `UsersStore` | Tenant-fenced canonical/SCIM alias admission with durable user/tenant suppression, operation-owned credential epochs, namespace-fenced attribute CAS, mapping-fenced reconciliation/owner purge, irreversible erasure fence and authenticated pagination |
 | `ScimGroupsStore` | Tenant-fenced unique active aliases, irreversible group IDs, explicit role mappings and atomic membership batches |
 | `SessionStore` | Captured user generation, session ID collision rejection, actor-fenced revocation and atomic retained-session generation changes |
 | `RecoveryStore` | Operation-owned rotation, atomic code/user/session generation/receipt consumption, current-authority replay, bounded failures/lockout and atomic tenant cleanup |
 | `PasskeyStore` | User/session generation-authorized registration, operation-owned deletion/completion, create-once credential IDs, monotonic counter CAS and atomic user/tenant cleanup |
 | `InvitationStore` | Verifier-only issue bound to active local user/password absence, atomic consume/session creation and scoped invalidation |
 | `MessageOutbox` | Encrypted immutable delivery observations, deterministic tenant/time selection, recipient erasure and keyless tenant cleanup |
-| `GovernanceStore` | Tenant-locked legal holds, job/lease/continuation CAS, permanent suppression, immutable evidence and atomic task completion |
+| `GovernanceStore` | Tenant-locked legal holds, job/lease/continuation CAS, lease/policy/lifecycle-authorized user and tenant data transactions, snapshot residual inventory, permanent suppression, immutable evidence and atomic task completion |
 | `CibaStore` | Complete encrypted callback/request snapshots, field-level polling/decision/consumption CAS, bounded-arithmetic throttle and atomic request/throttle cleanup |
 | [`SsfStore`](../crates/http/src/ssf.rs) | Generation-bound streams, encrypted signed SETs/lease credentials/history, `SKIP LOCKED` claims and atomic retained-audit revocation |
 
 Cross-port work remains necessary even when individual traits are implemented.
 Raw port CRUD must not replace an authorized transaction involving user,
 credential, session, client, grant, or attribute authority.
+All seven existing governance data operations select coherent PostgreSQL
+ports. Destructive commits recheck the claimed lease after row-lock waits;
+cleanup retains SSF audit and erases credential/session/recovery/notification
+authority atomically. These data-plane fixtures do not establish production
+startup, durable queues or native worker acceptance.
 
 ## Remaining persistent authority
 

@@ -14,6 +14,7 @@ use zeroize::Zeroizing;
 mod attribute_authority;
 mod code_authority;
 mod federation_authority;
+mod governance_authority;
 mod invitations;
 mod passkey_authority;
 mod password_authority;
@@ -709,6 +710,11 @@ impl PostgresUsersStore {
         self.base.shares_pool_with(store)
     }
 
+    pub(crate) fn matches_governance_key(&self, key: &[u8]) -> bool {
+        use subtle::ConstantTimeEq;
+        self.key.bytes().ct_eq(key).into()
+    }
+
     pub(crate) async fn begin_admin_credential_change(
         &self,
         tenant: &str,
@@ -895,6 +901,28 @@ impl PostgresUsersStore {
     ) -> Result<(), StoreError> {
         self.bind_authority(transaction).await?;
         let tenant = if tenant.is_empty() { "default" } else { tenant };
+        let tenant_digest = crate::governance::suppression_digest(
+            self.key.bytes(),
+            tenant,
+            "tenant",
+            "tenant_id",
+            SUPPRESSION_NORMALIZATION_VERSION,
+            tenant,
+        );
+        let tenant_suppressed: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM a_auth.governance_suppressions \
+             WHERE tenant = $1 AND target_class = 'tenant' AND digest = $2)",
+        )
+        .bind(tenant.as_bytes())
+        .bind(tenant_digest.as_bytes())
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(db_error)?;
+        if tenant_suppressed {
+            return Err(StoreError::Permanent(
+                "Tenant is permanently suppressed".into(),
+            ));
+        }
         for (kind, value) in aliases {
             let digest = crate::governance::suppression_digest(
                 self.key.bytes(),

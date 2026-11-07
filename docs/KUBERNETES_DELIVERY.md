@@ -122,7 +122,7 @@ from different pool identities. User-authorized code issuance, active-client
 Grant admission, password enrollment/rotation and operation-owned administrator
 password reset now use PostgreSQL transactions as well. Recovery rotation,
 consumption/receipt creation and passkey registration/deletion are wired too.
-Governance-authorized data-plane operations remain pending.
+All seven existing governance data-plane operations now select PostgreSQL.
 
 Client authority reads and locked writes require the complete stored typed
 record, including nullable retirement fields, and its physical client ID.
@@ -162,6 +162,29 @@ completion together; an actual second-write rejection retains both the key and
 revocation fence. These ceremonies use a test `fmt=none` authenticator and do
 not establish hardware-authenticator or installed conformance acceptance.
 
+Governance erasure locks the tenant directory and complete governance authority
+before data rows. Destructive writes require the exact job, policy, lifecycle,
+lease token/deadline and target epoch; user operations also bind the job's
+canonical target and aliases. A final lease check after waiting for data locks
+rolls back tentative effects when the lease expires. Every participating port
+must use the same pool identity, and the user's stable authority key must match
+the configured governance HMAC. User and tenant suppression are checked during
+identity admission.
+
+User cleanup commits credentials, sessions/generations, recovery receipts,
+associated authorization sessions, refresh grace, notifications and group
+membership together. Tenant cleanup preserves its durable stage cursor,
+removes orphan protocol/configuration authority, and revokes SSF streams and
+active deliveries while retaining tombstones and audit. Residual inventory
+uses a database snapshot; SSF inventory validates encrypted authority too.
+Four owned-database fixtures use independent pools to exercise HTTP-started
+user erasure and tenant offboarding, permanent alias/tenant suppression,
+foreign-pool and HMAC mismatch rejection, lease expiry during an observed SQL
+row-lock wait, and actual late-write failures that roll back earlier deletes
+or stream revocation. The fixtures use development control/transports and
+explicit PostgreSQL data-plane composition. Production startup, durable queue
+admission, native workers and installed acceptance remain pending.
+
 Federated attribute reconciliation locks namespace, mapping and user authority
 in that order. Owner purge locks the mapping registry before the user and
 preserves the complete private user record. Configuration and mapping changes
@@ -171,8 +194,8 @@ IdP against the physical row identity. Authorized administrator attribute
 writes also lock namespace authority before the user, recheck the captured
 authority and retain the raw attribute CAS and federation ownership rules.
 
-The current shared suite contains 177 cases: thirty-five contracts run through each of
-the memory, AWS, and PostgreSQL adapters, plus sixty-nine PostgreSQL-specific
+The current shared suite contains 181 cases: thirty-five contracts run through each of
+the memory, AWS, and PostgreSQL adapters, plus seventy-three PostgreSQL-specific
 transaction/durability cases and three AWS recovery interleaving/compatibility
 cases. AWS adapters run against a loopback DynamoDB
 emulator; PostgreSQL adapters run against PostgreSQL 16. This does not establish
@@ -274,7 +297,8 @@ writer committed; the shared fence now prevents that admission.
 SCIM adoption checks the selected canonical identity as well as the proposed
 ID, so another candidate cannot bypass its suppression.
 The governance writer now publishes suppression under that same fence.
-Destructive-job authorization and production dispatch remain pending.
+Destructive-job authorization now uses the transactions described above.
+Production startup and installed acceptance remain pending.
 Raw user lifecycle and attribute methods do not complete the
 required credential/session and namespace-authorized transactions.
 SCIM groups retain retired canonical IDs while releasing their active external
@@ -318,7 +342,7 @@ standby HTTP runtime policies grant transaction reads on the exact user table;
 the configuration tests inspect each role's inline and managed policies.
 Password enrollment/rotation, administrator reset, recovery consumption/rotation
 and passkey registration/deletion are wired as described above. Production
-startup, governance data authorization and installed acceptance remain pending.
+startup and installed acceptance remain pending.
 Recovery code consumption locks the tenant directory and complete code set
 within one transaction. It preserves the existing constant-time verifier,
 failed-attempt limit, lockout boundary and regeneration behavior. Only HMAC
@@ -388,8 +412,8 @@ the same concurrent deletion repeatedly. Memory now limits after sorting;
 AWS recipient and tenant cleanup count successful conditional deletions.
 The explicit observation writer and test notification fixture do not establish
 SMTP delivery. Production SMTP, durable delivery state/leases, recovery
-notification handling, governance-authorized erasure and worker acceptance remain
-required.
+notification handling and native worker acceptance remain required.
+Governance-authorized erasure now uses the transactions described above.
 Governance transitions share the extracted domain rules with memory.
 PostgreSQL locks the same tenant directory as identity admission before reading
 or changing policy, job, lease, permit, continuation or external-action authority.
@@ -413,8 +437,8 @@ export authority while preserving a concurrently recreated live export.
 All three stores reject an external action whose resource fingerprint does not
 match its reference, following a reproduced memory/AWS contract failure.
 The control snapshot rewrites tenant state on mutation; this does not establish
-performance acceptance. Governance-authorized data-plane transactions, production
-dispatch, durable queues and native worker acceptance remain required.
+performance acceptance. Governance-authorized data-plane transactions are wired;
+production startup, durable queues and native worker acceptance remain required.
 CIBA request snapshots use per-record encryption, including the per-request
 notification credential, binding message, delivery destination and captured
 password version. Authentication binds the CIBA purpose, tenant, request,
@@ -616,8 +640,8 @@ These are implemented adapter capabilities. Production startup, mount
 isolation and cluster rotation acceptance remain pending.
 
 The production server does not select PostgreSQL yet. Remaining work includes
-startup for every enabled self-hosted port, the remaining cross-port
-credential/user/session/grant and governance transactions, encrypted-state
+startup for every enabled self-hosted port, qualification of the authorized
+cross-port transactions in the production runtime, encrypted-state
 and mounted-signer startup, portable transports/notifications, workers, chart/image
 delivery, and all acceptance campaigns in the ledger above. Keep the PR in
 draft and the issue open until these requirements are implemented and verified.

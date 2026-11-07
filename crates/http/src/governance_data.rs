@@ -172,6 +172,168 @@ fn memory_user_plane(
     })
 }
 
+#[cfg(feature = "postgres")]
+fn postgres_user_plane(
+    state: &AppState,
+) -> Result<
+    (
+        &crate::adapters::postgres::PostgresGovernanceStore,
+        bool,
+        bool,
+    ),
+    StoreError,
+> {
+    let mismatch = || backend_mismatch("PostgreSQL pool");
+    let GovernanceStoreImpl::Postgres(governance) = state.governance.as_ref() else {
+        return Err(mismatch());
+    };
+    let UsersStoreImpl::Postgres(users) = state.users.as_ref() else {
+        return Err(mismatch());
+    };
+    let (
+        CodeStoreImpl::Postgres(codes),
+        SessionStoreImpl::Postgres(sessions),
+        RefreshStoreImpl::Postgres(refresh),
+        PasskeyChallengeStoreImpl::Postgres(challenges),
+        PasskeyStoreImpl::Postgres(passkeys),
+        GrantStoreImpl::Postgres(grants),
+        DeviceStoreImpl::Postgres(device),
+        RecoveryStoreImpl::Postgres(recovery),
+        PasswordStoreImpl::Postgres(passwords),
+        MagicLinkStoreImpl::Postgres(links),
+        ScimGroupsStoreImpl::Postgres(groups),
+        AdminAuthStoreImpl::Postgres(admin),
+        AuthzSessionStoreImpl::Postgres(authz),
+    ) = (
+        state.codes.as_ref(),
+        state.sessions.as_ref(),
+        state.refresh.as_ref(),
+        state.passkey_challenges.as_ref(),
+        state.passkeys.as_ref(),
+        state.grants.as_ref(),
+        state.device.as_ref(),
+        state.recovery.as_ref(),
+        state.passwords.as_ref(),
+        state.magic_links.as_ref(),
+        state.scim_groups.as_ref(),
+        state.admin_auth.as_ref(),
+        state.authz_sessions.as_ref(),
+    )
+    else {
+        return Err(mismatch());
+    };
+    let (
+        CibaStoreImpl::Postgres(ciba),
+        InvitationStoreImpl::Postgres(invitations),
+        MessageOutboxImpl::Postgres(messages),
+    ) = (
+        state.ciba.as_ref(),
+        state.invitations.as_ref(),
+        state.messages.as_ref(),
+    )
+    else {
+        return Err(mismatch());
+    };
+    if !governance.belongs_to(codes)
+        || !users.belongs_to(codes)
+        || !users.matches_governance_key(&state.governance_hmac_key)
+        || !ciba.belongs_to(codes)
+        || !invitations.belongs_to(codes)
+        || !messages.belongs_to(codes)
+        || [
+            sessions, refresh, challenges, passkeys, grants, device, recovery, passwords, links,
+            groups, admin, authz,
+        ]
+        .iter()
+        .any(|store| !store.shares_pool_with(codes))
+    {
+        return Err(mismatch());
+    }
+    let grace = match state.grace.as_deref() {
+        Some(GraceStoreImpl::Postgres(store)) if store.belongs_to(codes) => true,
+        Some(_) => return Err(mismatch()),
+        None => false,
+    };
+    let jtis = match state.jti_store.as_deref() {
+        Some(JtiStoreImpl::Postgres(store)) if store.shares_pool_with(codes) => true,
+        Some(_) => return Err(mismatch()),
+        None => false,
+    };
+    Ok((governance, grace, jtis))
+}
+
+#[cfg(feature = "postgres")]
+pub(crate) struct PostgresTenantPlane<'a> {
+    pub(crate) governance: &'a crate::adapters::postgres::PostgresGovernanceStore,
+    pub(crate) ssf: &'a crate::adapters::postgres::PostgresSsfStore,
+    pub(crate) grace: bool,
+    pub(crate) jtis: bool,
+    pub(crate) replay: bool,
+    pub(crate) rate_limit: bool,
+}
+
+#[cfg(feature = "postgres")]
+fn postgres_tenant_plane(state: &AppState) -> Result<PostgresTenantPlane<'_>, StoreError> {
+    let (governance, grace, jtis) = postgres_user_plane(state)?;
+    let mismatch = || backend_mismatch("PostgreSQL pool");
+    let (
+        ClientStoreImpl::Postgres(clients),
+        InitialAccessTokenStoreImpl::Postgres(iats),
+        FederationConfigStoreImpl::Postgres(federation),
+        FederationAttributeMappingsStoreImpl::Postgres(mappings),
+        WorkloadTrustStoreImpl::Postgres(workload),
+        FederationFlowStoreImpl::Postgres(flows),
+        ParStoreImpl::Postgres(par),
+        DomainMapStoreImpl::Postgres(domains),
+        PolicyArtifactStoreImpl::Postgres(artifacts),
+        PolicyVersionStoreImpl::Postgres(versions),
+        SsfStoreImpl::Postgres(ssf),
+    ) = (
+        state.clients.as_ref(),
+        state.initial_access_tokens.as_ref(),
+        state.federation_config.as_ref(),
+        state.federation_attribute_mappings.as_ref(),
+        state.workload_trust.as_ref(),
+        state.federation_flow.as_ref(),
+        state.par.as_ref(),
+        state.domain_map.as_ref(),
+        state.policy_artifacts.as_ref(),
+        state.policy_versions.as_ref(),
+        state.ssf.as_ref(),
+    )
+    else {
+        return Err(mismatch());
+    };
+    if !governance.belongs_to(clients)
+        || !ssf.belongs_to(clients)
+        || [
+            iats, federation, mappings, workload, flows, par, domains, artifacts, versions,
+        ]
+        .iter()
+        .any(|store| !store.shares_pool_with(clients))
+    {
+        return Err(mismatch());
+    }
+    let replay = match state.replay_store.as_deref() {
+        Some(ReplayStoreImpl::Postgres(store)) if store.shares_pool_with(clients) => true,
+        Some(_) => return Err(mismatch()),
+        None => false,
+    };
+    let rate_limit = match state.rate_limit.as_deref() {
+        Some(RateLimitStoreImpl::Postgres(store)) if store.shares_pool_with(clients) => true,
+        Some(_) => return Err(mismatch()),
+        None => false,
+    };
+    Ok(PostgresTenantPlane {
+        governance,
+        ssf,
+        grace,
+        jtis,
+        replay,
+        rate_limit,
+    })
+}
+
 #[cfg(feature = "aws")]
 struct DynamoUserPlane<'a> {
     governance: &'a crate::adapters::aws::DynamoGovernanceStore,
@@ -298,9 +460,12 @@ pub(crate) async fn fence_user_identity(
 ) -> Result<Option<UserRecord>, StoreError> {
     match state.governance.as_ref() {
         #[cfg(feature = "postgres")]
-        GovernanceStoreImpl::Postgres(_) => Err(StoreError::Permanent(
-            "PostgreSQL governance data transaction is not wired".into(),
-        )),
+        GovernanceStoreImpl::Postgres(_) => {
+            postgres_user_plane(state)?
+                .0
+                .fence_user_identity(logical_tenant, data_tenant, user_id, fence, now)
+                .await
+        }
         GovernanceStoreImpl::Memory(_) => {
             memory_user_plane(state)?
                 .fence_identity(logical_tenant, data_tenant, user_id, fence, now)
@@ -339,9 +504,21 @@ pub(crate) async fn cleanup_user_authority(
 ) -> Result<u64, StoreError> {
     match state.governance.as_ref() {
         #[cfg(feature = "postgres")]
-        GovernanceStoreImpl::Postgres(_) => Err(StoreError::Permanent(
-            "PostgreSQL governance data transaction is not wired".into(),
-        )),
+        GovernanceStoreImpl::Postgres(_) => {
+            let (governance, grace, jtis) = postgres_user_plane(state)?;
+            governance
+                .cleanup_user_authority(
+                    logical_tenant,
+                    data_tenant,
+                    user_id,
+                    &alias_values(aliases),
+                    grace,
+                    jtis,
+                    fence,
+                    now,
+                )
+                .await
+        }
         GovernanceStoreImpl::Memory(_) => {
             memory_user_plane(state)?
                 .cleanup_user(
@@ -626,9 +803,12 @@ pub(crate) async fn delete_user_identity(
 ) -> Result<bool, StoreError> {
     match state.governance.as_ref() {
         #[cfg(feature = "postgres")]
-        GovernanceStoreImpl::Postgres(_) => Err(StoreError::Permanent(
-            "PostgreSQL governance data transaction is not wired".into(),
-        )),
+        GovernanceStoreImpl::Postgres(_) => {
+            postgres_user_plane(state)?
+                .0
+                .delete_user_identity(logical_tenant, data_tenant, user_id, fence, now)
+                .await
+        }
         GovernanceStoreImpl::Memory(_) => {
             memory_user_plane(state)?
                 .delete_identity(logical_tenant, data_tenant, user_id, fence, now)
@@ -667,9 +847,19 @@ pub(crate) async fn inventory_user_authority(
 ) -> Result<GovernanceInventory, StoreError> {
     match state.governance.as_ref() {
         #[cfg(feature = "postgres")]
-        GovernanceStoreImpl::Postgres(_) => Err(StoreError::Permanent(
-            "PostgreSQL governance data transaction is not wired".into(),
-        )),
+        GovernanceStoreImpl::Postgres(_) => {
+            let (governance, grace, jtis) = postgres_user_plane(state)?;
+            governance
+                .inventory_user_authority(
+                    logical_tenant,
+                    data_tenant,
+                    user_id,
+                    &alias_values(aliases),
+                    grace,
+                    jtis,
+                )
+                .await
+        }
         GovernanceStoreImpl::Memory(_) => Ok(GovernanceInventory {
             live_counts: memory_user_plane(state)?
                 .inventory_user(logical_tenant, data_tenant, user_id, &alias_values(aliases))
@@ -1221,9 +1411,11 @@ pub(crate) async fn cleanup_tenant_stage(
 ) -> Result<u64, StoreError> {
     match state.governance.as_ref() {
         #[cfg(feature = "postgres")]
-        GovernanceStoreImpl::Postgres(_) => Err(StoreError::Permanent(
-            "PostgreSQL governance data transaction is not wired".into(),
-        )),
+        GovernanceStoreImpl::Postgres(_) => {
+            postgres_tenant_plane(state)?
+                .cleanup_stage(logical_tenant, data_tenant, stage, fence, now)
+                .await
+        }
         GovernanceStoreImpl::Memory(_) => {
             memory_tenant_plane(state)?
                 .cleanup_stage(logical_tenant, data_tenant, stage, fence, now)
@@ -1721,9 +1913,11 @@ pub(crate) async fn inventory_tenant_authority(
 ) -> Result<GovernanceInventory, StoreError> {
     match state.governance.as_ref() {
         #[cfg(feature = "postgres")]
-        GovernanceStoreImpl::Postgres(_) => Err(StoreError::Permanent(
-            "PostgreSQL governance data transaction is not wired".into(),
-        )),
+        GovernanceStoreImpl::Postgres(_) => {
+            postgres_tenant_plane(state)?
+                .inventory(logical_tenant, data_tenant)
+                .await
+        }
         GovernanceStoreImpl::Memory(_) => {
             let mut inventory = memory_tenant_plane(state)?
                 .inventory_tenant(logical_tenant, data_tenant)
@@ -1757,9 +1951,24 @@ pub(crate) async fn first_tenant_user(
 ) -> Result<Option<UserRecord>, StoreError> {
     match state.governance.as_ref() {
         #[cfg(feature = "postgres")]
-        GovernanceStoreImpl::Postgres(_) => Err(StoreError::Permanent(
-            "PostgreSQL governance data transaction is not wired".into(),
-        )),
+        GovernanceStoreImpl::Postgres(_) => {
+            postgres_user_plane(state)?;
+            let UsersStoreImpl::Postgres(users) = state.users.as_ref() else {
+                return Err(backend_mismatch("PostgreSQL pool"));
+            };
+            Ok(users
+                .list(
+                    data_tenant,
+                    1,
+                    None,
+                    None,
+                    crate::ports::UserListStatusFilter::All,
+                )
+                .await?
+                .0
+                .into_iter()
+                .next())
+        }
         GovernanceStoreImpl::Memory(_) => Ok(memory_user_plane(state)?
             .users
             .list(

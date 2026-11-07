@@ -159,6 +159,37 @@ async fn write(
     Ok(())
 }
 
+/// The caller holds the tenant directory and governance authority locks.
+pub(super) async fn remove_member_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    tenant: &str,
+    user_id: &str,
+    now: i64,
+) -> Result<usize, StoreError> {
+    let rows = sqlx::query(&format!(
+        "SELECT {COLUMNS} FROM a_auth.scim_groups WHERE tenant = $1 AND NOT deleted \
+         AND $2 = ANY(members) ORDER BY group_id FOR UPDATE"
+    ))
+    .bind(tenant.as_bytes())
+    .bind(user_id.as_bytes())
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(db_error)?;
+    let mut states = rows
+        .into_iter()
+        .map(decode)
+        .collect::<Result<Vec<_>, _>>()?;
+    for state in &mut states {
+        state.record.version = next_version(state.record.version)?;
+        state.record.members.retain(|member| member != user_id);
+        state.record.updated_at = now;
+    }
+    for state in &states {
+        write(transaction, tenant, state, false).await?;
+    }
+    Ok(states.len())
+}
+
 impl ScimGroupsStore for PostgresStore {
     async fn create(
         &self,
@@ -405,29 +436,9 @@ impl ScimGroupsStore for PostgresStore {
     ) -> Result<usize, StoreError> {
         let mut transaction = self.pool.begin().await.map_err(db_error)?;
         PostgresUsersStore::lock_directory(&mut transaction, tenant).await?;
-        let rows = sqlx::query(&format!(
-            "SELECT {COLUMNS} FROM a_auth.scim_groups WHERE tenant = $1 AND NOT deleted \
-             AND $2 = ANY(members) ORDER BY group_id FOR UPDATE"
-        ))
-        .bind(tenant.as_bytes())
-        .bind(user_id.as_bytes())
-        .fetch_all(&mut *transaction)
-        .await
-        .map_err(db_error)?;
-        let mut states = rows
-            .into_iter()
-            .map(decode)
-            .collect::<Result<Vec<_>, _>>()?;
-        for state in &mut states {
-            state.record.version = next_version(state.record.version)?;
-            state.record.members.retain(|member| member != user_id);
-            state.record.updated_at = now;
-        }
-        for state in &states {
-            write(&mut transaction, tenant, state, false).await?;
-        }
+        let removed = remove_member_in_transaction(&mut transaction, tenant, user_id, now).await?;
         transaction.commit().await.map_err(db_error)?;
-        Ok(states.len())
+        Ok(removed)
     }
 
     async fn delete_all_by_tenant(&self, tenant: &str) -> Result<usize, StoreError> {

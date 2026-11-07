@@ -17,6 +17,10 @@ impl PostgresInvitationStore {
     pub fn new(users: PostgresUsersStore) -> Self {
         Self { users }
     }
+
+    pub(crate) fn belongs_to(&self, store: &super::super::PostgresStore) -> bool {
+        self.users.belongs_to(store)
+    }
 }
 
 #[derive(Serialize, Deserialize)]

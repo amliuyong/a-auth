@@ -10,6 +10,8 @@ use crate::{
 use sqlx::{postgres::PgRow, Postgres, Row, Transaction};
 
 mod snapshot;
+mod tenant_data;
+mod user_data;
 
 #[derive(Clone)]
 pub struct PostgresGovernanceStore {
@@ -46,6 +48,10 @@ fn decode_suppression(
 impl PostgresGovernanceStore {
     pub fn new(database: PostgresStore) -> Self {
         Self { database }
+    }
+
+    pub(crate) fn belongs_to(&self, store: &PostgresStore) -> bool {
+        self.database.shares_pool_with(store)
     }
 
     async fn read<T>(

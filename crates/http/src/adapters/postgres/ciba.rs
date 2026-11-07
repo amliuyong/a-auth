@@ -200,6 +200,10 @@ async fn write(
 }
 
 impl PostgresCibaStore {
+    pub(crate) fn belongs_to(&self, store: &PostgresStore) -> bool {
+        self.store.shares_pool_with(store)
+    }
+
     pub fn new(store: PostgresStore, keys: EncryptionKeyring) -> Self {
         Self {
             store,
