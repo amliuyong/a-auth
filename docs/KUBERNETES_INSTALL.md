@@ -32,11 +32,12 @@ Chart 0.1.2 comes from `7ba6bdeb3be5f9005b013acc8cde9b005e37d989`,
 with digest
 `sha256:217e937f1f8b95946c01fcd4dd765e640e6fc386e9ab506ea858d1d4d1ebe34a`.
 
-The packages are private on GHCR. Provision a package-read credential for
-operator pulls and the namespace's `a-auth-ghcr` image-pull Secret.
-The registry credential must not enter application mounts or runtime
-configuration. Use a protected registry configuration and password-stdin
-authentication.
+The backend, frontend and Helm chart packages are public on GHCR and support
+anonymous pulls. The example uses `imagePullSecrets: []`; no registry login or
+image-pull Secret is required for these packages. For a private mirror, set
+`imagePullSecrets` to the namespace's registry Secret. Keep any registry
+credential outside application mounts and runtime configuration, and use
+protected registry configuration with password-stdin authentication.
 
 ## Provision database roles and protected mounts
 
@@ -96,8 +97,8 @@ not encryption.
 
 ## Install and verify
 
-Create the namespace, image-pull Secret, operator Secrets and ingress TLS
-Secret before installation. Prepare a protected copy of the example values.
+Create the namespace, operator Secrets and ingress TLS Secret before
+installation. Prepare a protected copy of the example values.
 Choose the ingress class and its controller annotations. The provided
 Traefik priorities ensure the exact token route wins over the web prefix.
 
@@ -106,7 +107,6 @@ Pull the chart by digest:
 ```sh
 helm pull \
   oci://ghcr.io/amliuyong/a-auth-charts/a-auth@sha256:217e937f1f8b95946c01fcd4dd765e640e6fc386e9ab506ea858d1d4d1ebe34a \
-  --registry-config /private/helm-registry.json \
   --destination /private/a-auth-charts
 ```
 

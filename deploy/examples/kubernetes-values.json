@@ -12,7 +12,7 @@
       "sourceCommit": "0a9fb2efbd1a9f933f3d52656a242927d3139d70"
     }
   },
-  "imagePullSecrets": [{"name": "a-auth-ghcr"}],
+  "imagePullSecrets": [],
   "runtime": {
     "schema_version": 1,
     "host": "auth.example.test",
