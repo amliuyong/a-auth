@@ -15,7 +15,7 @@ spec:
   ports:
     - name: protocol
       port: 80
-      targetPort: protocol
+      targetPort: {{ if and (eq $plane "web") $root.Values.frontend.enabled }}frontend{{ else }}protocol{{ end }}
 {{- end }}
 {{- if .Values.management.serviceEnabled }}
 ---

@@ -26,6 +26,10 @@ spec:
       annotations:
         a-auth.io/config-sha256: {{ $root.Values.runtime | mustToJson | sha256sum | quote }}
         a-auth.io/rollout-revision: {{ $root.Values.rolloutRevision | quote }}
+        a-auth.io/backend-source-commit: {{ $root.Values.image.sourceCommit | quote }}
+        {{- if and (eq $plane "web") $root.Values.frontend.enabled }}
+        a-auth.io/frontend-source-commit: {{ $root.Values.frontend.image.sourceCommit | quote }}
+        {{- end }}
     spec:
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 45
@@ -107,7 +111,46 @@ spec:
             - name: external
               mountPath: /etc/a-auth/external
               readOnly: true
+        {{- if and (eq $plane "web") $root.Values.frontend.enabled }}
+        - name: frontend
+          image: {{ include "a-auth.frontendImage" $root | quote }}
+          imagePullPolicy: {{ $root.Values.frontend.image.pullPolicy }}
+          ports:
+            - name: frontend
+              containerPort: 8083
+          startupProbe:
+            httpGet:
+              path: /health/frontend
+              port: frontend
+            periodSeconds: 2
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /health/frontend
+              port: frontend
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health/frontend
+              port: frontend
+            periodSeconds: 10
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml $root.Values.frontend.resources | nindent 12 }}
+          volumeMounts:
+            - name: frontend-tmp
+              mountPath: /tmp
+        {{- end }}
       volumes:
+        {{- if and (eq $plane "web") $root.Values.frontend.enabled }}
+        - name: frontend-tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        {{- end }}
         - name: runtime
           configMap:
             name: {{ include "a-auth.name" $root }}-runtime

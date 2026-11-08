@@ -4,6 +4,20 @@ image:
   sourceCommit: ""
   pullPolicy: IfNotPresent
 imagePullSecrets: []
+frontend:
+  enabled: true
+  image:
+    repository: ghcr.io/amliuyong/a-auth-web
+    digest: ""
+    sourceCommit: ""
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: "1"
+      memory: 256Mi
 replicas:
   token: 2
   web: 2

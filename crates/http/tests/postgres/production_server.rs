@@ -276,6 +276,47 @@ async fn production_tcp_process_rechecks_database_readiness_and_drains_an_accept
             .status(),
         StatusCode::UNAUTHORIZED
     );
+    let initial_password = "Local-onboarding!password-142A";
+    assert_eq!(
+        client
+            .post(format!("http://127.0.0.1:{management_port}/admin/users"))
+            .header("host", "auth.example.test")
+            .bearer_auth("local-platform-runtime-credential-only")
+            .json(&serde_json::json!({
+                "email":"native-password@example.test",
+                "initial_password":initial_password
+            }))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::CREATED
+    );
+    let password = client
+        .post(format!("http://127.0.0.1:{public_port}/login/password"))
+        .header("host", "auth.example.test")
+        .header("origin", "https://auth.example.test")
+        .header("x-forwarded-for", "198.51.100.99")
+        .header("forwarded", "for=198.51.100.99")
+        .json(&serde_json::json!({
+            "email":"native-password@example.test",
+            "password":initial_password
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(password.status(), StatusCode::OK);
+    assert_eq!(
+        password.json::<serde_json::Value>().await.unwrap(),
+        serde_json::json!({"authenticated":false,"password_change_required":true})
+    );
+    let ip_buckets: Vec<String> = sqlx::query_scalar(
+        "SELECT bucket_key FROM a_auth.rate_limits WHERE bucket_key LIKE 'pwd:ip:%'",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(ip_buckets, vec!["pwd:ip::127.0.0.1"]);
     sqlx::query("UPDATE public._sqlx_migrations SET success=false WHERE version=41")
         .execute(&pool)
         .await

@@ -48,15 +48,15 @@ tests do not establish cluster, deployment, or conformance acceptance.
 | Server and background work | Probe/shutdown tests, worker redelivery/lease fencing, cluster execution | IN_PROGRESS |
 | Secret resolver | Confined-file adapter tests and installed deployment evidence | IN_PROGRESS |
 | SMTP and optional archives | Adapter tests and installed deployment evidence | IN_PROGRESS |
-| Secure container and chart | Rendered manifests, authentication and reachability tests | NOT_RUN |
-| kind + in-cluster PostgreSQL | Installed chart and all required protocol flows including enterprise IdP | NOT_RUN |
-| EKS + external RDS PostgreSQL | Installed chart and all required protocol flows including enterprise IdP | NOT_RUN |
+| Secure container and chart | Rendered manifests, authentication and reachability tests | IN_PROGRESS |
+| kind + in-cluster PostgreSQL | Installed chart and all required protocol flows including enterprise IdP | IN_PROGRESS |
+| EKS + external RDS PostgreSQL | Installed chart and all required protocol flows including enterprise IdP | IN_PROGRESS |
 | Existing conformance gates | Exact-candidate Kubernetes run and comparison with AWS self-hosted results | NOT_RUN |
 | memory/AWS/PostgreSQL contracts | Shared contracts across three adapters plus equivalent atomicity/idempotency coverage | IN_PROGRESS |
-| Multi-replica code/refresh/replay/IAT | Concurrent requests to distinct replicas with exactly one successful effect | NOT_RUN |
+| Multi-replica code/refresh/replay/IAT | Concurrent requests to distinct replicas with exactly one successful effect | IN_PROGRESS |
 | AWS-free dependency tree/runtime | Production feature dependency tree and runtime egress evidence | NOT_RUN |
 | Backup/restore revocation safety | Recovery drill with grants, refresh families, replay history, and documented remediation | NOT_RUN |
-| OCI image and chart on GHCR | Published immutable digests, readback, install commands | NOT_RUN |
+| OCI image and chart on GHCR | Published immutable digests, readback, install commands | IN_PROGRESS |
 | Review, PR, CI, merge, closure | Reviewed SHA, terminal checks, merge readback, closed issue, clean worktree removal | NOT_RUN |
 
 ## PostgreSQL adapter conventions
@@ -90,9 +90,27 @@ encryption purpose. See the [production configuration reference](POSTGRES_RUNTIM
 management listeners, scoped grace capabilities, migration/runtime grants,
 four durable queue-worker modes and three maintenance Job modes. Local real-TCP
 tests exercise readiness loss/recovery and an accepted request draining across
-SIGTERM. Initial secure Helm and OCI sources are under validation; see
-[server entrypoints](POSTGRES_SERVER.md). Installed application, image/chart
-publication and the full acceptance campaign remain pending.
+SIGTERM. See [server entrypoints](POSTGRES_SERVER.md).
+
+Native amd64 and arm64 backend images and chart 0.1.0 have been published on
+GHCR with immutable digest readbacks. The first kind installation exposed a
+Secret-projection directory-mode rejection. The descriptor-based read-only
+mount fix then passed installed migration and readiness: two web Pods, two
+token Pods and all four workers became ready against TLS PostgreSQL 16.
+Distinct web replicas passed one-time IAT contention and private management
+authentication/public exclusion. Discovery identified the installed backend
+commit and exposed both signing algorithms.
+
+That protocol campaign then found a missing trusted TCP source-IP extension
+in password login. The existing API-only chart also returned 404 for the
+required browser pages. Both repairs are under validation. Chart 0.1.1 adds
+the separate browser container; local live-container routing, mount separation,
+logging and drain checks do not establish installed browser acceptance.
+The dedicated EKS control plane and private encrypted PostgreSQL 17 RDS
+creation requests have been accepted after explicit IAM authorization and
+role-policy readback. Node readiness, RDS readiness and the installed cloud
+campaign remain pending. Full protocol, enterprise IdP, conformance, rotation,
+egress and restore acceptance are still required.
 
 `PostgresGovernanceResourceBackend` observes live authority and physically
 retained records in the configured primary database. Operator-owned mounts

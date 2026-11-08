@@ -13,8 +13,9 @@
 #[derive(Debug, Clone)]
 pub struct ClientCertPem(pub String);
 
-/// Trusted client IP copied only from API Gateway request context. Password
-/// rate limiting never derives this value from forwarding headers.
+/// Trusted source IP copied from API Gateway request context or the portable
+/// listener's TCP peer address. Password rate limiting never derives this
+/// value from forwarding headers.
 #[derive(Debug, Clone)]
 pub struct TrustedSourceIp(pub String);
 

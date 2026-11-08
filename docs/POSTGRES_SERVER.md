@@ -36,6 +36,13 @@ An optional private management Service must have restricted network admission.
 The default chart exposes no management Service and leaves its listener on
 loopback.
 
+Password rate limiting uses the TCP peer address supplied by the listener.
+Forwarding headers cannot supply this trusted request extension. Behind a
+reverse proxy, its connections share the peer-IP bucket; account, tenant and
+deployment limits still apply. Configure ingress admission and capacity for
+that shared bucket. This profile does not trust end-user IP assertions from
+forwarding headers.
+
 `GET /health/live` reports process liveness. `GET /health/ready` returns 200 only
 after the runtime check succeeds; otherwise it returns 503. Responses contain
 no credentials or backend diagnostics. The runtime check verifies migration
@@ -89,6 +96,34 @@ digest, source commit and explicit runtime configuration. The token and web
 Deployments use non-root users, read-only root filesystems, no privilege
 escalation, dropped capabilities and no service-account token. Their crypto
 projections explicitly include only the appropriate purpose files.
+
+Chart 0.1.1 adds the existing browser bundle as a separate container in web
+Pods. It serves only `/`, `/login`, `/invite`, `/consent`, `/recover`, `/account`,
+`/approve`, `/error` and built assets. Other public protocol requests proxy to
+the web process on loopback. `/admin`, `/scim` and `/token` remain closed on
+this frontend; ingress routes exact `/token` to the token Service. The frontend
+mounts only a bounded temporary directory and receives no database, signing,
+crypto, administrator or external Secret mounts.
+
+Set `frontend.image.digest` and `frontend.image.sourceCommit` to the published
+browser image's immutable digest and source commit. The backend and frontend
+have separate component identities; `runtime.deployment_commit` continues to
+identify the backend image. `frontend.enabled=false` installs protocol APIs
+without browser pages. Both containers must pass their readiness probes.
+Frontend access logs omit paths, queries, headers, cookies and bodies. SIGQUIT
+lets its accepted requests drain within the Pod termination budget.
+
+For a built frontend image, exercise live routing, private-path exclusion,
+same-origin POST forwarding, container permissions, log privacy and shutdown:
+
+```sh
+python3 scripts/qualify_kubernetes_frontend.py \
+  --image ghcr.io/OWNER/a-auth-web@sha256:IMMUTABLE_DIGEST \
+  --receipt /private/path/frontend-validation.json
+```
+
+This check needs Linux Docker and free loopback ports 8080/8083. It uses a local
+HTTP fixture; installed TLS and browser acceptance require separate evidence.
 
 Kubernetes Secret projection roots can have group/world writable Unix mode
 bits while the kernel mounts them read-only. Mounted-secret and signer loaders

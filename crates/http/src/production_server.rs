@@ -3,7 +3,7 @@
 
 use crate::{ports::StoreError, postgres_runtime::PostgresRuntime, AppState, RouteScope};
 use axum::{
-    extract::{Request, State},
+    extract::{ConnectInfo, Request, State},
     http::StatusCode,
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -69,6 +69,22 @@ async fn management_plane(request: Request, next: Next) -> Response {
     next.run(request).await
 }
 
+async fn peer_source_ip(mut request: Request, next: Next) -> Response {
+    let peer = request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|ConnectInfo(address)| address.ip().to_string());
+    request
+        .extensions_mut()
+        .remove::<crate::mtls::TrustedSourceIp>();
+    if let Some(peer) = peer {
+        request
+            .extensions_mut()
+            .insert(crate::mtls::TrustedSourceIp(peer));
+    }
+    next.run(request).await
+}
+
 async fn admission(
     State(health): State<ProductionHealth>,
     request: Request,
@@ -119,11 +135,13 @@ pub fn production_routers(
     let public = router
         .clone()
         .layer(middleware::from_fn(public_plane))
+        .layer(middleware::from_fn(peer_source_ip))
         .layer(middleware::from_fn_with_state(health.clone(), admission))
         .layer(middleware::from_fn(access_log));
     let management = if scope == RouteScope::NonToken {
         router
             .layer(middleware::from_fn(management_plane))
+            .layer(middleware::from_fn(peer_source_ip))
             .layer(middleware::from_fn_with_state(health.clone(), admission))
             .layer(middleware::from_fn(access_log))
     } else {
@@ -224,9 +242,12 @@ pub async fn serve(
     for (listener, router) in bound {
         let shutdown = receiver.clone();
         servers.spawn(async move {
-            axum::serve(listener, router)
-                .with_graceful_shutdown(stopping(shutdown))
-                .await
+            axum::serve(
+                listener,
+                router.into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .with_graceful_shutdown(stopping(shutdown))
+            .await
         });
     }
     let checker = {
