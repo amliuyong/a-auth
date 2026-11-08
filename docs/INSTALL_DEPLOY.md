@@ -6,15 +6,22 @@
 > AWS 月费参考见 [`COST.md`](./COST.md)：按 us-east-1 粗估，小规模约 $30–60/月、
 > 常规单租户约 $50–100/月、100 租户示例约 $500–1000/月；请求量、备份与灾备假设见该文。
 
+Kubernetes + PostgreSQL 单租户部署请按
+[`KUBERNETES_INSTALL.md`](./KUBERNETES_INSTALL.md) 操作，包括固定 GHCR 镜像与
+Helm chart、挂载签名密钥、私有管理入口、升级及备份恢复处置。
+本文后续命令用于 AWS CDK 部署。
+
 ---
 
 ## 0 · 部署形态一览
 
-同一套代码,两种交付形态(由环境变量选择,不分叉):
+同一套协议代码支持单租户自部署与 SaaS。单租户可选择 AWS 或
+Kubernetes + PostgreSQL；AWS 形态由环境变量选择，Kubernetes 形态使用运行配置文件。
 
-| 形态 | issuer | 租户 | 典型栈名 | 关键 env |
+| 形态 | issuer | 租户 | 部署入口 | 配置方式 |
 |---|---|---|---|---|
-| **自部署(单租户)** | 客户自有域(如 `https://auth.acme.com`) | 1 | `AgentAuthDev` | 默认(不设 `AGENT_AUTH_FORM`) |
+| **AWS 自部署(单租户)** | 客户自有域(如 `https://auth.acme.com`) | 1 | `AgentAuthDev` | 默认(不设 `AGENT_AUTH_FORM`) |
+| **Kubernetes 自部署(单租户)** | 配置的 HTTPS issuer | 1 | GHCR Helm chart | [PostgreSQL 16+ 与运行配置](./POSTGRES_RUNTIME.md) |
 | **SaaS(多租户)** | 每租户子域 `https://t{N}.<zone>` | N | `AgentAuthSaas` | `AGENT_AUTH_FORM=saas` + `AGENT_AUTH_ZONE` + `AGENT_AUTH_CONTROL_HOST` + `AGENT_AUTH_ENABLE_TENANT_PARTITIONING=1` |
 
 - 自部署 = "租户数为 1 的特例",数据面租户前缀为空,行为与不分区**字节等价**。
