@@ -13,7 +13,7 @@ fn invalid_event() -> StoreError {
     StoreError::Permanent("Invalid security event authority record".into())
 }
 
-fn validate(event: &SecurityEvent) -> Result<(), StoreError> {
+pub(super) fn validate(event: &SecurityEvent) -> Result<(), StoreError> {
     let canonical = SecurityEvent::new_at(
         &event.event_id,
         event.occurred_at,

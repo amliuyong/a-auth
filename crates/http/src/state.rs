@@ -5278,6 +5278,8 @@ pub enum SecurityEventStoreImpl {
 
 #[derive(Clone)]
 pub enum SecurityEventFallbackImpl {
+    #[cfg(feature = "postgres")]
+    Postgres(crate::adapters::postgres::PostgresSecurityEventFallback),
     Disabled,
     #[cfg(test)]
     Memory(Arc<tokio::sync::Mutex<Vec<SecurityEventIngress>>>),
@@ -5288,6 +5290,8 @@ pub enum SecurityEventFallbackImpl {
 impl SecurityEventFallback for SecurityEventFallbackImpl {
     async fn enqueue(&self, ingress: &SecurityEventIngress) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(queue) => queue.enqueue(ingress).await,
             Self::Disabled => Err(StoreError::Permanent(format!(
                 "security event fallback is disabled for {}",
                 ingress.event.event_id
@@ -5307,6 +5311,8 @@ impl SecurityEventFallback for SecurityEventFallbackImpl {
         _ingresses: &[SecurityEventIngress],
     ) -> Result<Vec<SecurityEventFallbackOutcome>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(queue) => queue.enqueue_batch(_ingresses).await,
             Self::Disabled => Err(StoreError::Permanent(
                 "security event fallback is disabled for batch".to_string(),
             )),

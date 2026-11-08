@@ -33,6 +33,7 @@ mod recovery;
 mod refresh;
 mod replay;
 mod scim_groups;
+mod security_event_fallback;
 mod security_events;
 mod serialization;
 mod sessions;
@@ -48,6 +49,9 @@ pub use governance_queue::{PostgresGovernanceLease, PostgresGovernanceQueue};
 pub use grace::PostgresGraceStore;
 pub use outbox::PostgresMessageOutbox;
 pub use refresh::RefreshRotationRequest;
+pub use security_event_fallback::{
+    PostgresSecurityEventBatch, PostgresSecurityEventFallback, PostgresSecurityEventLease,
+};
 pub use smtp::{PostgresSmtpBatch, PostgresSmtpLease, PostgresSmtpNotifier, PostgresSmtpSend};
 pub use ssf::PostgresSsfStore;
 pub use users::{PostgresInvitationStore, PostgresUsersStore, UserAuthorityKey};

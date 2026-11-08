@@ -101,7 +101,7 @@ capability decision and reject unsupported payment settings at startup.
 | [`CimdHttpClient`](../crates/http/src/cimd.rs) | Shared portable transport with existing metadata allowlist, DNS/IP pinning, size/timeout and SSRF protections |
 | [`SsfPushClient`](../crates/http/src/ssf_worker.rs) | Shared portable bounded push; production worker generation/lease fencing and retry remain required |
 | [`SsfSignerResolver`](../crates/http/src/ssf_worker.rs) | Resolve the configured mounted signer for each delivery snapshot |
-| [`SecurityEventFallback`](../crates/http/src/security_event.rs) | PostgreSQL durable fallback ingestion with batch outcomes |
+| [`SecurityEventFallback`](../crates/http/src/security_event.rs) | [PostgreSQL durable ingress snapshots and recovery batch](POSTGRES_SECURITY_EVENT_FALLBACK.md), per-input batch outcomes and fenced redelivery; production entrypoint and installed acceptance pending |
 | [`GovernanceResourceBackend`](../crates/http/src/governance_resources.rs) | Explicit resource ownership and retention handling; operator-owned mounted resources remain external |
 
 Queues and delivery state must have real multiple-worker redelivery tests.

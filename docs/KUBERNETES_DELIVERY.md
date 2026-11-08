@@ -123,7 +123,7 @@ streams, encrypted delivery/lease/history authority and durable worker claims.
 required external HMAC authority key.
 `PostgresGraceStore` implements
 `GraceStore` with an explicit external encryption key ring or a delete-only
-capability. Thirty-six embedded forward
+capability. Thirty-nine embedded forward
 migrations create their authority tables and credential-free client reclaim
 audit metadata.
 
@@ -209,6 +209,15 @@ phase or credential-epoch mutation. The batch rejects a foreign-pool
 composition before claiming. Production polling/shutdown, retention scheduling,
 dead-letter operations and installed qualification remain required.
 
+The [PostgreSQL security event fallback](POSTGRES_SECURITY_EVENT_FALLBACK.md)
+retains immutable ingress snapshots, fences event-ID rebinding and uses
+bounded `SKIP LOCKED` claims with private settlement capabilities. Hot-ledger
+persistence followed by queue acknowledgment repairs a crash between commits
+without creating a second event. Both authorities share database availability;
+this queue cannot durably cover a whole-PostgreSQL outage. Production
+composition, polling/shutdown, retained queue cleanup, dead-letter operations
+and installed qualification remain required.
+
 Federated attribute reconciliation locks namespace, mapping and user authority
 in that order. Owner purge locks the mapping registry before the user and
 preserves the complete private user record. Configuration and mapping changes
@@ -218,8 +227,8 @@ IdP against the physical row identity. Authorized administrator attribute
 writes also lock namespace authority before the user, recheck the captured
 authority and retain the raw attribute CAS and federation ownership rules.
 
-The current shared suite contains 195 cases: thirty-five contracts run through each of
-the memory, AWS, and PostgreSQL adapters, plus eighty-seven PostgreSQL-specific
+The current shared suite contains 202 cases: thirty-five contracts run through each of
+the memory, AWS, and PostgreSQL adapters, plus ninety-four PostgreSQL-specific
 transaction/durability cases and three AWS recovery interleaving/compatibility
 cases. AWS adapters run against a loopback DynamoDB
 emulator; PostgreSQL adapters run against PostgreSQL 16. This does not establish
