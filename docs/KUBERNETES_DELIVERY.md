@@ -51,7 +51,7 @@ tests do not establish cluster, deployment, or conformance acceptance.
 | Secure container and chart | Rendered manifests, authentication and reachability tests | IN_PROGRESS |
 | kind + in-cluster PostgreSQL | Installed chart and all required protocol flows including enterprise IdP | IN_PROGRESS |
 | EKS + external RDS PostgreSQL | Installed chart and all required protocol flows including enterprise IdP | IN_PROGRESS |
-| Existing conformance gates | Exact-candidate Kubernetes run; existing AWS baseline passed with 37 required passes and 14 approved exceptions | IN_PROGRESS |
+| Existing conformance gates | Full hosted EKS candidate plan and fresh local gate: 24 OIDF and 13 RFC passes, 14 live-revalidated exceptions; all 38 signed module results match the AWS baseline | PASS |
 | memory/AWS/PostgreSQL contracts | Shared contracts across three adapters plus equivalent atomicity/idempotency coverage | IN_PROGRESS |
 | Multi-replica code/refresh/replay/IAT | Concurrent requests to distinct installed replicas with exactly one effect; shared refresh grace response | PASS |
 | AWS-free dependency tree/runtime | Production dependency tree and bounded installed outbound captures passed; no other AWS API/metadata or unknown client flows observed | PASS |
@@ -138,6 +138,9 @@ verification and consumed-flow replay rejection. Authenticated management
 readback confirmed the expected issuer/sub-derived local user. The test
 email was operator-set as verified. This is real Cognito interoperability;
 it does not establish Okta/Entra or enterprise SCIM acceptance.
+After activating the public EKS issuer, the browser and authenticated identity
+readback passed the same eight checks using normal WebPKI for both the candidate
+and Cognito, with no certificate exception or browser DNS override.
 
 The existing protected AWS conformance run
 [42362005620](https://github.com/amliuyong/a-auth/actions/runs/42362005620)
@@ -149,7 +152,24 @@ plan instances. The raw OIDF results were 24 `PASSED`, nine `SKIPPED`, four
 `REVIEW` and one `WARNING`. Its approved profile is Basic OP Code,
 with explicit non-claims for FAPI, OpenID Federation and blanket RFC 9700
 certification. This baseline is a different deployment from the Kubernetes
-candidate. Candidate hosted OIDF execution remains `NOT_RUN`.
+candidate.
+
+The EKS candidate completed the full hosted Basic OP plan using the policy's
+pinned official runner, discovery metadata and dynamic registration. All 38
+signed module exports verified and their exact module variants and raw results
+matched the AWS baseline. The candidate passed 13 live RFC regression checks.
+An initial anonymous registration probe correctly received 401; optional private
+IAT-file support in the regression tool enabled authenticated registration
+without weakening the server's protected default.
+
+A fresh local evaluation of the unchanged conformance policy passed for the
+candidate's own issuer and installed component
+`0a9fb2efbd1a9f933f3d52656a242927d3139d70`. Live deployment preflights passed
+before and after the suites. The evaluator revalidated the fourteen exact
+exceptions against their open tracker issue, approval label event, approver and
+expiry, then validated the candidate's evidence and promotion binding. This
+establishes the existing gate with approved exceptions; it does not establish
+OIDF certification or reuse the AWS baseline's promotion artifact.
 
 Installed signing rotation passed in both environments: publish the new
 EC/RSA pair, wait the actual 300-second cache interval, activate it on both
@@ -178,6 +198,18 @@ grant across replicas. The
 post-backup authority reconciliation. Unidentified lost revocations remain
 unknown; there is no automatic stale-snapshot rejection.
 
+Both installations' competing event workers passed native fallback processing
+with operator-seeded, typed source snapshots. When the hot ledger initially had
+no event, a worker inserted one canonical row and acknowledged its first receive.
+A separate drill held settlement after a durable effect, forcibly terminated
+both event worker Pods, and observed the original unacknowledged lease. After
+the actual six-minute lease expired, replacement workers reclaimed and
+acknowledged the second receive; one canonical ledger row retained the reconciled
+receive history. The kind continuation reconciled a short initial observation
+window using read-only evidence; its initial failed receipts remain separate.
+These drills establish installed fallback insertion and effect-before-ack crash
+recovery. They do not establish normal HTTP fallback admission.
+
 Each environment's two SMTP workers delivered one durable notification to a
 TLS SMTP fixture, with one accepted message and no second acceptance on
 reobservation. Worker crash/uncertain-result qualification remains separate.
@@ -187,9 +219,8 @@ identity became absent in the API and PostgreSQL, all wake-ups were acknowledged
 and primary-erasure evidence was readable. The job correctly retained its
 `retention_pending` boundary. This does not establish deletion of external
 backups/logs or worker crash recovery.
-Enterprise-provider scope, candidate official conformance and full AWS
-comparison, complete restore authority and remaining background-work
-qualification remain required.
+Enterprise-provider scope, complete restore authority and remaining
+background-work qualification remain required.
 
 `PostgresGovernanceResourceBackend` observes live authority and physically
 retained records in the configured primary database. Operator-owned mounts
@@ -783,7 +814,7 @@ pull requests, required on pushes and manual dispatch. Their skipped result
 does not establish Kubernetes conformance acceptance.
 An adapter dependency-tree check confirms that the `postgres` feature's normal
 dependencies exclude AWS SDK/config and Lambda. The production binary and
-runtime-egress checks remain pending.
+bounded runtime-egress observations passed as recorded above.
 
 ## External encryption key files
 
@@ -817,7 +848,8 @@ outside the dynamically resolved upstream client-secret root.
 The installed production server selects PostgreSQL and mounts separate runtime,
 signing, administrator and external-secret authority. Both environments have
 completed the protocol, browser, real Cognito, signing and restore campaigns
-described above. Remaining work includes exact-candidate official conformance,
-enterprise-provider scope, complete background-work qualification and final
-delivery review. Keep the PR in draft and the issue open until the outstanding
-requirements in the ledger are verified.
+described above. The EKS candidate also passed the existing conformance policy
+with live-revalidated exceptions and matched every signed AWS baseline module
+result. Remaining work includes enterprise-provider scope, complete
+background-work qualification and final delivery review. Keep the PR in draft
+and the issue open until the outstanding requirements in the ledger are verified.
