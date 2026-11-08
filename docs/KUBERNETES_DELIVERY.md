@@ -41,23 +41,23 @@ tests do not establish cluster, deployment, or conformance acceptance.
 
 | Requirement | Authoritative evidence needed | Status |
 | --- | --- | --- |
-| Every single-tenant storage port | Port inventory, production wiring, durable contract and cross-port tests | IN_PROGRESS |
-| Conditional writes and transactions | Real PostgreSQL concurrency and failure-atomicity tests equivalent to existing memory/AWS tests | IN_PROGRESS |
-| Forward migrations, standard PostgreSQL | Versioned SQL, repeat/concurrent migration tests, PostgreSQL 16 run | IN_PROGRESS |
+| Every single-tenant storage port | Complete port inventory and explicit production composition; optional payment/STS and SaaS capabilities remain disabled | PASS |
+| Conditional writes and transactions | Shared real PostgreSQL concurrency, lease fencing and actual late-write rollback tests | PASS |
+| Forward migrations, standard PostgreSQL | Forty-one versioned migrations, repeat/concurrent checks, PostgreSQL 16 installation and PostgreSQL 17 RDS installation | PASS |
 | Secret/file signer and JWKS rotation | Installed EC/RSA overlap and retirement; invalid publication fails closed on all HTTP replicas and higher-generation recovery succeeds | PASS |
-| Server and background work | Probe/shutdown tests, worker redelivery/lease fencing, cluster execution | IN_PROGRESS |
-| Secret resolver | Confined-file adapter tests and installed deployment evidence | IN_PROGRESS |
-| SMTP and optional archives | Adapter tests and installed deployment evidence | IN_PROGRESS |
-| Secure container and chart | Rendered manifests, authentication and reachability tests | IN_PROGRESS |
-| kind + in-cluster PostgreSQL | Installed chart and all required protocol flows including enterprise IdP | IN_PROGRESS |
-| EKS + external RDS PostgreSQL | Installed chart and all required protocol flows including enterprise IdP | IN_PROGRESS |
+| Server and background work | Probe/drain tests; installed governance/events/SMTP/SSF effects and lease/ambiguity checks; three default maintenance entrypoints | PASS |
+| Secret resolver | Confined-file tests and real Cognito federation using mounted external credentials in both installations | PASS |
+| SMTP and optional archives | TLS SMTP delivery and ambiguous-send no-replay checks; archives explicitly disabled in the portable profile | PASS |
+| Secure container and chart | Non-root/read-only installations, private management listeners, public authentication and reachability checks; NetworkPolicy examples | PASS |
+| kind + in-cluster PostgreSQL | Installed chart, required protocol flows and real Cognito OIDC federation; private test CA scope | PASS |
+| EKS + external RDS PostgreSQL | Installed chart, required protocol flows and real Cognito OIDC federation through normal public WebPKI | PASS |
 | Existing conformance gates | Full hosted EKS candidate plan and fresh local gate: 24 OIDF and 13 RFC passes, 14 live-revalidated exceptions; all 38 signed module results match the AWS baseline | PASS |
-| memory/AWS/PostgreSQL contracts | Shared contracts across three adapters plus equivalent atomicity/idempotency coverage | IN_PROGRESS |
+| memory/AWS/PostgreSQL contracts | Terminal CI: 224 shared adapter contracts, five native TCP/TLS tests and six guard tests; AWS adapter fixture scope recorded below | PASS |
 | Multi-replica code/refresh/replay/IAT | Concurrent requests to distinct installed replicas with exactly one effect; shared refresh grace response | PASS |
 | AWS-free dependency tree/runtime | Production dependency tree and bounded installed outbound captures passed; no other AWS API/metadata or unknown client flows observed | PASS |
-| Backup/restore revocation safety | Post-revocation restore passed; stale-backup hazard and known-grant remediation drilled; complete authority reconciliation remains required | IN_PROGRESS |
+| Backup/restore revocation safety | Post-revocation checks passed; stale-backup hazard and known-grant repair drilled; documented incomplete-authority hold verified with both clone HTTP deployments at zero replicas | PASS_WITH_DOCUMENTED_DISPOSITION |
 | OCI image and chart on GHCR | Published immutable backend/frontend/chart digests, readback and both native installations | PASS |
-| Review, PR, CI, merge, closure | Reviewed SHA, terminal checks, merge readback, closed issue, clean worktree removal | NOT_RUN |
+| Review, PR, CI, merge, closure | Final complete-scope review, terminal head checks, merge readback, closed issue and clean worktree removal remain required | IN_PROGRESS |
 
 ## PostgreSQL adapter conventions
 
@@ -153,6 +153,12 @@ plan instances. The raw OIDF results were 24 `PASSED`, nine `SKIPPED`, four
 with explicit non-claims for FAPI, OpenID Federation and blanket RFC 9700
 certification. This baseline is a different deployment from the Kubernetes
 candidate.
+The fresh protected baseline run
+[42461879270](https://github.com/amliuyong/a-auth/actions/runs/42461879270)
+repeated the same gate after private test configuration synchronization.
+Encrypted archive readback confirmed 37 required passes, fourteen approved
+exceptions and exact agreement with the candidate's 38 official module results
+and 13 RFC checks.
 
 The EKS candidate completed the full hosted Basic OP plan using the policy's
 pinned official runner, discovery metadata and dynamic registration. All 38
@@ -212,15 +218,49 @@ recovery. They do not establish normal HTTP fallback admission.
 
 Each environment's two SMTP workers delivered one durable notification to a
 TLS SMTP fixture, with one accepted message and no second acceptance on
-reobservation. Worker crash/uncertain-result qualification remains separate.
+reobservation. A further installed drill persisted SMTP DATA while withholding
+its confirmation: the durable notification became `uncertain`. Force-terminating
+both SMTP worker Pods during a separate send preserved `sending`. Replacement
+workers did not resubmit either ambiguous notification beyond an actual
+six-minute observation window. Capture bytes were privately archived with
+SHA-256 readback before the original fixtures were restored. This establishes
+the no-automatic-replay boundary; ambiguous outcomes still require operator
+review and do not prove delivery to an external mailbox.
 Both environments' competing governance workers also erased a newly created
 test identity. Repeated authenticated admission selected one durable job; the
 identity became absent in the API and PostgreSQL, all wake-ups were acknowledged
 and primary-erasure evidence was readable. The job correctly retained its
 `retention_pending` boundary. This does not establish deletion of external
 backups/logs or worker crash recovery.
-Enterprise-provider scope, complete restore authority and remaining
-background-work qualification remain required.
+
+Both installations' competing SSF workers sent signed verification events to
+an independently authenticated receiver. The receiver checked ES256, `kid`,
+issuer, audience, event type and `jti`; thirty private authentication checks
+passed before the bounded public route was installed, followed by thirty
+normal-WebPKI checks. A lost response caused one retry of identical SET bytes,
+with one receiver effect. After both worker Pods were force-terminated between
+receiver persistence and settlement, replacement workers reused the persisted
+SET and `jti` after the original five-minute lease expired. Each environment's
+six checks passed, including terminal reobservation and private SHA-256 archive
+readback. A temporary SQL client expired during observation; read-only
+reconciliation retained that failure and confirmed the same event's attempt
+timestamp was after the original lease deadline. No lease timestamp was changed
+and no event was re-admitted. These checks establish the controlled receiver's
+deduplication boundary, not exactly-once effects for arbitrary receivers.
+
+The installed retention, reclaim and recompute CronJob templates also completed
+one operator-triggered Job in each environment with exit zero and no failure
+diagnostics. Reclaim and recompute retained their default dry-run flags.
+Their zero-row scans establish native entrypoint execution, not destructive
+maintenance acceptance or external-copy erasure.
+
+The required enterprise-provider criterion is qualified by the real Cognito
+OIDC tests above. Complete post-backup lifecycle authority is not available for
+the recovery clones, so both environments selected `HOLD_NO_RELEASE` and
+scaled only the isolated clone web/token deployments to zero replicas.
+There was no clone Ingress or maintenance schedule; all twelve primary app
+Pods retained their identities and readiness. The issue's documented
+post-restore disposition applies; this is not automatic stale-snapshot safety.
 
 `PostgresGovernanceResourceBackend` observes live authority and physically
 retained records in the configured primary database. Operator-owned mounts
@@ -228,7 +268,8 @@ cannot be automatically deleted. Protected, short-lived operator statements
 for external backups/logs carry an explicit attestation evidence basis;
 missing statements leave retention pending. See
 [PostgreSQL governance resources](POSTGRES_GOVERNANCE_RESOURCES.md).
-Complete installed retention and recovery acceptance remain pending.
+Installed default retention execution and the recovery hold are recorded above.
+External retained-copy disposition remains an operator responsibility.
 
 `BrandingStore::postgres` preserves deployment presentation across process
 restarts with a persisted revision CAS and complete host/record validation.
@@ -237,8 +278,9 @@ bundle and persists secret-free owner/revision/lifetime/retirement checkpoints.
 It rejects cold-start rollback and higher-revision resurrection of retired
 credentials, bypasses plaintext registry caching and checks expiry after
 database lock waits. See [mounted administrator credentials](MOUNTED_ADMIN_CREDENTIALS.md).
-Production listeners and mounts are installed; complete administrator
-lifecycle rotation/restore acceptance remains pending.
+Production listeners and mounts are installed. Durable administrator lifecycle
+contracts are exercised locally; the recovery guide requires independently
+retained retirement history before reopening an older snapshot.
 
 `FileSecretResolver` resolves only explicitly mapped references from a
 dedicated mounted directory, reads current projected Secret generations and
@@ -251,8 +293,8 @@ The existing OIDC/JWKS, token exchange, CIBA, SSF and CIMD HTTP transports now
 compile through `portable-http`, shared by AWS and PostgreSQL without AWS SDK
 dependencies. Their existing trust, DNS pinning, bounds and refresh/response
 rules are retained. See [portable outbound HTTP](PORTABLE_HTTP.md).
-Production composition and real Cognito use are installed; full outbound
-worker effects remain under qualification.
+Production composition and real Cognito use are installed; controlled SMTP
+and SSF worker effects and their ambiguity/retry boundaries are recorded above.
 
 `MountedSignerRing` loads immutable ES256/RS256 file generations and
 `TenantKeyService::mounted` resolves them per request with disabled SaaS
@@ -356,8 +398,8 @@ user erasure and tenant offboarding, permanent alias/tenant suppression,
 foreign-pool and HMAC mismatch rejection, lease expiry during an observed SQL
 row-lock wait, and actual late-write failures that roll back earlier deletes
 or stream revocation. The fixtures use development control/transports and
-explicit PostgreSQL data-plane composition. Production startup, native workers
-and installed acceptance remain pending.
+explicit PostgreSQL data-plane composition. Production startup selects the
+same durable ports; the native governance effects are recorded above.
 
 The [PostgreSQL governance queue](POSTGRES_GOVERNANCE_QUEUE.md) adds durable
 wake-ups, bounded `SKIP LOCKED` claims, private lease capabilities and fenced
@@ -366,8 +408,9 @@ survives acknowledgment. Seven independent-pool fixtures cover contention,
 locked-head progress, rollback, damaged commands, expiry and a worker crash
 after a phase commit. Redelivery repairs the next wake-up without repeating the
 phase or credential-epoch mutation. The batch rejects a foreign-pool
-composition before claiming. Production polling/shutdown, retention scheduling,
-dead-letter operations and installed qualification remain required.
+composition before claiming. Production polling/shutdown and retention
+scheduling are installed; native effects and default maintenance execution
+are recorded above. The contracts cover dead-letter settlement.
 
 The [PostgreSQL security event fallback](POSTGRES_SECURITY_EVENT_FALLBACK.md)
 retains immutable ingress snapshots, fences event-ID rebinding and uses
@@ -375,8 +418,9 @@ bounded `SKIP LOCKED` claims with private settlement capabilities. Hot-ledger
 persistence followed by queue acknowledgment repairs a crash between commits
 without creating a second event. Both authorities share database availability;
 this queue cannot durably cover a whole-PostgreSQL outage. Production
-composition, polling/shutdown, retained queue cleanup, dead-letter operations
-and installed qualification remain required.
+composition and polling/shutdown are installed. The contracts cover queue
+cleanup and dead-letter operations; native insertion and crash recovery are
+recorded above.
 
 Federated attribute reconciliation locks namespace, mapping and user authority
 in that order. Owner purge locks the mapping registry before the user and
@@ -435,7 +479,7 @@ The refresh finalization helper commits the owner/version-fenced increment and
 encrypted cache together. An actual second-write constraint failure rolls back
 the version and lease mutation; sixteen concurrent retries have one winner.
 The helper rejects a grace instance from another store pool. Runtime enum
-dispatch selects this transaction; production startup remains pending.
+dispatch and production startup select this transaction.
 An expired real lease cannot be extended using a stale caller timestamp;
 finalization checks the clock after acquiring the family row lock.
 Security events use a global immutable event ID and validated typed envelope.
@@ -448,8 +492,9 @@ that an archive object was written. Tenant/time export skips corrupt rows with
 `SECURITY_EVENT_INVALID` diagnostics and continues pagination through valid
 neighbors; duplicate writes against corrupt authority still fail closed.
 The memory adapter now applies the same source-history merge, following a
-reproduced shared-contract failure. Durable fallback ingestion, archive workers
-and their multiple-worker acceptance remain pending.
+reproduced shared-contract failure. Durable fallback ingestion and its competing
+workers are installed and qualified above. The portable profile explicitly
+disables external archives.
 Federation attribute mappings share pure transition rules with memory and use
 a locked PostgreSQL tenant catalog. Registry/mapping revisions fence updates;
 enabled target ownership is unique across IdPs, and deleted mapping IDs remain
@@ -491,7 +536,8 @@ SCIM adoption checks the selected canonical identity as well as the proposed
 ID, so another candidate cannot bypass its suppression.
 The governance writer now publishes suppression under that same fence.
 Destructive-job authorization now uses the transactions described above.
-Production startup and installed acceptance remain pending.
+Production startup selects these authorities. Required installed protocol
+flows and native governance checks are recorded above.
 Raw user lifecycle and attribute methods do not complete the
 required credential/session and namespace-authorized transactions.
 SCIM groups retain retired canonical IDs while releasing their active external
@@ -508,8 +554,9 @@ The shared contract reproduced memory deletion and batch mutation before
 version-exhaustion errors; both now preserve the complete previous state.
 It also reproduced AWS empty-tenant cleanup deleting a named tenant's groups;
 cleanup now applies the existing exact tenant-key predicate.
-The authorized group/role, SSO configuration and user lifecycle transactions
-remain pending.
+Production startup selects the group, Admin SSO and user authorities. Shared
+contracts and HTTP regressions cover their role/membership and lifecycle
+behavior; the installed campaign does not claim every SCIM or SSO ceremony.
 Login sessions capture a durable user session generation. Reads and listings
 use one statement snapshot to compare the captured generation with current
 authority; expiry remains an application decision at the existing port seam.
@@ -535,7 +582,8 @@ standby HTTP runtime policies grant transaction reads on the exact user table;
 the configuration tests inspect each role's inline and managed policies.
 Password enrollment/rotation, administrator reset, recovery consumption/rotation
 and passkey registration/deletion are wired as described above. Production
-startup and installed acceptance remain pending.
+startup selects the persistent credential ports; local compound-ceremony
+checks and installed protocol acceptance retain their distinct scopes.
 Recovery code consumption locks the tenant directory and complete code set
 within one transaction. It preserves the existing constant-time verifier,
 failed-attempt limit, lockout boundary and regeneration behavior. Only HMAC
@@ -545,8 +593,8 @@ NUL identities, `u32` attempt counts and `u64` credential epochs round-trip.
 Actual rejected admission/consumption writes preserve the previous authority.
 A failed second deletion rolls back both code-set and receipt cleanup.
 The authorized credential/session transaction now creates those complete
-success receipts. Production startup and installed recovery acceptance remain
-pending.
+success receipts. Production startup selects this authority. Installed recovery
+code ceremonies are not claimed by the Basic OP campaign.
 Shared tests reproduced memory tenant cleanup leaving successful-operation
 receipts behind; cleanup now removes both maps in the existing lock order.
 Real loopback DynamoDB interleavings reproduced stale consumption adopting a
@@ -568,8 +616,8 @@ Shared contracts reproduced memory and AWS accepting a counter decrease.
 Assertion verification and all three stores now use one existing WebAuthn rule:
 positive counters must advance; counterless zero-to-zero transitions remain
 permitted. User/epoch/session-authorized registration and operation-owned
-deletion are wired above. Production startup and installed authentication
-acceptance remain pending.
+deletion are wired above. Production startup selects this authority. The native
+Basic OP campaign does not establish hardware-authenticator qualification.
 Invitation issuance checks active local user identity, credential epoch and
 password absence under the tenant directory fence. Password creation and
 missing-password reset participate in that fence, following two reproduced
@@ -583,8 +631,9 @@ Failed resends and corrupt complete records preserve the previous authority;
 private codecs require every field and match physical identity/epoch/expiry.
 NUL locator and activation IDs and full `i64` timestamps round-trip.
 Shared contracts reproduced memory and AWS session lifetime overflow; both now
-return an error without consuming the invitation. Production invitation startup
-and full installed credential lifecycle acceptance remain pending.
+return an error without consuming the invitation. Production startup selects
+the invitation authority; full installed invitation lifecycle qualification is
+not claimed.
 Delivery observations retain their immutable message identity and encrypted
 complete payload. Per-record AES-256-GCM envelopes bind the outbox purpose,
 tenant, message, kind, recipient and timestamps to external encryption authority.
@@ -617,8 +666,9 @@ result and never reopen automatic submission. Local TLS tests combine two
 PostgreSQL pools, 16 admissions and 16 workers to verify one submission and
 no retry after a lost DATA receipt. Outbox and governance erasure remove pending
 and in-flight notification authority; late observations cannot recreate it.
-Production mounted SMTP configuration, polling/shutdown, operational status
-reporting and native worker acceptance remain required.
+Production mounted SMTP configuration, polling/shutdown and durable operational
+status are installed. Native delivery and no-replay ambiguity checks are
+recorded above.
 Governance-authorized erasure now uses the transactions described above.
 Governance transitions share the extracted domain rules with memory.
 PostgreSQL locks the same tenant directory as identity admission before reading
@@ -643,8 +693,8 @@ export authority while preserving a concurrently recreated live export.
 All three stores reject an external action whose resource fingerprint does not
 match its reference, following a reproduced memory/AWS contract failure.
 The control snapshot rewrites tenant state on mutation; this does not establish
-performance acceptance. Governance-authorized data-plane transactions are wired;
-production startup and native worker acceptance remain required.
+performance acceptance. Governance-authorized data-plane transactions and
+production startup are wired; native primary erasure is recorded above.
 CIBA request snapshots use per-record encryption, including the per-request
 notification credential, binding message, delivery destination and captured
 password version. Authentication binds the CIBA purpose, tenant, request,
@@ -669,9 +719,11 @@ Memory and AWS now use wider comparison arithmetic; AWS clamps only its
 garbage-collection deadline. Subject cleanup counts successful conditional
 deletions, rechecks the subject and separates the empty profile from named
 tenant keys. This helper also serves device, recovery and authorization-session
-cleanup. Encrypted issued push responses, durable callback dispatch/receipts,
-production state, authorized credential/session transactions and native CIBA
-worker acceptance remain required.
+cleanup. Production startup selects encrypted CIBA request authority and the
+existing portable inline callback dispatcher. The existing push path consumes
+authority before delivery and does not re-sign or downgrade after an ambiguous
+failure. This issue preserves that behavior; it does not add a new callback
+outbox or claim installed CIBA callback qualification.
 SSF stream admission retains the thirty-two-stream quota, including revoked
 tombstones. Revision CAS preserves pause/resume/replacement activation, and
 deliveries bind the event ID to its stream generation. PostgreSQL retains
@@ -850,6 +902,7 @@ signing, administrator and external-secret authority. Both environments have
 completed the protocol, browser, real Cognito, signing and restore campaigns
 described above. The EKS candidate also passed the existing conformance policy
 with live-revalidated exceptions and matched every signed AWS baseline module
-result. Remaining work includes enterprise-provider scope, complete
-background-work qualification and final delivery review. Keep the PR in draft
-and the issue open until the outstanding requirements in the ledger are verified.
+result. The native worker checks, safe default maintenance runs and documented
+recovery disposition are also recorded above. Final complete-scope review and
+repository delivery remain required. Keep the PR in draft and the issue open
+until the outstanding requirements in the ledger are verified.

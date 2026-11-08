@@ -5,11 +5,12 @@ This inventory covers the 57 public capability traits in `crates/http/src`:
 It records the storage and external dependencies that must be accounted for
 before [the delivery ledger](KUBERNETES_DELIVERY.md) can pass.
 
-An adapter implementation does not establish production wiring or deployment
-acceptance. Runtime enums now expose all thirty-five PostgreSQL ports, but
-production `AppState` startup does not select them yet. Startup must construct
-every enabled authority and transport explicitly; development memory stores
-must not become production fallback authority.
+An adapter implementation alone does not establish production wiring or
+deployment acceptance. [`PostgresRuntime`](../crates/http/src/postgres_runtime.rs)
+now explicitly constructs all thirty-five PostgreSQL ports and the mounted
+authority and portable transports. Development memory stores are not production
+fallback authority. Installed evidence and its limits are recorded in the
+[delivery ledger](KUBERNETES_DELIVERY.md).
 
 ## Implemented PostgreSQL authority
 
@@ -57,17 +58,17 @@ it does not establish native KMS acceptance.
 | `CibaStore` | Complete encrypted callback/request snapshots, field-level polling/decision/consumption CAS, bounded-arithmetic throttle and atomic request/throttle cleanup |
 | [`SsfStore`](../crates/http/src/ssf.rs) | Generation-bound streams, encrypted signed SETs/lease credentials/history, `SKIP LOCKED` claims and atomic retained-audit revocation |
 
-Cross-port work remains necessary even when individual traits are implemented.
-Raw port CRUD must not replace an authorized transaction involving user,
+Cross-port authority remains necessary even when individual traits are implemented.
+Raw port CRUD does not replace an authorized transaction involving user,
 credential, session, client, grant, or attribute authority.
 All seven existing governance data operations select coherent PostgreSQL
 ports. Destructive commits recheck the claimed lease after row-lock waits;
 cleanup retains SSF audit and erases credential/session/recovery/notification
-authority atomically. These data-plane fixtures do not establish production
-startup or native worker acceptance. The durable governance queue is tested
-separately with its worker batch and explicit development control/transports.
+authority atomically. Data-plane fixtures and installed worker checks have
+different scopes: the former cover failure atomicity and lease fencing; the
+latter prove the production composition and controlled native effects.
 
-## Remaining persistent authority
+## Optional persistent authority
 
 These traits are in their linked modules. Optional protocol surfaces need either
 a complete production
@@ -88,31 +89,33 @@ capability decision and reject unsupported payment settings at startup.
 | Trait | Portable requirement |
 | --- | --- |
 | `Signer` | Mounted ES256/RS256 private keys, request-coherent key snapshot and overlapping JWKS rotation |
-| `JwksFetcher` | Shared [portable HTTP](PORTABLE_HTTP.md) TLS fetch/cache and existing trust/SSRF restrictions; production wiring pending |
-| `OidcMetadataFetcher` | Shared portable bounded TLS metadata fetch; production wiring pending |
+| `JwksFetcher` | Shared [portable HTTP](PORTABLE_HTTP.md) TLS fetch/cache and existing trust/SSRF restrictions, selected by production startup |
+| `OidcMetadataFetcher` | Shared portable bounded TLS metadata fetch, selected by production startup |
 | `StsCaller` | Explicitly disabled in the AWS-free profile; retain the existing optional AWS path |
-| `SecretResolver` | [`FileSecretResolver`](MOUNTED_SECRETS.md) with explicit reference bindings and confined mounted-file reads; production wiring and installed proof pending |
-| `UpstreamTokenExchanger` | Shared portable TLS exchange with registered endpoint trust; production secret/transport composition pending |
-| `GovernanceJobQueue` | [PostgreSQL durable wake-ups and worker batch](POSTGRES_GOVERNANCE_QUEUE.md), `SKIP LOCKED` claim, lease fencing and retry; production entrypoint and installed acceptance pending |
-| `Notifier` | [TLS SMTP and PostgreSQL notification authority](POSTGRES_SMTP.md) with recovery-operation deduplication and uncertain-send fencing; production composition and installed acceptance pending |
+| `SecretResolver` | [`FileSecretResolver`](MOUNTED_SECRETS.md) with explicit reference bindings and confined mounted-file reads; real mounted-credential Cognito flows passed in both installations |
+| `UpstreamTokenExchanger` | Shared portable TLS exchange with registered endpoint trust; production composition and real Cognito flows passed |
+| `GovernanceJobQueue` | [PostgreSQL durable wake-ups and worker batch](POSTGRES_GOVERNANCE_QUEUE.md), `SKIP LOCKED` claim, lease fencing and retry; native primary-erasure and acknowledgment checks passed |
+| `Notifier` | [TLS SMTP and PostgreSQL notification authority](POSTGRES_SMTP.md) with recovery-operation deduplication and uncertain-send fencing; native delivery and ambiguous-send no-replay checks passed |
 | `AuthzEventSink` | Explicit projection configuration; authority commit independent of projection failure |
-| `CibaCallbackDelivery` | Shared portable bounded callback HTTP with existing destination/credential checks; production wiring pending |
+| `CibaCallbackDelivery` | Shared portable bounded callback HTTP with existing destination/credential checks; selected by production startup; installed CIBA callback qualification is not claimed |
 | [`ArchiveDeliverySink`](../crates/http/src/security_event_archive.rs) | Optional S3-compatible archive or explicit archive disablement |
 | [`CimdHttpClient`](../crates/http/src/cimd.rs) | Shared portable transport with existing metadata allowlist, DNS/IP pinning, size/timeout and SSRF protections |
-| [`SsfPushClient`](../crates/http/src/ssf_worker.rs) | Shared portable bounded push; production worker generation/lease fencing and retry remain required |
+| [`SsfPushClient`](../crates/http/src/ssf_worker.rs) | Shared portable bounded push; native delivery, receipt-loss retry and actual-lease crash recovery passed against an authenticated receiver |
 | [`SsfSignerResolver`](../crates/http/src/ssf_worker.rs) | Resolve the configured mounted signer for each delivery snapshot |
-| [`SecurityEventFallback`](../crates/http/src/security_event.rs) | [PostgreSQL durable ingress snapshots and recovery batch](POSTGRES_SECURITY_EVENT_FALLBACK.md), per-input batch outcomes and fenced redelivery; production entrypoint and installed acceptance pending |
-| [`GovernanceResourceBackend`](../crates/http/src/governance_resources.rs) | [PostgreSQL primary inventory and retained-record observations](POSTGRES_GOVERNANCE_RESOURCES.md), same-pool worker fencing and explicit operator statements for external backups/logs; mounted resources remain operator-owned, production wiring and installed acceptance pending |
+| [`SecurityEventFallback`](../crates/http/src/security_event.rs) | [PostgreSQL durable ingress snapshots and recovery batch](POSTGRES_SECURITY_EVENT_FALLBACK.md), per-input batch outcomes and fenced redelivery; native insertion and actual-lease crash recovery passed |
+| [`GovernanceResourceBackend`](../crates/http/src/governance_resources.rs) | [PostgreSQL primary inventory and retained-record observations](POSTGRES_GOVERNANCE_RESOURCES.md), same-pool worker fencing and explicit operator statements for external backups/logs; native primary erasure passed while external copies remain operator-owned |
 
-Queues and delivery state must have real multiple-worker redelivery tests.
-Existing Lambda workers also need portable Deployment/CronJob/Job entrypoints;
-adding a storage table does not complete that requirement.
+Queues and delivery state have both independent-pool contracts and controlled
+native worker checks. The runtime supplies four worker Deployments and three
+maintenance CronJobs. Native zero-row maintenance runs preserve the default
+dry-run flags and do not establish destructive maintenance acceptance.
 
-Existing state helpers also need durable production composition.
+State helpers also use explicit durable production composition.
 `BrandingStore::postgres` persists bounded deployment presentation with revision
 CAS. [Mounted administrator credentials](MOUNTED_ADMIN_CREDENTIALS.md) preserve
 platform, tenant and SCIM ownership plus durable rollback/retirement trust.
-Those adapters do not establish production startup or installed acceptance.
+Production startup selects both helpers. Lifecycle contracts and installed
+scope are recorded separately in the delivery ledger and recovery guide.
 
 ## Excluded SaaS and multi-Region capabilities
 

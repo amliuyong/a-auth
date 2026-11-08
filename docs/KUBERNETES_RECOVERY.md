@@ -107,6 +107,14 @@ accepted on another restored token replica using a newly issued code.
 The separate old-backup drill demonstrates the missing-revocation hazard
 and the scope of known-grant remediation.
 
+The final drill disposition in both environments was `HOLD_NO_RELEASE`.
+Complete post-backup lifecycle authority was unavailable, so the isolated
+clone web and token deployments were scaled to zero replicas. Readback
+confirmed no clone Ingress or maintenance schedule and unchanged readiness
+and identities for all twelve primary application Pods. Backup databases
+and private evidence were retained. This exercises the documented containment
+option; it does not turn the stale snapshot into a safe production recovery.
+
 Before production release, validate the complete reconciled authority on
 distinct replicas, including current signing/administrator lifecycle and
 credential status. Cryptographically valid offline JWTs can remain valid
