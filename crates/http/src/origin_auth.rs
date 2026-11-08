@@ -16,6 +16,7 @@ pub const SECONDARY_ORIGIN_AUTH_HEADER: &str = "x-agent-auth-origin-auth-seconda
 #[derive(Clone)]
 pub struct SaasOriginAuth {
     credentials: Option<OriginCredentials>,
+    single_tenant: bool,
 }
 
 #[derive(Clone)]
@@ -28,7 +29,19 @@ impl SaasOriginAuth {
     /// `AppState::dev` is also used as an integration-test fixture before tests
     /// replace its deployment form. Production construction cannot select this.
     pub(crate) fn development_bypass() -> Self {
-        Self { credentials: None }
+        Self {
+            credentials: None,
+            single_tenant: false,
+        }
+    }
+
+    /// No SaaS edge credential applies to a single-tenant deployment. If that
+    /// state is accidentally changed to SaaS, admission must remain closed.
+    pub(crate) fn single_tenant() -> Self {
+        Self {
+            credentials: None,
+            single_tenant: true,
+        }
     }
 
     pub fn required(primary: String, secondary: String) -> Result<Self, String> {
@@ -39,6 +52,7 @@ impl SaasOriginAuth {
             return Err("SaaS origin credentials must be distinct".to_string());
         }
         Ok(Self {
+            single_tenant: false,
             credentials: Some(OriginCredentials {
                 primary: Arc::new(primary.into_bytes()),
                 secondary: Arc::new(secondary.into_bytes()),
@@ -47,15 +61,17 @@ impl SaasOriginAuth {
     }
 
     fn authenticates(&self, headers: &HeaderMap) -> bool {
-        self.credentials.as_ref().is_none_or(|credentials| {
-            header_matches(headers, PRIMARY_ORIGIN_AUTH_HEADER, &credentials.primary)
-                || header_matches(headers, LEGACY_ORIGIN_AUTH_HEADER, &credentials.primary)
-                || header_matches(
-                    headers,
-                    SECONDARY_ORIGIN_AUTH_HEADER,
-                    &credentials.secondary,
-                )
-        })
+        self.credentials
+            .as_ref()
+            .map_or(!self.single_tenant, |credentials| {
+                header_matches(headers, PRIMARY_ORIGIN_AUTH_HEADER, &credentials.primary)
+                    || header_matches(headers, LEGACY_ORIGIN_AUTH_HEADER, &credentials.primary)
+                    || header_matches(
+                        headers,
+                        SECONDARY_ORIGIN_AUTH_HEADER,
+                        &credentials.secondary,
+                    )
+            })
     }
 }
 

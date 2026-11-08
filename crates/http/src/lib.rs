@@ -60,6 +60,8 @@ pub mod payment;
 pub mod policy_freshness;
 mod poll_claim;
 pub mod ports;
+#[cfg(feature = "postgres")]
+pub mod postgres_runtime;
 pub mod prm;
 mod rar_delivery;
 pub mod ratelimit_gate;

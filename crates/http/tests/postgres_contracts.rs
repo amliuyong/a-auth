@@ -129,6 +129,9 @@ mod governance_queue_contracts;
 #[path = "postgres/governance_resources.rs"]
 mod governance_resource_contracts;
 
+#[path = "postgres/runtime.rs"]
+mod production_runtime_contracts;
+
 #[path = "postgres/smtp.rs"]
 mod smtp_contracts;
 

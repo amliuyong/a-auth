@@ -80,13 +80,22 @@ tests do not establish cluster, deployment, or conformance acceptance.
 
 ## Current implementation frontier
 
+`PostgresRuntime::load` now constructs all required self-hosted persistent
+ports directly, with mounted signing and administrator authority, confined
+external secrets, real HTTP transports and durable TLS SMTP notifications.
+Startup validates the complete migration checksum authority without applying
+DDL. Notification admission and management observations share their configured
+encryption purpose. See the [production configuration reference](POSTGRES_RUNTIME.md).
+The production listener, role-specific mounts, scheduling, installed deployment
+and full acceptance campaign remain pending.
+
 `PostgresGovernanceResourceBackend` observes live authority and physically
 retained records in the configured primary database. Operator-owned mounts
 cannot be automatically deleted. Protected, short-lived operator statements
 for external backups/logs carry an explicit attestation evidence basis;
 missing statements leave retention pending. See
 [PostgreSQL governance resources](POSTGRES_GOVERNANCE_RESOURCES.md).
-Production wiring, installed retention scheduling and backup/restore
+Installed retention scheduling and backup/restore
 acceptance remain pending.
 
 `BrandingStore::postgres` preserves deployment presentation across process
@@ -96,7 +105,7 @@ bundle and persists secret-free owner/revision/lifetime/retirement checkpoints.
 It rejects cold-start rollback and higher-revision resurrection of retired
 credentials, bypasses plaintext registry caching and checks expiry after
 database lock waits. See [mounted administrator credentials](MOUNTED_ADMIN_CREDENTIALS.md).
-Production construction, mounts/readiness and installed rotation/restore
+Listener mounts/readiness and installed rotation/restore
 acceptance remain pending.
 
 `FileSecretResolver` resolves only explicitly mapped references from a
@@ -148,8 +157,7 @@ audit metadata.
 
 All thirty-five ports now have runtime enum variants and trait delegation.
 The shared contracts select those variants rather than invoking the raw
-PostgreSQL adapters. This covers dispatch only; production startup still
-needs an explicit PostgreSQL constructor. Failed code exchange and encrypted
+PostgreSQL adapters. The production constructor is described above. Failed code exchange and encrypted
 refresh finalization select their existing atomic helpers and reject stores
 from different pool identities. User-authorized code issuance, active-client
 Grant admission, password enrollment/rotation and operation-owned administrator

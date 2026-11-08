@@ -144,6 +144,39 @@ impl PostgresStore {
         let close = connection.close().await.map_err(db_error);
         result.and(close)
     }
+
+    /// Runtime readiness reads the complete forward-migration authority and
+    /// verifies checksums without DDL, advisory locks or automatic repair.
+    pub async fn verify_schema(&self) -> Result<(), StoreError> {
+        let expected: Vec<_> = MIGRATIONS.iter().collect();
+        let rows = sqlx::query(
+            "SELECT version, success, checksum FROM public._sqlx_migrations \
+             ORDER BY version LIMIT $1",
+        )
+        .bind((expected.len() + 1) as i64)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(db_error)?;
+        if rows.len() != expected.len() {
+            return Err(StoreError::Permanent(
+                "PostgreSQL schema authority incomplete".into(),
+            ));
+        }
+        for (row, migration) in rows.iter().zip(expected) {
+            let version: i64 = row.try_get("version").map_err(db_error)?;
+            let success: bool = row.try_get("success").map_err(db_error)?;
+            let checksum: Vec<u8> = row.try_get("checksum").map_err(db_error)?;
+            if version != migration.version
+                || !success
+                || checksum.as_slice() != migration.checksum.as_ref()
+            {
+                return Err(StoreError::Permanent(
+                    "PostgreSQL schema authority invalid".into(),
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Never include driver messages: they can contain SQL data or connection

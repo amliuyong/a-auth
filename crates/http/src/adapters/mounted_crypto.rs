@@ -88,7 +88,6 @@ impl EncryptionKeyring {
     /// symlinks. The opened target must be a regular file with no world access
     /// or group write permission. The caller confines the mount path at startup.
     pub fn from_file(path: impl AsRef<Path>) -> Result<Self, StoreError> {
-        use base64::Engine;
         let file = std::fs::File::open(path).map_err(|_| invalid_keys())?;
         let metadata = file.metadata().map_err(|_| invalid_keys())?;
         if !metadata.is_file() {
@@ -110,7 +109,16 @@ impl EncryptionKeyring {
         if encoded.len() > 65_536 {
             return Err(invalid_keys());
         }
-        let config: KeyFile = serde_json::from_slice(&encoded).map_err(|_| invalid_keys())?;
+        Self::from_json(&encoded)
+    }
+
+    /// The caller has already confined and protected the source file.
+    pub(crate) fn from_json(encoded: &[u8]) -> Result<Self, StoreError> {
+        use base64::Engine;
+        if encoded.is_empty() || encoded.len() > 65_536 {
+            return Err(invalid_keys());
+        }
+        let config: KeyFile = serde_json::from_slice(encoded).map_err(|_| invalid_keys())?;
         let mut supplied = Vec::new();
         let mut invalid = false;
         for entry in &config.keys {
