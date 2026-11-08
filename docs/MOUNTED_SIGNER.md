@@ -4,15 +4,17 @@ The `postgres` feature provides `MountedSignerRing` for single-tenant
 self-hosted signing. It loads P-256 ES256 and RSA RS256 private keys from
 operator-mounted files. Private key material stays outside PostgreSQL.
 
-The adapter and request resolver are implemented. The production startup
-configuration, automatic reload loop, probes and Kubernetes deployment remain
-pending under Issue #142. The current development server does not load these
-files.
+The production PostgreSQL runtime loads these files, reloads the ring during
+readiness checks and resolves a complete signing snapshot per request.
+Both native installations passed publication, activation and retirement
+with independent EC/RSA verification. Full acceptance remains in the
+[delivery ledger](KUBERNETES_DELIVERY.md).
 
 ## Files
 
 Use an absolute root directory that the application can read. The directory
-and every file must prohibit group and other writes. Private files must also
+must prohibit group and other writes, or be a verified read-only Kubernetes
+projection mount. Every file must prohibit group and other writes. Private files must also
 prohibit other reads; `0600`, or `0640` with a dedicated application group, is
 appropriate. Public keys and the manifest may use `0644`.
 
@@ -83,4 +85,5 @@ Tests independently verify EC and RSA signatures, retain old-token verification
 during overlap, reject changed payloads, reject retired key IDs, preserve
 captured request snapshots, and retain authority after invalid reloads.
 Filesystem tests cover permissions, confined paths and partial updates.
-These are local adapter tests; cluster rotation acceptance remains `NOT_RUN`.
+These are local adapter tests. Installed positive replica rotation passed
+separately; invalid-publication readiness/recovery remains under qualification.

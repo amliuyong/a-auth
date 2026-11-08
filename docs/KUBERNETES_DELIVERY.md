@@ -51,12 +51,12 @@ tests do not establish cluster, deployment, or conformance acceptance.
 | Secure container and chart | Rendered manifests, authentication and reachability tests | IN_PROGRESS |
 | kind + in-cluster PostgreSQL | Installed chart and all required protocol flows including enterprise IdP | IN_PROGRESS |
 | EKS + external RDS PostgreSQL | Installed chart and all required protocol flows including enterprise IdP | IN_PROGRESS |
-| Existing conformance gates | Exact-candidate Kubernetes run and comparison with AWS self-hosted results | NOT_RUN |
+| Existing conformance gates | Exact-candidate Kubernetes run; existing AWS baseline passed with 37 required passes and 14 approved exceptions | IN_PROGRESS |
 | memory/AWS/PostgreSQL contracts | Shared contracts across three adapters plus equivalent atomicity/idempotency coverage | IN_PROGRESS |
 | Multi-replica code/refresh/replay/IAT | Concurrent requests to distinct installed replicas with exactly one effect; shared refresh grace response | PASS |
-| AWS-free dependency tree/runtime | Production feature dependency tree and runtime egress evidence | NOT_RUN |
-| Backup/restore revocation safety | Recovery drill with grants, refresh families, replay history, and documented remediation | NOT_RUN |
-| OCI image and chart on GHCR | Published immutable digests, readback, install commands | IN_PROGRESS |
+| AWS-free dependency tree/runtime | Production dependency tree passed; bounded runtime API observations remain required | IN_PROGRESS |
+| Backup/restore revocation safety | Post-revocation restore passed; stale-backup hazard and known-grant remediation drilled; complete authority reconciliation remains required | IN_PROGRESS |
+| OCI image and chart on GHCR | Published immutable backend/frontend/chart digests, readback and both native installations | PASS |
 | Review, PR, CI, merge, closure | Reviewed SHA, terminal checks, merge readback, closed issue, clean worktree removal | NOT_RUN |
 
 ## PostgreSQL adapter conventions
@@ -93,7 +93,7 @@ tests exercise readiness loss/recovery and an accepted request draining across
 SIGTERM. See [server entrypoints](POSTGRES_SERVER.md).
 
 Native amd64 and arm64 backend and browser images at component commit
-`0a9fb2efbd1a9f933f3d52656a242927d3139d70`, plus chart 0.1.1, have been
+`0a9fb2efbd1a9f933f3d52656a242927d3139d70`, plus chart 0.1.2, have been
 published on GHCR with immutable digest readbacks. Both kind with TLS
 PostgreSQL 16 and EKS with private encrypted PostgreSQL 17 RDS have installed
 the application and all forty-one migrations. Each environment runs two web
@@ -109,7 +109,7 @@ authenticated introspection, one refresh rotation with a shared grace response,
 DPoP JTI contention using independent codes, and cross-replica refresh-family
 revocation. An in-flight code exchange loser can return 503 while its lease
 is held; a completed replay returns `invalid_grant`. These observations do
-not establish official conformance or enterprise federation.
+not establish official conformance.
 
 Both environments also passed seven real Chromium browser checks over an
 installed TLS Ingress: initial-password login and required change, authorization
@@ -121,18 +121,56 @@ The callback was captured by the test browser. Public WebPKI and an external
 relying-party deployment are not established by this run.
 
 This browser campaign found that Traefik's default rule-length priority routed
-`/token` to the web frontend. The chart 0.1.2 candidate splits the two Ingress
+`/token` to the web frontend. Chart 0.1.2 splits the two Ingress
 resources and supports separate controller annotations; explicit priorities
 passed installed HTTPS routing and browser checks in both environments.
-Immutable publication and installation readback of that chart version remain
-pending. See the [server reference](POSTGRES_SERVER.md) for its configuration.
+That chart version was published by immutable digest, pulled back with source
+verification and installed in both environments. See the
+[installation/upgrade guide](KUBERNETES_INSTALL.md) for artifact identities
+and the [server reference](POSTGRES_SERVER.md) for routing configuration.
+
+Both environments passed eight checks against a real existing Cognito OIDC
+provider, using separate issue-owned app clients and a dedicated test user.
+The mounted file resolver supplied each client secret; the browser exercised
+upstream state/nonce/PKCE, password login, verified callback, a local secure
+session, downstream consent/code exchange, independent ES256/RS256
+verification and consumed-flow replay rejection. Authenticated management
+readback confirmed the expected issuer/sub-derived local user. The test
+email was operator-set as verified. This is real Cognito interoperability;
+it does not establish Okta/Entra or enterprise SCIM acceptance.
+
+The existing protected AWS conformance run
+[42362005620](https://github.com/amliuyong/a-auth/actions/runs/42362005620)
+passed for deployed component
+`f63aac1a756e164de2c09454d8d7315f6ca98fca`: 37 required tests passed and
+14 had approved, limited exceptions. Its approved profile is Basic OP Code,
+with explicit non-claims for FAPI, OpenID Federation and blanket RFC 9700
+certification. This baseline is a different deployment from the Kubernetes
+candidate. Candidate hosted OIDF execution remains `NOT_RUN`.
+
+Installed signing rotation passed in both environments: publish the new
+EC/RSA pair, wait the actual 300-second cache interval, activate it on both
+token replicas, preserve independent old/new verification during overlap,
+wait the actual token lifetime plus cache interval, then remove retired key
+IDs from both web replicas. Invalid-publication readiness/recovery remains a
+separate installed check.
+
+Both installations also restored a post-revocation PostgreSQL backup into
+separate databases and passed four restored-HTTP checks, including unexpired
+grant/refresh rejection and still-fresh DPoP replay rejection. An old-backup
+drill demonstrated missing-revocation resurrection and reconciled the known
+grant across replicas. The
+[recovery guide](KUBERNETES_RECOVERY.md) requires containment and complete
+post-backup authority reconciliation. Unidentified lost revocations remain
+unknown; there is no automatic stale-snapshot rejection.
 
 Each environment's two SMTP workers delivered one durable notification to a
 TLS SMTP fixture, with one accepted message and no second acceptance on
 reobservation. Worker crash/uncertain-result qualification remains separate.
-Enterprise IdP, official conformance and AWS comparison, installed signing
-rotation, runtime AWS API observations, restore, complete background-work
-qualification and final delivery documentation remain required.
+Enterprise-provider scope, candidate official conformance and full AWS
+comparison, invalid signing-publication recovery, runtime AWS API
+observations, complete restore authority and background-work qualification
+remain required.
 
 `PostgresGovernanceResourceBackend` observes live authority and physically
 retained records in the configured primary database. Operator-owned mounts
@@ -140,8 +178,7 @@ cannot be automatically deleted. Protected, short-lived operator statements
 for external backups/logs carry an explicit attestation evidence basis;
 missing statements leave retention pending. See
 [PostgreSQL governance resources](POSTGRES_GOVERNANCE_RESOURCES.md).
-Installed retention scheduling and backup/restore
-acceptance remain pending.
+Complete installed retention and recovery acceptance remain pending.
 
 `BrandingStore::postgres` preserves deployment presentation across process
 restarts with a persisted revision CAS and complete host/record validation.
@@ -150,28 +187,29 @@ bundle and persists secret-free owner/revision/lifetime/retirement checkpoints.
 It rejects cold-start rollback and higher-revision resurrection of retired
 credentials, bypasses plaintext registry caching and checks expiry after
 database lock waits. See [mounted administrator credentials](MOUNTED_ADMIN_CREDENTIALS.md).
-Listener mounts/readiness and installed rotation/restore
-acceptance remain pending.
+Production listeners and mounts are installed; complete administrator
+lifecycle rotation/restore acceptance remains pending.
 
 `FileSecretResolver` resolves only explicitly mapped references from a
 dedicated mounted directory, reads current projected Secret generations and
 confines descriptor-relative reads. See [mounted external client
 secrets](MOUNTED_SECRETS.md) for bindings, permission limits and failure
-behavior. Production startup, chart mounts and installed federation remain
-pending.
+behavior. Production startup and chart mounts are installed, and real
+Cognito federation passed in both native environments.
 
 The existing OIDC/JWKS, token exchange, CIBA, SSF and CIMD HTTP transports now
 compile through `portable-http`, shared by AWS and PostgreSQL without AWS SDK
 dependencies. Their existing trust, DNS pinning, bounds and refresh/response
-rules are retained. See [portable outbound HTTP](PORTABLE_HTTP.md). Production
-composition, worker use and installed IdP acceptance remain pending.
+rules are retained. See [portable outbound HTTP](PORTABLE_HTTP.md).
+Production composition and real Cognito use are installed; full outbound
+worker effects remain under qualification.
 
 `MountedSignerRing` loads immutable ES256/RS256 file generations and
 `TenantKeyService::mounted` resolves them per request with disabled SaaS
 registry/command interfaces. See [mounted signing keys](MOUNTED_SIGNER.md) for
 the manifest, permission and rotation contract. Local independent verification
-and invalid-reload tests do not establish production startup or cluster
-rotation acceptance; those remain pending.
+and invalid-reload tests are separate from the installed positive rotation
+above; installed invalid-publication readiness/recovery remains required.
 
 The `postgres` feature currently provides `PostgresStore` implementations for
 `ParStore`, `ReplayStore`, `InitialAccessTokenStore`, `ClientStore`, `CodeStore`,

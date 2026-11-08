@@ -1,0 +1,84 @@
+{
+  "image": {
+    "repository": "ghcr.io/amliuyong/a-auth",
+    "digest": "sha256:9851f4a725dad04100eed12e45add9785512888e4502fb09acabea845c021c04",
+    "sourceCommit": "0a9fb2efbd1a9f933f3d52656a242927d3139d70"
+  },
+  "frontend": {
+    "enabled": true,
+    "image": {
+      "repository": "ghcr.io/amliuyong/a-auth-web",
+      "digest": "sha256:aeb4bfc4dcba36d50829f842ad52c3d180afaaee0cbbfa35857cf08426fc5b2e",
+      "sourceCommit": "0a9fb2efbd1a9f933f3d52656a242927d3139d70"
+    }
+  },
+  "imagePullSecrets": [{"name": "a-auth-ghcr"}],
+  "runtime": {
+    "schema_version": 1,
+    "host": "auth.example.test",
+    "namespace": "a-auth-self-hosted",
+    "web_base_url": "https://auth.example.test",
+    "deployment_commit": "0a9fb2efbd1a9f933f3d52656a242927d3139d70",
+    "logical_region": "local",
+    "jurisdiction": "operator-configured",
+    "max_connections": 8,
+    "database": {"root": "/etc/a-auth/database", "key": "database"},
+    "secrets": {
+      "root": "/etc/a-auth/crypto",
+      "server_key": "server-key",
+      "governance_key": "governance-key",
+      "grace": "grace",
+      "ciba": "ciba",
+      "outbox": "outbox",
+      "ssf": "ssf"
+    },
+    "signing": {"root": "/etc/a-auth/signing", "manifest": "keys.json"},
+    "administrators": {"root": "/etc/a-auth/administrators", "key": "bundle"},
+    "external_secrets": {
+      "root": "/etc/a-auth/external",
+      "bindings": {},
+      "retention_key": "retention"
+    },
+    "smtp": {
+      "host": "smtp.example.test",
+      "port": 465,
+      "tls": "implicit",
+      "from": "auth@example.test",
+      "root_ca_key": null,
+      "username_key": null,
+      "password_key": null
+    },
+    "phase": "P3",
+    "subject_type": "public",
+    "dcr_mode": "initial_access_token",
+    "capabilities": {
+      "federation": false,
+      "passkey": false,
+      "ciba_ping_push": false,
+      "byod": false,
+      "mtls_svid": false,
+      "ema": false,
+      "authz": false,
+      "cimd": false
+    },
+    "redirect_hosts": [],
+    "cimd_domains": [],
+    "ema_policies": [],
+    "invitation_ttl_secs": 86400,
+    "grace_window_secs": 5,
+    "password_workers": 2
+  },
+  "database": {"runtimeRole": "a_auth_runtime"},
+  "replicas": {"web": 2, "token": 2},
+  "management": {"serviceEnabled": false},
+  "ingress": {
+    "enabled": true,
+    "className": "traefik",
+    "tlsSecretName": "a-auth-ingress-tls",
+    "tokenAnnotations": {"traefik.ingress.kubernetes.io/router.priority": "100"},
+    "webAnnotations": {"traefik.ingress.kubernetes.io/router.priority": "10"}
+  },
+  "workers": {"enabled": true, "replicas": 2},
+  "maintenance": {"enabled": true, "reclaimApply": false, "recomputeApply": false},
+  "rolloutRevision": "operator-generation-1"
+}

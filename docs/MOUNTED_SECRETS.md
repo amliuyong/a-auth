@@ -3,8 +3,10 @@
 `FileSecretResolver` implements the existing `SecretResolver` port with a
 dedicated operator-mounted directory and explicit reference-to-key bindings.
 The `postgres` feature provides this adapter and its runtime dispatch variant.
-Production configuration, chart mounts and installed federation acceptance
-remain pending under #142.
+Production configuration and chart mounts are installed. Both kind and EKS
+passed real Cognito OIDC exchange using operator-mounted client secrets.
+This does not establish interoperability with every enterprise provider;
+see the [delivery ledger](KUBERNETES_DELIVERY.md).
 
 ## References and mount layout
 
@@ -36,7 +38,8 @@ subsequent resolutions across resolver clones. A resolution already reading
 the old generation may finish with that value; rotate the upstream credential
 with an overlap window when the provider supports it.
 
-The mount and all target directories must reject group and world writes.
+The mount and target directories must reject group and world writes, or be
+verified read-only Kubernetes projection directories.
 Secret targets must be regular UTF-8 files with modes such as `0600` or
 `0640`: executable files, group writes and all world access are rejected.
 Values must contain 1–65,536 bytes and no NUL. Whitespace is preserved exactly,
@@ -64,5 +67,5 @@ neither the reference, filesystem path nor secret value.
 The adapter tests cover explicit resolution, preservation of whitespace,
 Kubernetes-style projection updates, outside links, permission changes,
 invalid UTF-8/NUL/empty/oversized values, invalid configuration and nonregular
-files. These local tests do not establish installed Kubernetes projection,
-enterprise IdP exchange or production startup acceptance.
+files. These local tests are separate from the installed projected-mount,
+production startup and real Cognito exchange evidence above.
