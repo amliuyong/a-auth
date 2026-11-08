@@ -28,6 +28,31 @@ impl PostgresSsfStore {
         self.store.shares_pool_with(store)
     }
 
+    pub(super) async fn governance_retention_count(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        tenant: &str,
+        anchor: i64,
+    ) -> Result<u64, StoreError> {
+        // Conservative for user erasure: include all tenant delivery records
+        // through the anchor. Revoked stream control records remain permanent.
+        let rows = sqlx::query(&format!(
+            "SELECT {DELIVERY_COLUMNS} FROM a_auth.ssf_deliveries WHERE tenant=$1"
+        ))
+        .bind(tenant.as_bytes())
+        .fetch_all(&mut **tx)
+        .await
+        .map_err(db_error)?;
+        let mut count = 0;
+        for row in rows {
+            let delivery = decode_delivery(row, &self.keys)?;
+            if delivery.created_at <= anchor {
+                count += 1;
+            }
+        }
+        Ok(count)
+    }
+
     pub(super) async fn governance_inventory(
         &self,
         tx: &mut Transaction<'_, Postgres>,

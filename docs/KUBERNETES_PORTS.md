@@ -102,7 +102,7 @@ capability decision and reject unsupported payment settings at startup.
 | [`SsfPushClient`](../crates/http/src/ssf_worker.rs) | Shared portable bounded push; production worker generation/lease fencing and retry remain required |
 | [`SsfSignerResolver`](../crates/http/src/ssf_worker.rs) | Resolve the configured mounted signer for each delivery snapshot |
 | [`SecurityEventFallback`](../crates/http/src/security_event.rs) | [PostgreSQL durable ingress snapshots and recovery batch](POSTGRES_SECURITY_EVENT_FALLBACK.md), per-input batch outcomes and fenced redelivery; production entrypoint and installed acceptance pending |
-| [`GovernanceResourceBackend`](../crates/http/src/governance_resources.rs) | Explicit resource ownership and retention handling; operator-owned mounted resources remain external |
+| [`GovernanceResourceBackend`](../crates/http/src/governance_resources.rs) | [PostgreSQL primary inventory and retained-record observations](POSTGRES_GOVERNANCE_RESOURCES.md), same-pool worker fencing and explicit operator statements for external backups/logs; mounted resources remain operator-owned, production wiring and installed acceptance pending |
 
 Queues and delivery state must have real multiple-worker redelivery tests.
 Existing Lambda workers also need portable Deployment/CronJob/Job entrypoints;

@@ -9,6 +9,7 @@ use crate::{
 };
 use sqlx::{postgres::PgRow, Postgres, Row, Transaction};
 
+mod resources;
 mod snapshot;
 mod tenant_data;
 mod user_data;
@@ -52,6 +53,10 @@ impl PostgresGovernanceStore {
 
     pub(crate) fn belongs_to(&self, store: &PostgresStore) -> bool {
         self.database.shares_pool_with(store)
+    }
+
+    pub(crate) fn shares_pool_with(&self, other: &Self) -> bool {
+        self.database.shares_pool_with(&other.database)
     }
 
     async fn read<T>(

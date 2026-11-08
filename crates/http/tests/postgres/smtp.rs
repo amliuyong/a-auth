@@ -357,7 +357,9 @@ async fn postgres_smtp_submission_rechecks_expiry_after_an_actual_row_lock_wait(
 
 #[tokio::test]
 async fn postgres_smtp_governance_erasure_removes_jobs_and_fences_late_observations() {
-    use super::governance_contracts::{start_user_erasure, user_data_state};
+    use super::governance_contracts::{
+        attach_resource_backend, start_user_erasure, user_data_state,
+    };
     use agent_auth_http::{
         governance::GovernanceJobState,
         governance_worker::advance_user_erasure_once,
@@ -366,7 +368,8 @@ async fn postgres_smtp_governance_erasure_removes_jobs_and_fences_late_observati
     let fixture = Fixture::new().await;
     // Explicit development control/transports and complete PostgreSQL user
     // data authority; this is not a production factory or cluster receipt.
-    let state = user_data_state(fixture.stores[0].clone());
+    let mut state = user_data_state(fixture.stores[0].clone());
+    let resource_root = attach_resource_backend(&mut state, fixture.stores[0].clone());
     let at = now();
     let email = "smtp-erasure@example.com";
     let user_id = "user:smtp-erasure@example.com";
@@ -437,4 +440,5 @@ async fn postgres_smtp_governance_erasure_removes_jobs_and_fences_late_observati
         Err(StoreError::Permanent(_))
     ));
     fixture.passed().await;
+    std::fs::remove_dir_all(resource_root).unwrap();
 }

@@ -77,6 +77,11 @@ fn open_at(directory: &File, name: &Path, flags: i32) -> Result<File, StoreError
 }
 
 impl FileSecretResolver {
+    #[cfg(feature = "postgres")]
+    pub(crate) fn has_reference(&self, reference: &str) -> bool {
+        self.mount.bindings.contains_key(reference)
+    }
+
     /// Bind logical references to flat Secret keys before serving traffic.
     /// An empty map explicitly disables reference resolution. Private signing
     /// and encryption mounts must be configured separately from this root.

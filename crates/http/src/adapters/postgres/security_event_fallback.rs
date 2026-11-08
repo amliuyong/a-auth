@@ -182,6 +182,70 @@ fn decode(row: PgRow) -> Result<Record, StoreError> {
     })
 }
 
+impl PostgresStore {
+    pub(super) async fn fallback_retention_count(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        request: &crate::governance_resources::GovernanceRetentionRequest,
+    ) -> Result<u64, StoreError> {
+        let mut cursor = String::new();
+        let mut count = 0_u64;
+        loop {
+            let rows = sqlx::query(
+                "SELECT i.event_id, i.event FROM a_auth.security_event_fallback_identity i \
+                 WHERE (i.event::JSONB->>'tenant_id'=$1 OR EXISTS( \
+                     SELECT 1 FROM a_auth.security_event_fallback q WHERE q.event_id=i.event_id \
+                     AND q.record::JSONB#>>'{event,tenant_id}'=$1)) \
+                 AND i.event_id > $2 COLLATE \"C\" ORDER BY i.event_id LIMIT 256",
+            )
+            .bind(request.target.tenant_id())
+            .bind(&cursor)
+            .fetch_all(&mut **tx)
+            .await
+            .map_err(db_error)?;
+            let length = rows.len();
+            for row in rows {
+                let id: String = row.try_get("event_id").map_err(db_error)?;
+                let text: String = row.try_get("event").map_err(db_error)?;
+                let event: SecurityEvent = serde_json::from_str(&text).map_err(|_| invalid())?;
+                validate(&event)?;
+                if event.event_id != id
+                    || serde_json::to_string(&event).map_err(|_| invalid())? != text
+                {
+                    return Err(invalid());
+                }
+                cursor = id;
+                let matches = crate::governance_resources::archive_event_matches_retention_target(
+                    &event,
+                    &request.target,
+                    request.retention_anchor_at,
+                );
+                if matches {
+                    count = count.checked_add(1).ok_or_else(invalid)?;
+                }
+                let sources = sqlx::query(&format!(
+                    "SELECT {COLUMNS} FROM a_auth.security_event_fallback WHERE event_id=$1"
+                ))
+                .bind(&event.event_id)
+                .fetch_all(&mut **tx)
+                .await
+                .map_err(db_error)?;
+                for source in sources {
+                    if decode(source)?.ingress.event != event {
+                        return Err(invalid());
+                    }
+                    if matches {
+                        count = count.checked_add(1).ok_or_else(invalid)?;
+                    }
+                }
+            }
+            if length < 256 {
+                return Ok(count);
+            }
+        }
+    }
+}
+
 impl PostgresSecurityEventFallback {
     pub fn new(store: PostgresStore) -> Self {
         Self { store }

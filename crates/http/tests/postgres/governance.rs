@@ -83,6 +83,59 @@ pub(super) async fn start_user_erasure(state: &agent_auth_http::AppState, user_i
     body["job_id"].as_str().unwrap().to_string()
 }
 
+pub(super) fn attach_resource_backend(
+    state: &mut agent_auth_http::AppState,
+    database: agent_auth_http::adapters::postgres::PostgresStore,
+) -> std::path::PathBuf {
+    use agent_auth_http::{
+        adapters::{
+            file_secrets::FileSecretResolver, mounted_crypto::EncryptionKeyring,
+            postgres::PostgresSsfStore,
+        },
+        governance_resources::{
+            GovernanceResourceBackendImpl, PostgresGovernanceResourceBackend,
+            PostgresGovernanceResourceConfig,
+        },
+    };
+    use std::os::unix::fs::PermissionsExt;
+    let root = std::env::temp_dir().join(format!(
+        "a-auth-governance-resources-{:032x}",
+        rand::random::<u128>()
+    ));
+    std::fs::create_dir(&root).unwrap();
+    std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let files = FileSecretResolver::new(
+        &root,
+        [
+            ("operator:retention".into(), "retention".into()),
+            ("memory:default-scim".into(), "scim-fixture-key".into()),
+        ],
+    )
+    .unwrap();
+    let ssf = PostgresSsfStore::new(
+        database.clone(),
+        EncryptionKeyring::new("fixture", vec![("fixture".into(), [0x71; 32])]).unwrap(),
+    );
+    state.governance_resources = Arc::new(GovernanceResourceBackendImpl::Postgres(
+        PostgresGovernanceResourceBackend::new(
+            database,
+            ssf,
+            files,
+            PostgresGovernanceResourceConfig {
+                region: "local".into(),
+                tenant_id: "default".into(),
+                storage_tenant: "".into(),
+                retention_reference: "operator:retention".into(),
+                operator_secret_references: std::collections::BTreeSet::from([
+                    "memory:default-scim".into(),
+                ]),
+            },
+        )
+        .unwrap(),
+    ));
+    root
+}
+
 fn tenant_data_state(
     base: agent_auth_http::adapters::postgres::PostgresStore,
 ) -> agent_auth_http::AppState {
@@ -124,12 +177,15 @@ async fn postgres_governance_tenant_offboarding_cleans_orphans_and_retains_ssf_a
     };
     use tower::ServiceExt;
     let (base, pool, admin, name, url) = super::ssf_contracts::isolated_database().await;
-    let state = tenant_data_state(base);
-    let other = tenant_data_state(
-        agent_auth_http::adapters::postgres::PostgresStore::connect(&url, 8)
-            .await
-            .unwrap(),
-    );
+    let mut state = tenant_data_state(base.clone());
+    let other_database = agent_auth_http::adapters::postgres::PostgresStore::connect(&url, 8)
+        .await
+        .unwrap();
+    let mut other = tenant_data_state(other_database.clone());
+    let resource_roots = [
+        attach_resource_backend(&mut state, base),
+        attach_resource_backend(&mut other, other_database),
+    ];
     let now = agent_auth_http::current_unix_secs();
     state
         .users
@@ -433,6 +489,9 @@ async fn postgres_governance_tenant_offboarding_cleans_orphans_and_retains_ssf_a
         .await
         .unwrap();
     admin.close().await;
+    for root in resource_roots {
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }
 
 async fn seed_user_authority(
@@ -685,12 +744,15 @@ async fn postgres_governance_user_erasure_http_cleans_and_suppresses_across_pool
         },
     };
     let (base, pool, admin, name, url) = super::ssf_contracts::isolated_database().await;
-    let state = user_data_state(base.clone());
-    let other = user_data_state(
-        agent_auth_http::adapters::postgres::PostgresStore::connect(&url, 8)
-            .await
-            .unwrap(),
-    );
+    let mut state = user_data_state(base.clone());
+    let other_database = agent_auth_http::adapters::postgres::PostgresStore::connect(&url, 8)
+        .await
+        .unwrap();
+    let mut other = user_data_state(other_database.clone());
+    let resource_roots = [
+        attach_resource_backend(&mut state, base.clone()),
+        attach_resource_backend(&mut other, other_database),
+    ];
     let now = agent_auth_http::current_unix_secs();
     let user_id = "user:erased@example.com";
     state
@@ -891,6 +953,9 @@ async fn postgres_governance_user_erasure_http_cleans_and_suppresses_across_pool
         .await
         .unwrap();
     admin.close().await;
+    for root in resource_roots {
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }
 
 pub(super) fn evidence(job: &GovernanceJobRecord) -> GovernanceEvidenceRecord {

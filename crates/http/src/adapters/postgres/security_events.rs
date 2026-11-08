@@ -7,7 +7,7 @@ use crate::{
         SECURITY_EVENT_HOT_RETENTION_DAYS, SECURITY_EVENT_SCHEMA_VERSION,
     },
 };
-use sqlx::{postgres::PgRow, types::Json, Row};
+use sqlx::{postgres::PgRow, types::Json, Postgres, Row, Transaction};
 
 fn invalid_event() -> StoreError {
     StoreError::Permanent("Invalid security event authority record".into())
@@ -46,6 +46,39 @@ fn decode(row: PgRow) -> Result<StoredSecurityEvent, StoreError> {
 }
 
 impl PostgresStore {
+    pub(super) async fn security_retention_count(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        request: &crate::governance_resources::GovernanceRetentionRequest,
+    ) -> Result<u64, StoreError> {
+        let mut cursor = String::new();
+        let mut count = 0;
+        loop {
+            let rows = sqlx::query(
+                "SELECT event_id, tenant, occurred_at, event, delivery FROM a_auth.security_events \
+                 WHERE (tenant=$1 OR event->>'tenant_id'=$1) \
+                 AND event_id COLLATE \"C\" > $2 COLLATE \"C\" \
+                 ORDER BY event_id COLLATE \"C\" LIMIT 256",
+            ).bind(request.target.tenant_id()).bind(&cursor)
+                .fetch_all(&mut **tx).await.map_err(db_error)?;
+            let length = rows.len();
+            for row in rows {
+                let event = decode(row)?.event;
+                cursor = event.event_id.clone();
+                if crate::governance_resources::archive_event_matches_retention_target(
+                    &event,
+                    &request.target,
+                    request.retention_anchor_at,
+                ) {
+                    count += 1;
+                }
+            }
+            if length < 256 {
+                return Ok(count);
+            }
+        }
+    }
+
     async fn security_event_page(
         &self,
         tenant: &str,

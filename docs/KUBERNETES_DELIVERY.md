@@ -80,6 +80,15 @@ tests do not establish cluster, deployment, or conformance acceptance.
 
 ## Current implementation frontier
 
+`PostgresGovernanceResourceBackend` observes live authority and physically
+retained records in the configured primary database. Operator-owned mounts
+cannot be automatically deleted. Protected, short-lived operator statements
+for external backups/logs carry an explicit attestation evidence basis;
+missing statements leave retention pending. See
+[PostgreSQL governance resources](POSTGRES_GOVERNANCE_RESOURCES.md).
+Production wiring, installed retention scheduling and backup/restore
+acceptance remain pending.
+
 `BrandingStore::postgres` preserves deployment presentation across process
 restarts with a persisted revision CAS and complete host/record validation.
 `AdminCredentialResolver::mounted` loads one operator-owned single-tenant
@@ -237,8 +246,8 @@ IdP against the physical row identity. Authorized administrator attribute
 writes also lock namespace authority before the user, recheck the captured
 authority and retain the raw attribute CAS and federation ownership rules.
 
-The current shared suite contains 210 cases: thirty-five contracts run through each of
-the memory, AWS, and PostgreSQL adapters, plus one hundred and two PostgreSQL-specific
+The current shared suite contains 216 cases: thirty-five contracts run through each of
+the memory, AWS, and PostgreSQL adapters, plus one hundred and eight PostgreSQL-specific
 transaction/durability cases and three AWS recovery interleaving/compatibility
 cases. AWS adapters run against a loopback DynamoDB
 emulator; PostgreSQL adapters run against PostgreSQL 16. This does not establish
@@ -595,8 +604,11 @@ hash/metadata while keeping the already-started user revocation fence.
 The grace contract also reproduced memory cleanup deleting another family
 whose name shared a prefix. Cleanup now compares the exact family identity.
 
-Current local validation passes 1,272 workspace library tests, including 688
-HTTP library tests with both `postgres` and `aws`.
+The full workspace library run at parent source
+`7100dcf7101f275199711db15f9e035b76fd7806` passed 1,272 cases, including 688
+HTTP library cases with both `postgres` and `aws`; three native AWS cases
+were ignored/NOT_RUN. This historical result does not establish full-library
+acceptance for subsequent source changes.
 The recovery increment passes ten focused contract, rollback, codec and real
 loopback DynamoDB interleaving/compatibility cases and 118 account, credential,
 password, recovery, invitation, SCIM and session HTTP regressions.

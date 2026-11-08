@@ -36,7 +36,7 @@ use crate::{
     state::AppState,
 };
 
-#[cfg(feature = "aws")]
+#[cfg(any(feature = "aws", feature = "postgres"))]
 use crate::governance_resources::{GovernanceRetentionRequest, GovernanceRetentionTarget};
 
 pub const MAX_FAILURE_ATTEMPTS: u8 = 8;
@@ -1300,6 +1300,8 @@ async fn advance_signing_keys_and_secrets(
     lease: &GovernanceJobLeaseRecord,
     now: i64,
 ) -> Result<bool, StoreError> {
+    #[cfg(feature = "postgres")]
+    validate_portable_resource_backend(state)?;
     let key_resource_ref = format!("tenant-key-registry:{}", job.tenant_id);
     let key_ownership = if matches!(&state.form, agent_auth_discovery::Form::Saas { .. }) {
         GovernanceResourceOwnership::ProductManaged
@@ -1515,7 +1517,7 @@ async fn retention_deadline(
     job: &GovernanceJobRecord,
     primary_erasure_at: i64,
 ) -> Result<i64, StoreError> {
-    let mut deadline = mandatory_retention_deadline(retention_anchor(job, primary_erasure_at));
+    let mut deadline = profile_retention_deadline(state, retention_anchor(job, primary_erasure_at));
     for action in state
         .governance
         .list_external_actions(&job.tenant_id, &job.job_id)
@@ -1540,6 +1542,54 @@ fn mandatory_retention_deadline(retention_anchor_at: i64) -> i64 {
     .map(|retention| retention_anchor_at.saturating_add(retention))
     .max()
     .unwrap_or(retention_anchor_at)
+}
+
+fn profile_retention_deadline(state: &AppState, anchor: i64) -> i64 {
+    #[cfg(feature = "postgres")]
+    if matches!(
+        state.governance.as_ref(),
+        crate::governance::GovernanceStoreImpl::Postgres(_)
+    ) {
+        return anchor.saturating_add(crate::governance_resources::PORTABLE_RETENTION_SECS);
+    }
+    let _ = state;
+    mandatory_retention_deadline(anchor)
+}
+
+fn requires_resource_observation(state: &AppState) -> bool {
+    #[cfg(feature = "postgres")]
+    if matches!(
+        state.governance.as_ref(),
+        crate::governance::GovernanceStoreImpl::Postgres(_)
+    ) {
+        return true;
+    }
+    #[cfg(feature = "aws")]
+    if matches!(
+        state.governance.as_ref(),
+        crate::governance::GovernanceStoreImpl::Dynamo(_)
+    ) {
+        return true;
+    }
+    let _ = state;
+    false
+}
+
+#[cfg(feature = "postgres")]
+fn validate_portable_resource_backend(state: &AppState) -> Result<(), StoreError> {
+    if let crate::governance::GovernanceStoreImpl::Postgres(governance) = state.governance.as_ref()
+    {
+        match state.governance_resources.as_ref() {
+            crate::governance_resources::GovernanceResourceBackendImpl::Postgres(backend)
+                if backend.belongs_to(governance) => {}
+            _ => {
+                return Err(StoreError::Permanent(
+                    "Portable governance resource pool mismatch".into(),
+                ))
+            }
+        }
+    }
+    Ok(())
 }
 
 pub(crate) async fn extend_retention_for_audit(
@@ -1575,7 +1625,7 @@ pub(crate) async fn extend_retention_for_audit(
         job.retention_until = Some(
             job.retention_until
                 .unwrap_or_default()
-                .max(mandatory_retention_deadline(retention_anchor_at)),
+                .max(profile_retention_deadline(state, retention_anchor_at)),
         );
         job.updated_at = job.updated_at.max(crate::current_unix_secs());
         match state
@@ -1600,11 +1650,10 @@ async fn observe_retention(
     primary_erasure_at: i64,
     now: i64,
 ) -> Result<Option<GovernanceRetentionObservation>, GovernanceEngineError> {
-    #[cfg(feature = "aws")]
-    if matches!(
-        state.governance.as_ref(),
-        crate::governance::GovernanceStoreImpl::Dynamo(_)
-    ) {
+    #[cfg(feature = "postgres")]
+    validate_portable_resource_backend(state)?;
+    #[cfg(any(feature = "aws", feature = "postgres"))]
+    if requires_resource_observation(state) {
         return Ok(state
             .governance_resources
             .verify_retention(retention_request(
@@ -1621,7 +1670,7 @@ async fn observe_retention(
     Ok(None)
 }
 
-#[cfg(feature = "aws")]
+#[cfg(any(feature = "aws", feature = "postgres"))]
 fn retention_request(
     state: &AppState,
     job: &GovernanceJobRecord,
@@ -1664,6 +1713,8 @@ async fn observe_primary_replica_absence(
     primary_erasure_at: i64,
     now: i64,
 ) -> Result<Option<GovernanceRetentionObservation>, GovernanceEngineError> {
+    #[cfg(feature = "postgres")]
+    validate_portable_resource_backend(state)?;
     let residency = state
         .governance_config
         .residency(&job.tenant_id)
@@ -1672,11 +1723,8 @@ async fn observe_primary_replica_absence(
                 "tenant residency is missing".into(),
             ))
         })?;
-    #[cfg(feature = "aws")]
-    if matches!(
-        state.governance.as_ref(),
-        crate::governance::GovernanceStoreImpl::Dynamo(_)
-    ) {
+    #[cfg(any(feature = "aws", feature = "postgres"))]
+    if requires_resource_observation(state) {
         let replica_live_counts = state
             .governance_resources
             .verify_replicas(retention_request(
@@ -2313,11 +2361,30 @@ fn build_evidence(
         },
         |observation| observation.replica_live_counts.clone(),
     );
-    let mut retention_resources = retention_resource_evidence(
-        job.state,
-        retention_anchor(job, primary_erasure_at),
-        &external_actions,
-    );
+    let mut retention_resources = {
+        #[cfg(feature = "postgres")]
+        if matches!(
+            state.governance.as_ref(),
+            crate::governance::GovernanceStoreImpl::Postgres(_)
+        ) {
+            crate::governance_resources::portable_retention_evidence(retention_anchor(
+                job,
+                primary_erasure_at,
+            ))
+        } else {
+            retention_resource_evidence(
+                job.state,
+                retention_anchor(job, primary_erasure_at),
+                &external_actions,
+            )
+        }
+        #[cfg(not(feature = "postgres"))]
+        retention_resource_evidence(
+            job.state,
+            retention_anchor(job, primary_erasure_at),
+            &external_actions,
+        )
+    };
     if let Some(observation) = retention_observation {
         retention_resources.extend(observation.retention_resources.clone());
     }
@@ -2467,7 +2534,7 @@ pub async fn finalize_retention_job(
         ))
     })?;
     let mandatory_deadline =
-        mandatory_retention_deadline(retention_anchor(&job, primary_erasure_at));
+        profile_retention_deadline(state, retention_anchor(&job, primary_erasure_at));
     if retention_deadline < mandatory_deadline {
         return retain_pending(
             state,
@@ -2595,11 +2662,7 @@ pub async fn finalize_retention_job(
 
     let retention_observation =
         observe_retention(state, &job, &residency, primary_erasure_at, now).await?;
-    #[cfg(feature = "aws")]
-    if matches!(
-        state.governance.as_ref(),
-        crate::governance::GovernanceStoreImpl::Dynamo(_)
-    ) {
+    if requires_resource_observation(state) {
         match retention_observation.as_ref() {
             Some(observation) if observation.complete => {}
             Some(observation) => {

@@ -327,7 +327,9 @@ async fn postgres_governance_queue_ack_rechecks_expiry_after_a_real_row_lock_wai
 
 #[tokio::test]
 async fn postgres_governance_queue_worker_repairs_crash_without_repeating_a_phase() {
-    use super::governance_contracts::{start_user_erasure, user_data_state};
+    use super::governance_contracts::{
+        attach_resource_backend, start_user_erasure, user_data_state,
+    };
     use agent_auth_http::{
         governance::{GovernanceJobPhase, GovernanceJobQueueImpl, GovernanceJobState},
         governance_worker::{process_command_once, run_postgres_queue_once},
@@ -338,6 +340,10 @@ async fn postgres_governance_queue_worker_repairs_crash_without_repeating_a_phas
     first.governance_jobs = Arc::new(GovernanceJobQueueImpl::Postgres(fixture.queues[0].clone()));
     let mut second = user_data_state(fixture.stores[1].clone());
     second.governance_jobs = Arc::new(GovernanceJobQueueImpl::Postgres(fixture.queues[1].clone()));
+    let resource_roots = [
+        attach_resource_backend(&mut first, fixture.stores[0].clone()),
+        attach_resource_backend(&mut second, fixture.stores[1].clone()),
+    ];
     let start = now();
     let user_id = "user:queue-worker@example.com";
     first
@@ -438,6 +444,9 @@ async fn postgres_governance_queue_worker_repairs_crash_without_repeating_a_phas
         .await
         .unwrap());
     fixture.passed().await;
+    for root in resource_roots {
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }
 
 #[tokio::test]
