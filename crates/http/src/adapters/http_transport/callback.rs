@@ -194,7 +194,7 @@ mod ciba_delivery_tests {
 }
 
 #[cfg(test)]
-mod pinning_tests {
+mod tests {
     use super::{
         pinned_https_client_for_addrs, PinnedHttpsClientError, PINNED_MAX_RESOLVED_ADDRESSES,
     };
