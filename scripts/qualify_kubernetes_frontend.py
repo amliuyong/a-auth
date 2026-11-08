@@ -75,10 +75,22 @@ def main():
     try:
         subprocess.run(
             [
-                "docker", "run", "--detach", "--name", name, "--network", "host",
-                "--read-only", "--user", "65532:65532",
-                "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
-                "--tmpfs", "/tmp:rw,nosuid,nodev,size=64m",
+                "docker",
+                "run",
+                "--detach",
+                "--name",
+                name,
+                "--network",
+                "host",
+                "--read-only",
+                "--user",
+                "65532:65532",
+                "--cap-drop",
+                "ALL",
+                "--security-opt",
+                "no-new-privileges",
+                "--tmpfs",
+                "/tmp:rw,nosuid,nodev,size=64m",
                 args.image,
             ],
             check=True,
@@ -93,14 +105,23 @@ def main():
                 if time.monotonic() >= deadline:
                     raise
                 time.sleep(0.2)
-        for path in ("/", "/login", "/invite", "/consent", "/recover",
-                     "/account", "/approve", "/error"):
+        for path in (
+            "/",
+            "/login",
+            "/invite",
+            "/consent",
+            "/recover",
+            "/account",
+            "/approve",
+            "/error",
+        ):
             code, headers, body = request(path + "?state=private-test-marker")
             assert code == 200 and b'id="root"' in body
             assert headers["Cache-Control"] == "no-store"
             html = body
         check("public_browser_pages")
         import re
+
         asset = re.search(rb'(?:src|href)="(/assets/[^"]+\.js)"', html)[1].decode()
         assert request(asset)[0] == 200
         assert request("/assets/absent.js")[0] == 404
@@ -110,12 +131,21 @@ def main():
             "Authorization": "Bearer private-test-marker",
             "Cookie": "session=private-test-marker",
         }
-        for path in ("/admin", "/admin/clients", "/scim", "/scim/v2/Users",
-                     "/%61dmin/clients", "//admin/clients",
-                     "/assets/../admin", "/token"):
+        for path in (
+            "/admin",
+            "/admin/clients",
+            "/scim",
+            "/scim/v2/Users",
+            "/%61dmin/clients",
+            "//admin/clients",
+            "/assets/../admin",
+            "/token",
+        ):
             assert request(path, headers=private_headers)[0] == 404, path
-        assert request("/login?state=private-test-marker", "POST",
-                       b"never-proxy-this")[0] == 403
+        assert (
+            request("/login?state=private-test-marker", "POST", b"never-proxy-this")[0]
+            == 403
+        )
         check("private_families_and_token_excluded")
         payload = b'{"decision":"approve","csrf":"fixture-only"}'
         proxy_headers = {
@@ -130,9 +160,9 @@ def main():
         for header, value in proxy_headers.items():
             assert forwarded[header] == value, header
         check("same_origin_protocol_post")
-        container = json.loads(subprocess.check_output(
-            ["docker", "inspect", name], text=True
-        ))[0]
+        container = json.loads(
+            subprocess.check_output(["docker", "inspect", name], text=True)
+        )[0]
         assert container["Config"]["User"] == "65532:65532"
         assert container["HostConfig"]["ReadonlyRootfs"]
         assert container["HostConfig"]["CapDrop"] == ["ALL"]
@@ -142,43 +172,58 @@ def main():
         with concurrent.futures.ThreadPoolExecutor(1) as pool:
             pending = pool.submit(request, "/slow")
             assert slow_started.wait(5)
-            subprocess.run(["docker", "kill", "--signal", "QUIT", name],
-                           check=True, stdout=subprocess.DEVNULL)
+            subprocess.run(
+                ["docker", "kill", "--signal", "QUIT", name],
+                check=True,
+                stdout=subprocess.DEVNULL,
+            )
             time.sleep(0.2)
             slow_release.set()
             assert pending.result()[0::2] == (200, b"drained")
-        subprocess.run(["docker", "wait", name], check=True,
-                       stdout=subprocess.DEVNULL, timeout=10)
+        subprocess.run(
+            ["docker", "wait", name], check=True, stdout=subprocess.DEVNULL, timeout=10
+        )
         check("graceful_frontend_drain")
         logs = subprocess.check_output(
             ["docker", "logs", name], stderr=subprocess.STDOUT, text=True
         )
         assert "private-test-marker" not in logs and "fixture-only" not in logs
-        access = [json.loads(line) for line in logs.splitlines()
-                  if line.startswith('{"event":"frontend_access"')]
-        assert access and all(set(e) == {
-            "event", "method", "status", "elapsed_seconds"
-        } for e in access)
+        access = [
+            json.loads(line)
+            for line in logs.splitlines()
+            if line.startswith('{"event":"frontend_access"')
+        ]
+        assert access and all(
+            set(e) == {"event", "method", "status", "elapsed_seconds"} for e in access
+        )
         check("credential_free_access_logs")
         status = "PASS"
     finally:
         slow_release.set()
         backend.shutdown()
         backend.server_close()
-        image = json.loads(subprocess.check_output(
-            ["docker", "image", "inspect", args.image], text=True
-        ))[0]
+        image = json.loads(
+            subprocess.check_output(
+                ["docker", "image", "inspect", args.image], text=True
+            )
+        )[0]
         receipt = {
-            "status": status, "checks": checks, "image_id": image["Id"],
-            "source_commit": image["Config"].get("Labels", {}).get(
-                "org.opencontainers.image.revision"
-            ),
+            "status": status,
+            "checks": checks,
+            "image_id": image["Id"],
+            "source_commit": image["Config"]
+            .get("Labels", {})
+            .get("org.opencontainers.image.revision"),
             "fixture": "Linux host-network loopback HTTP; installed browser/TLS NOT_RUN",
             "html_sha256": hashlib.sha256(html).hexdigest() if html else None,
         }
         args.receipt.write_text(json.dumps(receipt, indent=2) + "\n")
-        subprocess.run(["docker", "rm", "--force", name],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(
+            ["docker", "rm", "--force", name],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
 
 
 if __name__ == "__main__":
