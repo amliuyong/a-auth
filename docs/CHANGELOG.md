@@ -8,7 +8,43 @@ configuration, APIs, deployment resources, or SDKs.
 
 ## [Unreleased]
 
-## [1.1.0] - Release candidate
+## [1.2.0]
+
+### Added
+
+- Single-tenant Kubernetes + PostgreSQL 16+ production composition, forty-one
+  forward migrations, mounted signing/secrets, private management, portable
+  transports, durable workers and maintenance Jobs, secure GHCR containers and
+  Helm chart. Installation, upgrade and restore disposition are documented;
+  incomplete-authority restore clones remain HOLD_NO_RELEASE.
+
+### Changed
+
+- Unified enterprise administrator navigation, styling, tables and detail views.
+- Rust workspace/OpenAPI source metadata use 1.2.0; native chart uses 0.1.3.
+  Independently published SDKs retain 1.0.2 and immutable registry artifacts.
+- MCP example migrates to mcp-auth 1.0.0-beta.1 and official MCP 2 adapters,
+  with actual controlled TLS/JWKS/JWT/tool-call checks. Historical client
+  refresh results retain their original 0.2.0 fixture identity.
+
+### Fixed
+
+- PostgreSQL lock-wait expiry regression observes asynchronous rollback release
+  before a nonblocking reclaim, retaining the rejected-ACK assertion.
+- Six pending dependency updates and compatible body-parser, ip-address and
+  Zod security lock updates are delivered with installed checks.
+- Historical failed/cancelled conformance trackers and the completed #142
+  delivery ledger are reconciled with verified evidence.
+
+### Security
+
+- Upstream withdrew the braces advisory; current root audit is clean without
+  changing the locked braces release or suppressing findings.
+- CDK's bundled minimatch advisory remains unpatched in infrastructure tooling.
+  No downgrade/vendor patch/suppression is applied; native/Rust runtime excludes
+  that dependency. See [release notes](releases/v1.2.0.md) for exact limits.
+
+## [1.1.0] - 2026-10-21
 
 ### Added
 
@@ -229,7 +265,8 @@ configuration, APIs, deployment resources, or SDKs.
   SDKs, capability specifications, conformance inventory, and runbooks into a
   clean public Git history at commit `3b406ce`.
 
-[Unreleased]: https://github.com/amliuyong/a-auth/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/amliuyong/a-auth/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/amliuyong/a-auth/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/amliuyong/a-auth/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/amliuyong/a-auth/compare/v0.5.0...v1.0.0
 [0.5.0]: https://github.com/amliuyong/a-auth/releases/tag/v0.5.0

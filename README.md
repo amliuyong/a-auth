@@ -38,14 +38,15 @@ acts on behalf of people or other workloads. It gives agents an explicit,
 auditable way to obtain resource-bound access tokens instead of sharing user
 credentials or relying on opaque, application-specific authorization.
 
-The project combines a Rust protocol core, an AWS serverless deployment,
+The project combines a Rust protocol core, AWS and Kubernetes deployments,
 resource-server SDKs, and a React administration UI. It supports conventional
 OAuth and OIDC clients while adding first-class authorization boundaries for
 agents, machine identities, delegation chains, and MCP resources.
 
 > [!IMPORTANT]
-> Agent Auth [`v1.1.0`](https://github.com/amliuyong/a-auth/releases/tag/v1.1.0)
-> is the current stable source release. Semantic Versioning covers the HTTP
+> The [latest stable source release](https://github.com/amliuyong/a-auth/releases/latest)
+> is the publication record. This revision uses version 1.2.0; see its
+> [release notes](docs/releases/v1.2.0.md). Semantic Versioning covers the HTTP
 > API described by [`openapi/openapi.json`](openapi/openapi.json) and the
 > TypeScript and Python resource-server SDK APIs; deployment configuration and
 > persisted data formats are outside that guarantee. Review the
@@ -55,9 +56,8 @@ agents, machine identities, delegation chains, and MCP resources.
 
 ## Current Status
 
-- **Release** — [`v1.1.0`](https://github.com/amliuyong/a-auth/releases/tag/v1.1.0)
-  is the current stable source release. See the
-  [release notes](docs/releases/v1.1.0.md) for its changes.
+- **Release** — use the [latest stable source release](https://github.com/amliuyong/a-auth/releases/latest).
+  The [v1.2.0 notes](docs/releases/v1.2.0.md) describe this revision.
   Release assets are source archives; Rust crates remain unpublished.
   The resource-server SDKs are published separately as `agent_auth_rs` 1.0.2
   on [npm](https://www.npmjs.com/package/agent_auth_rs/v/1.0.2) and
@@ -114,6 +114,10 @@ executable conformance requirements.
   management, PAR, DPoP, exact redirect validation, and downgrade controls.
 - **Enterprise integration** — upstream OIDC and SAML federation, passkeys,
   SCIM provisioning, security-event delivery, and administrative workflows.
+- **Kubernetes deployment** — single-tenant PostgreSQL 16+, mounted signing
+  and external secrets, private management, durable workers and pinned GHCR
+  images/Helm chart. Qualification and restore holds are recorded in the
+  [delivery ledger](docs/KUBERNETES_DELIVERY.md).
 - **AWS-native deployment** — Rust on Lambda behind API Gateway and
   CloudFront, with DynamoDB authority stores, KMS-backed signing, and AWS CDK
   infrastructure.
