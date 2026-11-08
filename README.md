@@ -133,17 +133,28 @@ For the precise status and evidence for each capability, use
 
 <img
   src="docs/assets/architecture.svg"
-  alt="Agent Auth architecture showing OAuth clients, the AWS edge and Rust runtime, the React UI, enterprise identity providers, DynamoDB, KMS, and resource servers"
+  alt="Agent Auth shared Rust core, OAuth clients and resource servers, with separate AWS Lambda, DynamoDB and KMS and single-tenant Kubernetes, PostgreSQL and mounted-key deployment profiles"
   width="1200"
 />
 
-The protocol and policy logic is separated from AWS adapters. The same core can
-run locally with in-memory stores, as a self-hosted single-tenant deployment,
-or with tenant-aware issuer, storage, policy, quota, and key boundaries.
+The Rust protocol and policy core uses storage, signing and transport ports.
+Local development uses in-memory adapters. Deployed systems select one profile:
+
+- **AWS-native:** CloudFront and API Gateway route to Lambda runtimes backed by
+  DynamoDB authority stores and KMS signing. CDK supports self-hosted and
+  tenant-aware deployments.
+- **Kubernetes:** one tenant and issuer, HTTPS ingress, separate web/token
+  services, PostgreSQL authority stores, mounted ES256/RS256 keys and external
+  secrets, and durable governance/event/SMTP/SSF workers. Management APIs have
+  private admission; public `/admin` and `/scim` routes return 404. SaaS and
+  multi-Region Kubernetes deployment are outside this profile.
 
 Read [`docs/DESIGN.md`](docs/DESIGN.md) for the protocol model and
-[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for trust boundaries and deployment
-topology.
+[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for AWS trust boundaries and topology.
+The [PostgreSQL runtime](docs/POSTGRES_RUNTIME.md) and
+[Kubernetes installation guide](docs/KUBERNETES_INSTALL.md) describe the portable
+composition. Installed qualification and the production restore hold remain
+separate evidence in the [delivery ledger](docs/KUBERNETES_DELIVERY.md).
 
 ## Quick Start
 
@@ -285,10 +296,13 @@ Agent Auth 是一个面向 AI agent、workload 和 MCP Resource Server 的 OAuth
 经过了怎样的委托链、资源服务器如何独立验证权限”等 agent 授权问题，同时兼容
 传统 OAuth/OIDC 客户端。
 
-当前稳定源码版本为
-[`v1.1.0`](https://github.com/amliuyong/a-auth/releases/tag/v1.1.0)。
-项目采用 Rust 实现协议与策略核心，提供 AWS CDK 部署、React 管理界面以及
-TypeScript/Python Resource Server SDK。1.0 起按语义化版本对 HTTP API
+当前源码版本为 **v1.2.0**，发布状态以
+[最新稳定版](https://github.com/amliuyong/a-auth/releases/latest)为准，
+变更和升级要求见 [v1.2.0 发布说明](docs/releases/v1.2.0.md)。
+项目采用 Rust 实现协议与策略核心，提供 AWS CDK 部署、
+[Kubernetes + PostgreSQL 单租户部署](docs/KUBERNETES_INSTALL.md)、
+React 管理界面以及 TypeScript/Python Resource Server SDK。
+1.0 起按语义化版本对 HTTP API
 （`openapi/openapi.json`）与 TypeScript/Python Resource Server SDK 做兼容承诺，
 部署配置与持久化数据格式不在承诺范围内；
 生产使用前请审阅 [`docs/CONFORMANCE.md`](docs/CONFORMANCE.md)、

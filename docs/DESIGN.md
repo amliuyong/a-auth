@@ -1,10 +1,10 @@
 # Agent Auth — 面向 Agent 时代的 OAuth 2.1 / OIDC 授权系统设计
 
-> 状态：**1.0 稳定版**(兼容范围见 [`CHANGELOG.md`](./CHANGELOG.md) 1.0.0)。配套文档:[`CHANGELOG.md`](./CHANGELOG.md)(公开版本变更)、[`DEPLOYMENT.md`](./DEPLOYMENT.md)(多租户/密钥迁移等实现细节)、[`CONFORMANCE.md`](./CONFORMANCE.md)(MUST/SHOULD 清单 + 测试项)。本文只保留协议内核。
+> 状态：当前源码版本 **1.2.0**，发布状态以[最新稳定版](https://github.com/amliuyong/a-auth/releases/latest)为准。1.0 起的 HTTP API 与 Resource Server SDK 兼容范围见 [`CHANGELOG.md`](./CHANGELOG.md) 1.0.0；部署配置与持久化格式不在该承诺内。配套文档:[`CHANGELOG.md`](./CHANGELOG.md)(公开版本变更)、[`DEPLOYMENT.md`](./DEPLOYMENT.md)(AWS 多租户/密钥迁移等实现细节)、[`POSTGRES_RUNTIME.md`](./POSTGRES_RUNTIME.md)(单租户 PostgreSQL 运行时)、[`CONFORMANCE.md`](./CONFORMANCE.md)(MUST/SHOULD 清单 + 测试项)。
 > 动机：让"agent 代表用户经 OAuth 连第三方 MCP RS"这条主流 connector 场景零配置可用。现成 IdP 的 DCR、PKCE、public-client provider、callback 匹配和资源绑定能力并不总能覆盖 agent 工作流，本设计把这些边界在 AS 层显式化。
 > 一句话定位：**一个把 "agent 代表用户连资源" 当作头号场景的授权服务器（AS）**，
-> 原生兼容 OAuth 2.1、OIDC Core 与 MCP Authorization 规范，AWS serverless 原生部署。
-> 两种交付形态：**① 企业自部署**（部署进客户自己 AWS 账号，类 Keycloak）与 **② Agent OAuth SaaS**（我们运营的多租户平台，类 Auth0），共享同一协议内核（详见 §0.5）。
+> 面向 OAuth 2.1、OIDC Core 与 MCP Authorization 规范，协议行为与证据以 [`CONFORMANCE.md`](./CONFORMANCE.md) 为准；部署可选 AWS serverless 或单租户 Kubernetes + PostgreSQL。
+> 两种交付形态：**① 企业自部署**（客户自行运营 AWS 或 Kubernetes 部署，类 Keycloak）与 **② Agent OAuth SaaS**（AWS 多租户形态，类 Auth0），共享同一协议内核（详见 §0.5）。Kubernetes profile 不支持 SaaS 或多区域；已安装验收与生产恢复限制见 [`KUBERNETES_DELIVERY.md`](./KUBERNETES_DELIVERY.md)。
 
 ---
 
@@ -33,7 +33,7 @@ Agent 时代的客户端画像完全变了：
 5. **一切异步状态可观测**（坑 1.1/1.2/1.3）——授权会话是显式状态机，下游错误透传。
 6. **redirect URI 支持受控前缀匹配**（坑 2.4）——host 精确 + path 前缀 + 单层通配。
 7. **提供 PATCH 部分更新语义，安全降级必须显式确认**（坑 2.6）——标准 `PUT` 全量替换保留,`PATCH` 作为扩展补上"只改传入字段",避免全量替换静默复位。
-8. **同源**（坑 2.3）：`issuer` 与**所有 AS 自身端点**（discovery/authorize/token/jwks/…）**同一 origin**，一个 CloudFront 域名收拢。（注：RS 的 PRM 属 RS 自己的 origin，不在此列——见 §6/§8。）
+8. **同源**（坑 2.3）：`issuer` 与**所有 AS 自身协议端点**（discovery/authorize/token/jwks/…）**同一 origin**；AWS 由 CloudFront 收拢，Kubernetes 由 HTTPS ingress 收拢。管理面遵循各部署独立的准入边界。（注：RS 的 PRM 属 RS 自己的 origin，不在此列——见 §6/§8。）
 
 ### 0.1 · 显式非目标 + 威胁模型摘要
 
@@ -66,31 +66,39 @@ Agent 时代的客户端画像完全变了：
 
 | 维度 | **① 企业自部署（Self-Hosted，类 Keycloak）** | **② Agent OAuth SaaS（类 Auth0）** |
 |---|---|---|
-| 部署位置 | 客户**自己的 AWS 账号**里，客户自运维 | 我们运营的**多租户 fleet** |
+| 部署位置 | 客户自己的 AWS 账号或 Kubernetes 集群，客户自运维 | AWS **多租户 fleet** |
 | 租户模型 | **单组织**（一个部署 = 一个租户），无需租户隔离 | **多租户强隔离**（数据/密钥/策略/配额逐租户）——隔离**能力从 P0 就按"可关闭一等能力"内建**，SaaS 多租户**上线在 P2/P3**（见 DEPLOYMENT §1、§10） |
 | issuer | **单一 issuer**（一个部署一个域名） | **每租户独立 issuer**（子域，`t1.saas.example.com`；已定，见 §11 #3） |
 | 信任边界 | 边界=企业自身；RS/agent 多为**自家**资产 | 边界**跨租户/跨账号**；PRM CNAME、Cedar 策略、DCR 都是**真实攻击面** |
 | 用户认证 | 常**联邦到企业 IdP**（Entra/Okta/现有 Cognito，§7） | 每租户自配 IdP + 平台托管的无密码登录 |
 | DCR 策略默认 | 可较宽松（内网、可信）（§3.2） | **默认收紧**（每租户配额、abuse 防护、未验证客户端标识必显） |
-| 数据驻留/合规 | 客户在**自己账号/region** 内自负（天然满足驻留） | **平台须提供** region pinning、逐租户数据隔离、GDPR 删除（§11） |
-| KMS 签名密钥 | 客户账号内自有 key set | **每租户独立 key set 为第一天基线**(EC+RSA 两把 signing CMK,轮换期 ≤4;密码学隔离,`CreateKey` 同步返回；非"派生子密钥"——KMS 不支持);规模/成本按 key set 口径算(DEPLOYMENT §1);claims 级共享 key 仅低保障可选（见 DEPLOYMENT §1/§8） |
+| 数据驻留/合规 | 客户负责所选账号、区域或集群的数据驻留与合规 | **平台须提供** region pinning、逐租户数据隔离、GDPR 删除（§11） |
+| 存储与签名 | AWS 使用 DynamoDB 与客户账号内 KMS key set；Kubernetes 使用 PostgreSQL 与挂载的 ES256/RS256 key ring | DynamoDB 按租户分区；**每租户独立 KMS key set 为第一天基线**(EC+RSA 两把 signing CMK,轮换期 ≤4;密码学隔离,`CreateKey` 同步返回；非"派生子密钥"——KMS 不支持);规模/成本按 key set 口径算(DEPLOYMENT §1);claims 级共享 key 仅低保障可选（见 DEPLOYMENT §1/§8） |
 | 控制面 | 轻量 admin（单组织配置） | 完整租户管理 + 计费 + 限流分级 + onboarding |
-| 交付物 | **可分发的 CDK app**（版本化、含升级/迁移脚本、cdk-nag 合规基线） | 我们持续运营的服务，客户只碰控制台/API |
+| 交付物 | AWS：**CDK app**（含升级/迁移脚本、cdk-nag 基线）；Kubernetes：固定 digest 的 GHCR 镜像、Helm chart 与运行配置/迁移指南 | AWS 多租户部署与控制台/API |
+
+Kubernetes 的运行配置、密钥/外部 secret 挂载、私有管理面与持久化 worker
+见 [`POSTGRES_RUNTIME.md`](./POSTGRES_RUNTIME.md) 和
+[`KUBERNETES_INSTALL.md`](./KUBERNETES_INSTALL.md)。
+下文关于 DynamoDB 分区、KMS、CloudFront、BYOD 与多区域的部署论述属于 AWS profile；
+不能据此推断 Kubernetes 具有相同能力。过期备份可能恢复已吊销的权限，
+恢复副本仍受 [`KUBERNETES_RECOVERY.md`](./KUBERNETES_RECOVERY.md) 的
+`HOLD_NO_RELEASE` 限制。
 
 **设计取舍原则**:
 
 - **协议内核单一实现,两形态共享**——避免分叉出两套代码;形态差异收敛到**配置 + 部署拓扑 + 控制面**,而非协议逻辑。
-- **多租户隔离做成"可关闭的一等能力"**:SaaS 打开(按租户分区 DynamoDB、逐租户 KMS key、按 Host 路由 issuer);自部署退化为"单租户"这一特例(同一套隔离代码,租户数=1),**不为自部署单独写非隔离路径**。⚠️ **承认代价**:单租户自部署客户的 CDK app 会背上它用不到的分区键/Host 路由逻辑(死重、额外审计负担、略增攻击面);判断仍是"不分叉 > 这点死重",但不假装无成本。
+- **AWS 多租户隔离做成"可关闭的一等能力"**:SaaS 打开(按租户分区 DynamoDB、逐租户 KMS key、按 Host 路由 issuer);AWS 自部署退化为"单租户"这一特例(同一套隔离代码,租户数=1),**不为 AWS 自部署单独写非隔离路径**。⚠️ **承认代价**:单租户自部署客户的 CDK app 会背上它用不到的分区键/Host 路由逻辑(死重、额外审计负担、略增攻击面);判断仍是"不分叉 > 这点死重",但不假装无成本。Kubernetes 由单租户 PostgreSQL 适配器组合共享协议内核，不启用这套 AWS 租户置备。
 - **信任边界更严者为设计基准——但仅限"跨租户/跨账号真实存在攻击面"的机制**:**PRM CNAME 的跨租户 Host 伪造(§6)、redirect prefix 的共享 host 风险(§3.3)** 这类**按 SaaS 更严阈值设计**,自部署继承、不会更差。
   ⚠️ **区分**:另一类是**"形态天然合理有不同默认"**的项(**DCR 开放度 §3.2、Cedar 策略暴露 §11**)——自部署在自己可信内网里默认可较松(`open` DCR、自由写策略),SaaS 默认收紧(票据注册、受限模板)。**这类是默认值本就随形态而变,不属于上一类"继承更严默认"**,两者别混。
-- **自部署的额外交付责任**:CDK app 必须是**可分发、可升级**的制品——含 schema 迁移、KMS key 轮换脚本、跨版本兼容策略;这些在纯 SaaS 下由我们内部 CD 消化,自部署则要交到客户手里(见 §8/§10)。
+- **自部署的额外交付责任**:AWS CDK app 与 Kubernetes 镜像/Helm chart 都必须有版本与升级指南；前者含 schema 迁移和 KMS key 轮换，后者含独立迁移 Job、挂载签名 key ring 轮换与备份/恢复限制。自部署客户须按各 profile 的运维契约执行(见 §8/§10 与 Kubernetes 安装指南)。
 
 > 下文各节遇到形态敏感处,用 **【自部署】/【SaaS】** 标注差异;未标注处两形态一致。
 >
 > **实现细节已抽出**:多租户隔离的落地路径(数据/控制两平面、逐租户 CMK 基线、BYOD 置备)、跨形态 migration 与共享 key→CMK 在线迁移,详见 **[`DEPLOYMENT.md`](./DEPLOYMENT.md)**。本文只保留上表的语义/信任模型对照与取舍原则;协议内核各节引用 DEPLOYMENT.md 的地方标 "见 DEPLOYMENT §x"。**冻结要点(供本文其他节引用)**:
 >
-> - **SaaS 密钥基线 = 第一天逐租户独立 key set**(EC+RSA 两把 signing CMK;密码学隔离;EC+RSA 两次 `CreateKey` 同步返回、非编排;成本/配额按 key set 口径,DEPLOYMENT §1;claims 级共享 key 仅"显式 opt-in + 风险披露"的低保障档);
-> - **数据平面永远纯运行时配置**(`tenant_id` 贯穿),自部署 = 租户数为 1 的特例;**唯一异步编排是 BYOD 自带域名**的证书/DNS(评估 CloudFront SaaS Manager);
+> - **SaaS 密钥基线 = 第一天逐租户独立 key set**(EC+RSA 两把 signing CMK;密码学隔离；由 durable worker 完成置备、readiness probe、原子发布与失败补偿；成本/配额按 key set 口径,DEPLOYMENT §1;claims 级共享 key 仅"显式 opt-in + 风险披露"的低保障档);
+> - **AWS 数据平面永远纯运行时配置**(`tenant_id` 贯穿),AWS 自部署 = 租户数为 1 的特例；异步控制面包括逐租户 KMS key lifecycle 和 BYOD 证书/DNS，具体见 DEPLOYMENT §1；
 > - **跨形态升级用 expand-contract + `schema_version`/`min_reader_version` 双标记**(见 DEPLOYMENT §2)。
 
 ---
@@ -108,7 +116,7 @@ Agent 时代的客户端画像完全变了：
 | `GET /.well-known/openid-configuration` | OIDC Discovery | P0 | 与 oauth-authorization-server **值一致但非同一份**——OIDC 必填字段齐备,不能塞一份 OAuth 最小 JSON。`subject_types_supported` **按该部署/租户实际选定值宣告**(【SaaS】默认 `["pairwise"]`、企业租户可 opt-in `["public"]`;【自部署】默认 `["public"]`、可选 `["pairwise"]`;§11 #12、DEPLOYMENT §0),其余 `id_token_signing_alg_values_supported`、`response_types_supported` 等照常 |
 | `GET /.well-known/oauth-authorization-server` | RFC 8414 | P0 | 如实宣告 `code_challenge_methods_supported: ["S256"]` 等**当前阶段真正支持**的能力 |
 | `GET /openapi.json` | OpenAPI 3.1 | P0 | 由运行时路由与 schema 生成的完整 API 契约；公开可下载,与仓库 `openapi/openapi.json` 同一真相源 |
-| `GET /jwks.json` | RFC 7517 | P0 | 公钥来自 KMS，含轮换重叠期的双活 key |
+| `GET /jwks.json` | RFC 7517 | P0 | 公钥来自配置的签名适配器（AWS KMS 或 Kubernetes 挂载 key ring），含轮换重叠期的双活 key |
 | `POST /register` · `GET/PUT/PATCH/DELETE /register/{id}` | RFC 7591/7592 + PATCH 扩展 | P0 | DCR 与客户端管理 |
 | `GET/POST /authorize` | OAuth 2.1 / RFC 9700 compatibility profile | P0 | query 与 form 两种传输使用同一参数校验；仅 authorization_code；public 强制 PKCE S256，confidential 可按 §3.1 的受控条件省略；隐式 grant 不存在 |
 | `POST /token` | OAuth 2.1 | P0 | 见下方 grant 矩阵（各 grant 有自己的阶段） |
@@ -899,6 +907,11 @@ ID-JAG，本地自签 fixture 不能替代。
 ---
 
 ## 8 · AWS 架构：全 serverless、单域名、无状态
+
+本节描述 AWS profile。Kubernetes 的 PostgreSQL、挂载签名密钥、分离的
+web/token 服务、私有管理面与 worker 组合见
+[`POSTGRES_RUNTIME.md`](./POSTGRES_RUNTIME.md) 和
+[`KUBERNETES_INSTALL.md`](./KUBERNETES_INSTALL.md)，不采用下图的 Lambda/KMS 拓扑。
 
 > **形态映射**:下图是**单部署栈**的拓扑,两形态复用同一套组件,区别在**实例化方式**——
 > **【自部署】** 一个客户 = 一个此栈,跑在客户账号里,单 issuer、**单租户 key set**(不是"一把 key"——见下)、租户数=1；
