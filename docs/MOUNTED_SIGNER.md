@@ -85,5 +85,10 @@ Tests independently verify EC and RSA signatures, retain old-token verification
 during overlap, reject changed payloads, reject retired key IDs, preserve
 captured request snapshots, and retain authority after invalid reloads.
 Filesystem tests cover permissions, confined paths and partial updates.
-These are local adapter tests. Installed positive replica rotation passed
-separately; invalid-publication readiness/recovery remains under qualification.
+These are local adapter tests. Installed rotation also passed in kind and EKS:
+new EC/RSA publication, activation after the real cache interval, old/new token
+verification during overlap and retirement after the real token/cache interval.
+An incomplete later publication made all four HTTP replicas unready and public
+protocol requests return 503. A complete higher generation restored readiness
+without resurrecting retired key IDs. Keep the current operator publication
+with recovery material; reapplying an older fixture is not a valid recovery.

@@ -44,7 +44,7 @@ tests do not establish cluster, deployment, or conformance acceptance.
 | Every single-tenant storage port | Port inventory, production wiring, durable contract and cross-port tests | IN_PROGRESS |
 | Conditional writes and transactions | Real PostgreSQL concurrency and failure-atomicity tests equivalent to existing memory/AWS tests | IN_PROGRESS |
 | Forward migrations, standard PostgreSQL | Versioned SQL, repeat/concurrent migration tests, PostgreSQL 16 run | IN_PROGRESS |
-| Secret/file signer and JWKS rotation | Independent ES256/RS256 verification across reload and retired-key removal; installed replica rotation | IN_PROGRESS |
+| Secret/file signer and JWKS rotation | Installed EC/RSA overlap and retirement; invalid publication fails closed on all HTTP replicas and higher-generation recovery succeeds | PASS |
 | Server and background work | Probe/shutdown tests, worker redelivery/lease fencing, cluster execution | IN_PROGRESS |
 | Secret resolver | Confined-file adapter tests and installed deployment evidence | IN_PROGRESS |
 | SMTP and optional archives | Adapter tests and installed deployment evidence | IN_PROGRESS |
@@ -54,7 +54,7 @@ tests do not establish cluster, deployment, or conformance acceptance.
 | Existing conformance gates | Exact-candidate Kubernetes run; existing AWS baseline passed with 37 required passes and 14 approved exceptions | IN_PROGRESS |
 | memory/AWS/PostgreSQL contracts | Shared contracts across three adapters plus equivalent atomicity/idempotency coverage | IN_PROGRESS |
 | Multi-replica code/refresh/replay/IAT | Concurrent requests to distinct installed replicas with exactly one effect; shared refresh grace response | PASS |
-| AWS-free dependency tree/runtime | Production dependency tree passed; bounded runtime API observations remain required | IN_PROGRESS |
+| AWS-free dependency tree/runtime | Production dependency tree and bounded installed outbound captures passed; no other AWS API/metadata or unknown client flows observed | PASS |
 | Backup/restore revocation safety | Post-revocation restore passed; stale-backup hazard and known-grant remediation drilled; complete authority reconciliation remains required | IN_PROGRESS |
 | OCI image and chart on GHCR | Published immutable backend/frontend/chart digests, readback and both native installations | PASS |
 | Review, PR, CI, merge, closure | Reviewed SHA, terminal checks, merge readback, closed issue, clean worktree removal | NOT_RUN |
@@ -142,8 +142,11 @@ it does not establish Okta/Entra or enterprise SCIM acceptance.
 The existing protected AWS conformance run
 [42362005620](https://github.com/amliuyong/a-auth/actions/runs/42362005620)
 passed for deployed component
-`f63aac1a756e164de2c09454d8d7315f6ca98fca`: 37 required tests passed and
-14 had approved, limited exceptions. Its approved profile is Basic OP Code,
+`f63aac1a756e164de2c09454d8d7315f6ca98fca`: 24 OIDF tests and 13 runtime RFC
+checks passed; 14 OIDF results had approved, limited exceptions. Authenticated
+archive readback verified all 38 official module signatures and their exact
+plan instances. The raw OIDF results were 24 `PASSED`, nine `SKIPPED`, four
+`REVIEW` and one `WARNING`. Its approved profile is Basic OP Code,
 with explicit non-claims for FAPI, OpenID Federation and blanket RFC 9700
 certification. This baseline is a different deployment from the Kubernetes
 candidate. Candidate hosted OIDF execution remains `NOT_RUN`.
@@ -152,8 +155,19 @@ Installed signing rotation passed in both environments: publish the new
 EC/RSA pair, wait the actual 300-second cache interval, activate it on both
 token replicas, preserve independent old/new verification during overlap,
 wait the actual token lifetime plus cache interval, then remove retired key
-IDs from both web replicas. Invalid-publication readiness/recovery remains a
-separate installed check.
+IDs from both web replicas. A subsequent incomplete publication made all four
+HTTP replicas unready and returned 503 on the public protocol plane. Publishing
+a complete higher generation restored readiness; retired keys remained absent.
+Both environments passed these installed failure and recovery checks.
+
+Bounded outbound IPv4 captures on both application nodes in each environment
+covered twelve unchanged application Pod identities and complete real Cognito
+browser logins. The corrected captures had zero kernel packet drops. Observed
+client connections belonged to the configured PostgreSQL or OIDC destinations;
+no other AWS API, instance metadata or unclassified client flows were observed.
+The initial EKS timer failure, a capture with five kernel drops and a browser
+timeout remain retained separately. These finite captures do not establish all
+future behavior, inspect encrypted TLS payloads or count CloudTrail requests.
 
 Both installations also restored a post-revocation PostgreSQL backup into
 separate databases and passed four restored-HTTP checks, including unexpired
@@ -167,10 +181,15 @@ unknown; there is no automatic stale-snapshot rejection.
 Each environment's two SMTP workers delivered one durable notification to a
 TLS SMTP fixture, with one accepted message and no second acceptance on
 reobservation. Worker crash/uncertain-result qualification remains separate.
+Both environments' competing governance workers also erased a newly created
+test identity. Repeated authenticated admission selected one durable job; the
+identity became absent in the API and PostgreSQL, all wake-ups were acknowledged
+and primary-erasure evidence was readable. The job correctly retained its
+`retention_pending` boundary. This does not establish deletion of external
+backups/logs or worker crash recovery.
 Enterprise-provider scope, candidate official conformance and full AWS
-comparison, invalid signing-publication recovery, runtime AWS API
-observations, complete restore authority and background-work qualification
-remain required.
+comparison, complete restore authority and remaining background-work
+qualification remain required.
 
 `PostgresGovernanceResourceBackend` observes live authority and physically
 retained records in the configured primary database. Operator-owned mounts
@@ -208,8 +227,8 @@ worker effects remain under qualification.
 `TenantKeyService::mounted` resolves them per request with disabled SaaS
 registry/command interfaces. See [mounted signing keys](MOUNTED_SIGNER.md) for
 the manifest, permission and rotation contract. Local independent verification
-and invalid-reload tests are separate from the installed positive rotation
-above; installed invalid-publication readiness/recovery remains required.
+and invalid-reload tests complement the installed rotation and fail-closed
+invalid-publication recovery checks above.
 
 The `postgres` feature currently provides `PostgresStore` implementations for
 `ParStore`, `ReplayStore`, `InitialAccessTokenStore`, `ClientStore`, `CodeStore`,
@@ -795,12 +814,10 @@ Grace keys belong only to the token runtime. Other runtime paths can construct
 `PostgresGraceStore::new_delete_only` for revocation cleanup. Keep keys used by
 other durable encrypted state separate, and keep all private startup key roots
 outside the dynamically resolved upstream client-secret root.
-These are implemented adapter capabilities. Production startup, mount
-isolation and cluster rotation acceptance remain pending.
-
-The production server does not select PostgreSQL yet. Remaining work includes
-startup for every enabled self-hosted port, qualification of the authorized
-cross-port transactions in the production runtime, encrypted-state
-and mounted-signer startup, portable transports/notifications, workers, chart/image
-delivery, and all acceptance campaigns in the ledger above. Keep the PR in
-draft and the issue open until these requirements are implemented and verified.
+The installed production server selects PostgreSQL and mounts separate runtime,
+signing, administrator and external-secret authority. Both environments have
+completed the protocol, browser, real Cognito, signing and restore campaigns
+described above. Remaining work includes exact-candidate official conformance,
+enterprise-provider scope, complete background-work qualification and final
+delivery review. Keep the PR in draft and the issue open until the outstanding
+requirements in the ledger are verified.
