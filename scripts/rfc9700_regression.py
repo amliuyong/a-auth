@@ -5,6 +5,7 @@ import argparse
 import http.client
 import json
 import re
+import stat
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -18,6 +19,22 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 OPENER = urllib.request.build_opener(NoRedirect)
+
+
+def read_initial_access_token(path: Path) -> str:
+    metadata = path.stat()
+    if not stat.S_ISREG(metadata.st_mode):
+        raise ValueError("--initial-access-token-file must be a regular file")
+    if stat.S_IMODE(metadata.st_mode) & 0o077:
+        raise ValueError(
+            "--initial-access-token-file must not be accessible by group or other"
+        )
+    token = path.read_text(encoding="utf-8").removesuffix("\n")
+    if not re.fullmatch(r"[A-Za-z0-9._~+/-]+=*", token):
+        raise ValueError(
+            "--initial-access-token-file must contain one non-empty bearer token line"
+        )
+    return token
 
 
 def well_known(issuer: str, suffix: str) -> str:
@@ -445,6 +462,11 @@ def main() -> int:
     parser.add_argument("--source-url", required=True)
     parser.add_argument("--result-url", required=True)
     parser.add_argument("--allow-insecure-loopback", action="store_true")
+    parser.add_argument(
+        "--initial-access-token-file",
+        type=Path,
+        help="private file containing a bearer token for protected registration",
+    )
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
 
@@ -486,6 +508,20 @@ def main() -> int:
         )
     if issuer != allowed_issuer:
         parser.error("--issuer must match the configured environment issuer")
+
+    initial_access_token = None
+    if args.initial_access_token_file is not None:
+        try:
+            initial_access_token = read_initial_access_token(
+                args.initial_access_token_file
+            )
+        except (OSError, ValueError):
+            # Report no file contents or untrusted exception text.
+            parser.error(
+                "--initial-access-token-file must be a regular private file "
+                "inaccessible by group or other and contain one non-empty "
+                "bearer token line"
+            )
 
     tests: list[dict[str, Any]] = []
     oidc_status, oidc = load_json(well_known(issuer, "openid-configuration"))
@@ -604,6 +640,11 @@ def main() -> int:
 
     registration_status, _headers, registration_body = request(
         registration_endpoint,
+        headers=(
+            {"authorization": f"Bearer {initial_access_token}"}
+            if initial_access_token is not None
+            else None
+        ),
         json_body={
             "client_name": "agent-auth RFC 9700 release regression",
             "redirect_uris": [args.redirect_uri],
