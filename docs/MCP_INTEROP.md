@@ -88,7 +88,24 @@ from the successful final absence checks.
 
 ## Reproduce and interpret
 
-Use the locked [third-party example](../examples/mcp-auth/README.md) in a
+Issue #148 updates the current [third-party example](../examples/mcp-auth/README.md)
+to `mcp-auth` 1.0.0-beta.1, official MCP server 2.4.0 and its Express/Node
+adapters. PR #139's dependency-only change failed CI because that prerelease
+changes both the constructor and MCP peer dependency. The migration changes
+the entry point and metadata checker together and removes the old vulnerable
+Zod 3 dependency.
+
+The new example's controlled loopback TLS test exercises actual discovery,
+JWKS, signed JWT checks, PRM, a fixed protected tool call using the SDK's
+stateless 2025-protocol fallback, and the provider checker. Wrong issuer,
+audience, signature, expiry, missing expiry, empty subject, missing scope and
+every `cnf` shape are rejected. TLS hostname/certificate verification stays
+enabled and the private test CA is scoped to the child process.
+These migration checks do not rerun the dated clients' code/PKCE, consent or
+natural-expiry refresh flows above. Those results remain tied to the original
+0.2.0/MCP 1 fixture; full client refresh with the new prerelease is NOT_RUN.
+
+Use the current locked third-party example in a
 separate project. Supply an actual HTTPS issuer/resource and normal client
 callback/DCR policy, then follow the client's real discovery and browser
 authorization flow. An unattended lab may drive the ordinary login/consent

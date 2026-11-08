@@ -10,7 +10,7 @@ test('entry rejects Lambda Function URLs before any discovery or listener', () =
   assert.throws(() => createApp({ issuer: 'https://auth.example.com', resource: `${forbidden}/mcp` }));
 });
 
-test('actual third-party middleware exposes bound PRM and rejects anonymous MCP calls', async () => {
+test('actual third-party middleware rejects anonymous MCP calls without discovery', async () => {
   const resource = 'https://rs.example.com/mcp';
   const server = createApp({ issuer: 'https://auth.example.com', resource }).listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -19,11 +19,9 @@ test('actual third-party middleware exposes bound PRM and rejects anonymous MCP 
     const response = await fetch(`${base}/mcp`, { method: 'POST' });
     assert.equal(response.status, 401);
     assert.match(response.headers.get('www-authenticate'), /resource_metadata=/);
-    const metadata = await fetch(`${base}/.well-known/oauth-protected-resource/mcp`);
-    assert.equal(metadata.status, 200);
-    const body = await metadata.json();
-    assert.equal(body.resource, resource);
-    assert.deepEqual(body.authorization_servers, ['https://auth.example.com']);
+    assert.ok(response.headers.get('www-authenticate').includes(
+      `${resource.replace('/mcp', '')}/.well-known/oauth-protected-resource/mcp`,
+    ));
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

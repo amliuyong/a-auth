@@ -4,9 +4,14 @@
   "type": "module",
   "engines": { "node": ">=22.14.0" },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.32.0",
+    "@modelcontextprotocol/express": "2.0.2",
+    "@modelcontextprotocol/node": "2.1.2",
+    "@modelcontextprotocol/server": "2.4.0",
     "express": "5.2.1",
-    "mcp-auth": "0.2.0"
+    "mcp-auth": "1.0.0-beta.1"
+  },
+  "devDependencies": {
+    "jose": "6.2.13"
   },
   "scripts": {
     "start": "node server.mjs",

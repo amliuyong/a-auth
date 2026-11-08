@@ -1,8 +1,10 @@
 # MCP Auth library example
 
-This private Node 22 example uses published `mcp-auth@0.2.0`, Express 5.2.1
-and the official MCP SDK 1.32.0. Its single tool returns a fixed synthetic
-message and performs no external action.
+This private Node 22 example uses published `mcp-auth@1.0.0-beta.1` (a
+prerelease), Express 5.2.1 and official MCP server 2.4.0 with its Express/Node
+adapters. Its single tool returns a fixed synthetic message and performs no
+external action. The server supports stateless 2025-era requests through the
+SDK's built-in fallback.
 
 Copy this directory into a separate project and install the locked dependencies:
 
@@ -41,8 +43,15 @@ response to include a refresh token. Wait for real expiry; do not rewrite token
 lifetimes or response bodies. Clear the test client store and stop owned
 listeners/daemons after testing. Never publish tokens, cookies, codes or claims.
 
-`check-provider` runs the published library's metadata compatibility checker.
+`check-provider` resolves discovery and runs the published library's current
+metadata validation, including issuer matching, authorization code and S256.
 The separately hosted checker needs a publicly reachable issuer; a loopback
 result cannot qualify it or a production deployment. The dated client,
 negative-validation and cleanup results are in
 [MCP interop records](../../docs/MCP_INTEROP.md).
+
+`npm test` exercises controlled TLS discovery, JWKS and signed JWT boundaries,
+including an accepted tool call and rejected issuer, audience, signature,
+expiry, subject, scope and sender-bound claims. Its private test CA is removed
+after the test. The historical full-client/refresh results name the original
+0.2.0 fixture; those flows have not been requalified with the prerelease.
