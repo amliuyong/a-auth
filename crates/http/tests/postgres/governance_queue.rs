@@ -320,6 +320,19 @@ async fn postgres_governance_queue_ack_rechecks_expiry_after_a_real_row_lock_wai
     }
     blocker.rollback().await.unwrap();
     assert!(!task.await.unwrap().unwrap());
+    // SQLx rolls back a dropped transaction asynchronously. Observe the row
+    // after that rollback before a nonblocking SKIP LOCKED claim.
+    let mut observer = fixture.pool.begin().await.unwrap();
+    let status: String = tokio::time::timeout(
+        Duration::from_secs(5),
+        sqlx::query_scalar("SELECT status FROM a_auth.governance_queue FOR UPDATE")
+            .fetch_one(&mut *observer),
+    )
+    .await
+    .expect("rejected acknowledgment must release its queue row")
+    .unwrap();
+    assert_eq!(status, "leased");
+    observer.rollback().await.unwrap();
     let replacement = fixture.queues[0].claim(now(), 30, 1).await.unwrap();
     assert_eq!(replacement.len(), 1);
     fixture.passed().await;

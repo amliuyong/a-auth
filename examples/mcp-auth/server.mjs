@@ -1,7 +1,8 @@
 import express from 'express';
 import { MCPAuth } from 'mcp-auth';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { mcpAuthMetadataRouter, requireBearerAuth } from '@modelcontextprotocol/express';
+import { toNodeHandler } from '@modelcontextprotocol/node';
+import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import https from 'node:https';
 import fs from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -31,30 +32,36 @@ export function createApp({ issuer, resource, scope = 'kb:read' }) {
     throw Error('The resource path must be /mcp and scope must be one nonempty value');
   }
   const auth = new MCPAuth({
-    protectedResources: [{
-      metadata: {
-        resource,
-        authorizationServers: [{ issuer, type: 'oidc' }],
-        scopesSupported: [scope, 'offline_access'],
-      },
-    }],
+    protectedResourceMetadata: {
+      resource,
+      authorizationServer: { issuer, type: 'oidc' },
+      scopesSupported: [scope, 'offline_access'],
+    },
   });
   const app = express();
-  app.use(auth.protectedResourceMetadataRouter());
-  app.all('/mcp', auth.bearerAuth('jwt', {
-    resource, audience: resource, requiredScopes: [scope],
-  }), rejectSenderBoundToken, express.json({ limit: '1mb' }), async (request, response, next) => {
-    if (request.method !== 'POST') return response.status(405).end();
+  // Resolve upstream discovery only on metadata/token requests. Anonymous
+  // challenges still work while the issuer is temporarily unavailable.
+  app.use(async (request, response, next) => {
+    if (request.path !== '/.well-known/oauth-protected-resource/mcp') return next();
+    try {
+      mcpAuthMetadataRouter(await auth.getAuthMetadataOptions())(request, response, next);
+    } catch (error) {
+      next(error);
+    }
+  });
+  const handler = toNodeHandler(createMcpHandler(() => {
     const server = new McpServer({ name: 'a-auth-interop-example', version: '1.0.0' });
     server.registerTool('fixture_echo', {
       description: 'Returns a fixed synthetic message without external actions',
-      inputSchema: {},
     }, async () => ({ content: [{ type: 'text', text: 'controlled-fixture-ok' }] }));
-    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-    response.on('close', () => { void transport.close(); void server.close(); });
+    return server;
+  }));
+  app.all('/mcp', requireBearerAuth(auth.getBearerAuthOptions({
+    requiredScopes: [scope],
+  })), rejectSenderBoundToken, express.json({ limit: '1mb' }), async (request, response, next) => {
+    if (request.method !== 'POST') return response.status(405).end();
     try {
-      await server.connect(transport);
-      await transport.handleRequest(request, response, request.body);
+      await handler(request, response, request.body);
     } catch (error) {
       next(error);
     }
