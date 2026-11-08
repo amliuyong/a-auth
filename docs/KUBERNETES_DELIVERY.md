@@ -57,7 +57,7 @@ tests do not establish cluster, deployment, or conformance acceptance.
 | AWS-free dependency tree/runtime | Production dependency tree and bounded installed outbound captures passed; no other AWS API/metadata or unknown client flows observed | PASS |
 | Backup/restore revocation safety | Post-revocation checks passed; stale-backup hazard and known-grant repair drilled; documented incomplete-authority hold verified with both clone HTTP deployments at zero replicas | PASS_WITH_DOCUMENTED_DISPOSITION |
 | OCI image and chart on GHCR | Published immutable backend/frontend/chart digests, readback and both native installations | PASS |
-| Review, PR, CI, merge, closure | Final complete-scope review, terminal head checks, merge readback, closed issue and clean worktree removal remain required | IN_PROGRESS |
+| Review, PR, CI, merge, closure | Complete-scope serial review and terminal head checks; [PR #143](https://github.com/amliuyong/a-auth/pull/143) merged, issue #142 closed and clean worktree removed | PASS |
 
 ## PostgreSQL adapter conventions
 

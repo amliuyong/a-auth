@@ -100,3 +100,14 @@ recorded disposition. Historical v1.1.0 audit results remain historical evidence
 Markdown lint continues to use the existing rules. The operator's untracked
 `work/` evidence directory is excluded from repository documentation scans;
 tracked source documents remain in scope.
+
+The separate infrastructure audit still reports two Moderate nodes for one
+[minimatch advisory GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249).
+CDK 2.273.0 bundles minimatch 10.2.5; latest upstream CDK 2.275.0 also bundles
+an affected 10.x release. An isolated npm override probe leaves the bundled
+version unchanged. No CDK downgrade, bundle/vendor patch or audit suppression
+is applied. CDK consumes repository-controlled local glob patterns and its
+callers do not select the advisory's optimization level 2. This build-tool
+dependency is absent from the native/Rust runtime, but the package advisory
+remains unpatched. It is distinct from the withdrawn braces finding and the
+zero audits of the updated SDK/examples.

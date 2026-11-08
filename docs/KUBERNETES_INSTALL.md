@@ -5,6 +5,15 @@ and EKS with PostgreSQL 17 RDS. Full qualification remains in the
 [delivery ledger](KUBERNETES_DELIVERY.md); this guide does not authorize
 production promotion.
 
+For source release 1.2.0, use the matching backend/frontend digest and full
+source commit from the
+[published release](https://github.com/amliuyong/a-auth/releases/tag/v1.2.0),
+with chart 0.1.3. Copy the values example privately and update
+`image.digest`, `image.sourceCommit`, the equivalent `frontend.image` fields,
+and `runtime.deployment_commit` together. The immutable 0.1.2/component
+selection below remains a historical reproducible installation; it does not
+identify the new 1.2.0 candidate.
+
 ## Choose the deployment identity
 
 Use PostgreSQL 16 or later, a Kubernetes cluster, an HTTPS ingress controller,
