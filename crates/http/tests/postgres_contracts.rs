@@ -132,6 +132,12 @@ mod smtp_contracts;
 #[path = "postgres/security_event_fallback.rs"]
 mod security_event_fallback_contracts;
 
+#[path = "postgres/branding.rs"]
+mod branding_contracts;
+
+#[path = "postgres/mounted_admin.rs"]
+mod mounted_admin_contracts;
+
 #[path = "postgres/ciba.rs"]
 mod ciba_contracts;
 

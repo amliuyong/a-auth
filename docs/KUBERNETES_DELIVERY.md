@@ -80,6 +80,16 @@ tests do not establish cluster, deployment, or conformance acceptance.
 
 ## Current implementation frontier
 
+`BrandingStore::postgres` preserves deployment presentation across process
+restarts with a persisted revision CAS and complete host/record validation.
+`AdminCredentialResolver::mounted` loads one operator-owned single-tenant
+bundle and persists secret-free owner/revision/lifetime/retirement checkpoints.
+It rejects cold-start rollback and higher-revision resurrection of retired
+credentials, bypasses plaintext registry caching and checks expiry after
+database lock waits. See [mounted administrator credentials](MOUNTED_ADMIN_CREDENTIALS.md).
+Production construction, mounts/readiness and installed rotation/restore
+acceptance remain pending.
+
 `FileSecretResolver` resolves only explicitly mapped references from a
 dedicated mounted directory, reads current projected Secret generations and
 confines descriptor-relative reads. See [mounted external client
@@ -123,7 +133,7 @@ streams, encrypted delivery/lease/history authority and durable worker claims.
 required external HMAC authority key.
 `PostgresGraceStore` implements
 `GraceStore` with an explicit external encryption key ring or a delete-only
-capability. Thirty-nine embedded forward
+capability. Forty-one embedded forward
 migrations create their authority tables and credential-free client reclaim
 audit metadata.
 
@@ -227,8 +237,8 @@ IdP against the physical row identity. Authorized administrator attribute
 writes also lock namespace authority before the user, recheck the captured
 authority and retain the raw attribute CAS and federation ownership rules.
 
-The current shared suite contains 202 cases: thirty-five contracts run through each of
-the memory, AWS, and PostgreSQL adapters, plus ninety-four PostgreSQL-specific
+The current shared suite contains 210 cases: thirty-five contracts run through each of
+the memory, AWS, and PostgreSQL adapters, plus one hundred and two PostgreSQL-specific
 transaction/durability cases and three AWS recovery interleaving/compatibility
 cases. AWS adapters run against a loopback DynamoDB
 emulator; PostgreSQL adapters run against PostgreSQL 16. This does not establish

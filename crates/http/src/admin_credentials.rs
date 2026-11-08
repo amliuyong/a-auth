@@ -468,6 +468,8 @@ impl MemoryAdminCredentialStore {
 
 #[derive(Clone)]
 enum AdminCredentialBackend {
+    #[cfg(feature = "postgres")]
+    Mounted(mounted::MountedAdminCredentialBackend),
     Memory(MemoryAdminCredentialStore),
     #[cfg(feature = "aws")]
     SecretsManager(aws_sdk_secretsmanager::Client),
@@ -480,6 +482,8 @@ impl AdminCredentialBackend {
         _permits: Arc<Semaphore>,
     ) -> Result<LoadedSecretVersions, AdminCredentialError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Mounted(_) => Err(AdminCredentialError::InvalidConfiguration),
             Self::Memory(store) => {
                 let versions = store
                     .documents
@@ -549,6 +553,8 @@ impl AdminCredentialBackend {
         _permits: Arc<Semaphore>,
     ) -> Result<SecretStageSnapshot, AdminCredentialError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Mounted(_) => Err(AdminCredentialError::InvalidConfiguration),
             Self::Memory(store) => {
                 let documents = store
                     .documents
@@ -670,6 +676,8 @@ impl AdminCredentialBackend {
         _validated_version_id: Option<&str>,
     ) -> Result<(), AdminCredentialError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Mounted(_) => Err(AdminCredentialError::InvalidConfiguration),
             Self::Memory(store) => {
                 store.mark_validated(secret_ref, current_version_id, _validated_version_id)
             }
@@ -714,6 +722,8 @@ impl AdminCredentialBackend {
             return Ok(());
         }
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Mounted(_) => Err(AdminCredentialError::InvalidConfiguration),
             Self::Memory(store) => store.mark_pending(secret_ref, current_version_id),
             #[cfg(feature = "aws")]
             Self::SecretsManager(client) => {
@@ -752,6 +762,8 @@ impl AdminCredentialBackend {
         current_version_id: &str,
     ) -> Result<(), AdminCredentialError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Mounted(_) => Err(AdminCredentialError::InvalidConfiguration),
             Self::Memory(store) => store.clear_pending(secret_ref, current_version_id),
             #[cfg(feature = "aws")]
             Self::SecretsManager(client) => {
@@ -1584,6 +1596,20 @@ impl AdminCredentialResolver {
         presented: &str,
         now: i64,
     ) -> Result<Option<AdminCredentialMatch>, AdminCredentialError> {
+        #[cfg(feature = "postgres")]
+        if let AdminCredentialBackend::Mounted(backend) = &self.backend {
+            // Mounted values live only for this verification. The database
+            // checkpoint supplies cross-replica trust; no plaintext registry
+            // enters the legacy provider cache.
+            let registry = backend.load(&self.offboarded_tenants, now).await?;
+            if presented.len() < MIN_ADMIN_CREDENTIAL_SECRET_BYTES {
+                return Ok(None);
+            }
+            return Ok(registry
+                .sets
+                .get(owner)
+                .and_then(|set| set.verify(presented, now.max(crate::current_unix_secs()))));
+        }
         {
             let cache = self.cache.lock().await;
             if !self.cache_needs_refresh(&cache) {
@@ -1663,6 +1689,10 @@ impl AdminCredentialResolver {
     }
 
     async fn load_registry(&self, now: i64) -> Result<CredentialRegistry, AdminCredentialError> {
+        #[cfg(feature = "postgres")]
+        if let AdminCredentialBackend::Mounted(backend) = &self.backend {
+            return backend.load(&self.offboarded_tenants, now).await;
+        }
         let platform_ref = self
             .platform_secret_ref
             .as_deref()
@@ -1815,6 +1845,10 @@ impl AdminCredentialResolver {
         Ok(CredentialRegistry { sets })
     }
 }
+
+#[cfg(feature = "postgres")]
+#[path = "admin_credentials_mounted.rs"]
+mod mounted;
 
 fn cached_verify(
     cache: &CacheState,

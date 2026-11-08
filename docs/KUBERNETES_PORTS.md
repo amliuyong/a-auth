@@ -108,6 +108,12 @@ Queues and delivery state must have real multiple-worker redelivery tests.
 Existing Lambda workers also need portable Deployment/CronJob/Job entrypoints;
 adding a storage table does not complete that requirement.
 
+Existing state helpers also need durable production composition.
+`BrandingStore::postgres` persists bounded deployment presentation with revision
+CAS. [Mounted administrator credentials](MOUNTED_ADMIN_CREDENTIALS.md) preserve
+platform, tenant and SCIM ownership plus durable rollback/retirement trust.
+Those adapters do not establish production startup or installed acceptance.
+
 ## Excluded SaaS and multi-Region capabilities
 
 | Trait | Scope reason and startup condition |
