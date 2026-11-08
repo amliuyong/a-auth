@@ -86,8 +86,13 @@ external secrets, real HTTP transports and durable TLS SMTP notifications.
 Startup validates the complete migration checksum authority without applying
 DDL. Notification admission and management observations share their configured
 encryption purpose. See the [production configuration reference](POSTGRES_RUNTIME.md).
-The production listener, role-specific mounts, scheduling, installed deployment
-and full acceptance campaign remain pending.
+`agent-auth-postgres` now supplies separate token/web, probe and private
+management listeners, scoped grace capabilities, migration/runtime grants,
+four durable queue-worker modes and three maintenance Job modes. Local real-TCP
+tests exercise readiness loss/recovery and an accepted request draining across
+SIGTERM. Initial secure Helm and OCI sources are under validation; see
+[server entrypoints](POSTGRES_SERVER.md). Installed application, image/chart
+publication and the full acceptance campaign remain pending.
 
 `PostgresGovernanceResourceBackend` observes live authority and physically
 retained records in the configured primary database. Operator-owned mounts

@@ -1,0 +1,45 @@
+image:
+  repository: ghcr.io/amliuyong/a-auth
+  digest: ""
+  sourceCommit: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+replicas:
+  token: 2
+  web: 2
+runtime: {}
+secrets:
+  database: a-auth-runtime-database
+  migrationDatabase: a-auth-migration-database
+  tokenCrypto: a-auth-token-crypto
+  webCrypto: a-auth-web-crypto
+  signing: a-auth-signing
+  administrators: a-auth-administrators
+  external: a-auth-external
+database:
+  runtimeRole: a_auth_runtime
+management:
+  serviceEnabled: false
+ingress:
+  enabled: false
+  className: ""
+  tlsSecretName: ""
+networkPolicy:
+  enabled: true
+  managementNamespaceLabels:
+    kubernetes.io/metadata.name: a-auth-operators
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: "2"
+    memory: 512Mi
+rolloutRevision: "1"
+workers:
+  enabled: true
+  replicas: 1
+maintenance:
+  enabled: true
+  reclaimApply: false
+  recomputeApply: false

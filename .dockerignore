@@ -1,0 +1,13 @@
+.git
+.env*
+.pypirc
+work
+target
+**/target
+node_modules
+**/node_modules
+.venv
+**/.venv
+dist
+**/cdk.out
+*.log

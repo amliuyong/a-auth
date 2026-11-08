@@ -177,6 +177,63 @@ impl PostgresStore {
         }
         Ok(())
     }
+
+    pub async fn close(&self) {
+        self.pool.close().await;
+    }
+
+    /// Explicit migration-Job operation. Never called by HTTP/worker startup.
+    /// The named existing role receives DML, not migration or schema ownership.
+    pub async fn grant_runtime_role(&self, role: &str) -> Result<(), StoreError> {
+        let invalid = || StoreError::Permanent("Invalid PostgreSQL runtime role".into());
+        if role.is_empty()
+            || role.len() > 63
+            || !role
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+            || !role
+                .bytes()
+                .next()
+                .is_some_and(|b| b.is_ascii_lowercase() || b == b'_')
+        {
+            return Err(invalid());
+        }
+        let mut transaction = self.pool.begin().await.map_err(db_error)?;
+        let admissible: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM pg_roles AS r WHERE r.rolname=$1 \
+             AND r.rolname<>current_user AND r.rolcanlogin AND NOT r.rolsuper \
+             AND NOT r.rolcreatedb AND NOT r.rolcreaterole \
+             AND NOT has_database_privilege(r.oid,current_database(),'CREATE') \
+             AND NOT has_schema_privilege(r.oid,'a_auth','CREATE') \
+             AND NOT EXISTS(SELECT 1 FROM pg_class AS c JOIN pg_namespace AS n \
+               ON n.oid=c.relnamespace WHERE c.relowner=r.oid AND \
+               (n.nspname='a_auth' OR (n.nspname='public' AND c.relname='_sqlx_migrations'))) \
+             AND NOT EXISTS(SELECT 1 FROM pg_auth_members WHERE member=r.oid))",
+        )
+        .bind(role)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(db_error)?;
+        if !admissible {
+            return Err(invalid());
+        }
+        // Only the validated ASCII identifier is interpolated. SQL identifiers
+        // cannot be bound as ordinary query parameters.
+        for statement in [
+            format!("GRANT USAGE ON SCHEMA a_auth TO \"{role}\""),
+            format!(
+                "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA a_auth TO \"{role}\""
+            ),
+            format!("REVOKE ALL PRIVILEGES ON public._sqlx_migrations FROM \"{role}\""),
+            format!("GRANT SELECT ON public._sqlx_migrations TO \"{role}\""),
+        ] {
+            sqlx::query(&statement)
+                .execute(&mut *transaction)
+                .await
+                .map_err(db_error)?;
+        }
+        transaction.commit().await.map_err(db_error)
+    }
 }
 
 /// Never include driver messages: they can contain SQL data or connection

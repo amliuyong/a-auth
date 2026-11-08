@@ -244,6 +244,80 @@ fn database_uri(text: &str) -> Result<url::Url, StoreError> {
 
 impl PostgresRuntime {
     pub async fn load(path: impl AsRef<Path>) -> Result<Self, StoreError> {
+        Self::load_impl(path, true).await
+    }
+
+    /// Deployed HTTP processes must choose their existing protocol scope.
+    /// Non-token processes can erase grace records without decrypting them.
+    pub async fn load_for_scope(
+        path: impl AsRef<Path>,
+        scope: crate::RouteScope,
+    ) -> Result<Self, StoreError> {
+        if scope == crate::RouteScope::Full {
+            return Err(invalid());
+        }
+        Self::load_impl(path, scope == crate::RouteScope::Token).await
+    }
+
+    /// A migration Job reads only its distinct database credential mount.
+    pub async fn migrate(path: impl AsRef<Path>) -> Result<(), StoreError> {
+        Self::migrate_impl(path, None).await
+    }
+
+    pub async fn migrate_with_runtime_role(
+        path: impl AsRef<Path>,
+        role: &str,
+    ) -> Result<(), StoreError> {
+        Self::migrate_impl(path, Some(role)).await
+    }
+
+    async fn migrate_impl(path: impl AsRef<Path>, role: Option<&str>) -> Result<(), StoreError> {
+        let config = config_file(path.as_ref())?;
+        if config.schema_version != 1 || !(1..=64).contains(&config.max_connections) {
+            return Err(invalid());
+        }
+        let files = FileSecretResolver::new(
+            &config.database.root,
+            [("database".into(), config.database.key)],
+        )?;
+        let uri = resolve(&files, "database").await?;
+        database_uri(uri.trim())?;
+        let database = PostgresStore::connect(uri.trim(), config.max_connections).await?;
+        let result = async {
+            database.migrate().await?;
+            if let Some(role) = role {
+                database.grant_runtime_role(role).await?;
+            }
+            Ok(())
+        }
+        .await;
+        database.close().await;
+        result
+    }
+
+    /// Probe work is bounded by the caller. No secrets or backend error details
+    /// are returned to unauthenticated health clients.
+    pub async fn verify_ready(&self) -> Result<(), StoreError> {
+        self.database.verify_schema().await?;
+        if let UsersStoreImpl::Postgres(users) = self.state.users.as_ref() {
+            users.verify_authority().await?;
+        } else {
+            return Err(invalid());
+        }
+        self.state
+            .admin_credentials
+            .verify(
+                &AdminCredentialOwner::platform(),
+                "",
+                crate::current_unix_secs(),
+            )
+            .await
+            .map_err(|_| invalid())?;
+        self.signing_keys.reload().await.map_err(|_| invalid())?;
+        Ok(())
+    }
+
+    async fn load_impl(path: impl AsRef<Path>, grace_decryption: bool) -> Result<Self, StoreError> {
         let config = config_file(path.as_ref())?;
         let issuer = url::Url::parse(&format!("https://{}", config.host)).map_err(|_| invalid())?;
         let web = url::Url::parse(&config.web_base_url).map_err(|_| invalid())?;
@@ -335,23 +409,27 @@ impl PostgresRuntime {
         let signer = Arc::new(SignerImpl::Mounted(
             signing_keys.snapshot().await.map_err(|_| invalid())?,
         ));
-        let crypto = FileSecretResolver::new(
-            &config.secrets.root,
-            [
-                ("server".into(), config.secrets.server_key),
-                ("governance".into(), config.secrets.governance_key),
-                ("grace".into(), config.secrets.grace),
-                ("ciba".into(), config.secrets.ciba),
-                ("outbox".into(), config.secrets.outbox),
-                ("ssf".into(), config.secrets.ssf),
-            ],
-        )?;
+        let mut crypto_bindings = BTreeMap::from([
+            ("server".into(), config.secrets.server_key),
+            ("governance".into(), config.secrets.governance_key),
+            ("ciba".into(), config.secrets.ciba),
+            ("outbox".into(), config.secrets.outbox),
+            ("ssf".into(), config.secrets.ssf),
+        ]);
+        if grace_decryption {
+            crypto_bindings.insert("grace".into(), config.secrets.grace);
+        }
+        let crypto = FileSecretResolver::new(&config.secrets.root, crypto_bindings)?;
         let server_key = Zeroizing::new(hmac_key(&crypto, "server").await?);
         let governance_key = Zeroizing::new(hmac_key(&crypto, "governance").await?);
         if *server_key == *governance_key {
             return Err(invalid());
         }
-        let grace_keys = encryption_key(&crypto, "grace").await?;
+        let grace = if grace_decryption {
+            Some(encryption_key(&crypto, "grace").await?)
+        } else {
+            None
+        };
         let ciba_keys = encryption_key(&crypto, "ciba").await?;
         let outbox_keys = encryption_key(&crypto, "outbox").await?;
         let ssf_keys = encryption_key(&crypto, "ssf").await?;
@@ -515,10 +593,10 @@ impl PostgresRuntime {
             cimd: Arc::new(cimd),
             refresh: Arc::new(RefreshStoreImpl::Postgres(database.clone())),
             par: Arc::new(ParStoreImpl::Postgres(database.clone())),
-            grace: Some(Arc::new(GraceStoreImpl::Postgres(PostgresGraceStore::new(
-                database.clone(),
-                grace_keys,
-            )))),
+            grace: Some(Arc::new(GraceStoreImpl::Postgres(match grace {
+                Some(keys) => PostgresGraceStore::new(database.clone(), keys),
+                None => PostgresGraceStore::new_delete_only(database.clone()),
+            }))),
             grace_window_secs: config.grace_window_secs,
             sessions: Arc::new(SessionStoreImpl::Postgres(database.clone())),
             magic_links: Arc::new(MagicLinkStoreImpl::Postgres(database.clone())),

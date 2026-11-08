@@ -1,0 +1,63 @@
+{{- if eq .Values.secrets.database .Values.secrets.migrationDatabase -}}
+{{- fail "Runtime and migration database Secrets must be distinct" -}}
+{{- end -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "a-auth.name" . }}-migrate-{{ .Release.Revision }}
+  labels:
+    {{- include "a-auth.labels" . | nindent 4 }}
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: a-auth
+        app.kubernetes.io/instance: {{ .Release.Name | quote }}
+        a-auth.io/plane: migration
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: migrate
+          image: {{ include "a-auth.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - migrate
+            - /etc/a-auth/runtime/runtime.json
+            - {{ .Values.database.runtimeRole | quote }}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: runtime
+              mountPath: /etc/a-auth/runtime
+              readOnly: true
+            - name: database
+              mountPath: /etc/a-auth/database
+              readOnly: true
+      volumes:
+        - name: runtime
+          configMap:
+            name: {{ include "a-auth.name" . }}-runtime
+            defaultMode: 0444
+        - name: database
+          secret:
+            secretName: {{ .Values.secrets.migrationDatabase }}
+            defaultMode: 0440

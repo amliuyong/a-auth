@@ -25,7 +25,7 @@ agent-auth-authz = { path = "../authz" }
 axum = "0.8"
 utoipa = { version = "5", features = ["axum_extras"] }
 utoipa-axum = "0.2"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "signal"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 # PAR(RFC 9126,spec 006 §7.3):从存储的授权参数串解析 AuthorizeParams(axum Query 底层同款)。
@@ -115,6 +115,11 @@ x509-cert = { version = "0.2", features = ["pem", "builder"] }
 [[bin]]
 name = "agent-auth-server"        # 本地 axum server(开发/e2e 联调)
 path = "src/bin/server.rs"
+
+[[bin]]
+name = "agent-auth-postgres"
+path = "src/bin/postgres.rs"
+required-features = ["postgres"]
 
 [[bin]]
 name = "export-openapi"           # 导出 openapi.json 到 repo(CI 校验一致)

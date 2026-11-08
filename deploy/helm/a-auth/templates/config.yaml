@@ -1,0 +1,16 @@
+{{- $runtime := required "runtime configuration is required" .Values.runtime -}}
+{{- $source := required "image.sourceCommit is required" .Values.image.sourceCommit -}}
+{{- if not (regexMatch "^[0-9a-f]{40}$" $source) -}}
+{{- fail "image.sourceCommit must contain forty lowercase hexadecimal characters" -}}
+{{- end -}}
+{{- if ne $source $runtime.deployment_commit -}}
+{{- fail "runtime.deployment_commit must match image.sourceCommit" -}}
+{{- end -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "a-auth.name" . }}-runtime
+  labels:
+    {{- include "a-auth.labels" . | nindent 4 }}
+data:
+  runtime.json: {{ $runtime | mustToJson | quote }}

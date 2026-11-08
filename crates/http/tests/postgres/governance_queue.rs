@@ -155,56 +155,56 @@ async fn postgres_governance_queue_redelivers_and_preserves_inflight_wakeups() {
     fixture.queues[0].enqueue(original.clone()).await.unwrap();
     let start = now();
     let first = fixture.queues[0]
-        .claim(start, 10, 1)
+        .claim(start, 60, 1)
         .await
         .unwrap()
         .remove(0);
+    // Claim authority uses the clock after database waits. Read that committed
+    // deadline instead of assuming the call stayed inside its starting second.
+    let expires: i64 = sqlx::query_scalar("SELECT lease_until FROM a_auth.governance_queue")
+        .fetch_one(&fixture.pool)
+        .await
+        .unwrap();
     assert!(fixture.queues[1]
-        .claim(start + 9, 10, 1)
+        .claim(expires - 1, 60, 1)
         .await
         .unwrap()
         .is_empty());
     let second = fixture.queues[1]
-        .claim(start + 10, 10, 1)
+        .claim(expires, 60, 1)
         .await
         .unwrap()
         .remove(0);
     assert!(!fixture.queues[0]
-        .acknowledge(&first, start + 10)
+        .acknowledge(&first, expires)
         .await
         .unwrap());
-    assert!(!fixture.queues[0]
-        .retry(&first, start + 10, 5)
-        .await
-        .unwrap());
-    assert!(fixture.queues[1]
-        .retry(&second, start + 10, 5)
-        .await
-        .unwrap());
+    assert!(!fixture.queues[0].retry(&first, expires, 5).await.unwrap());
+    assert!(fixture.queues[1].retry(&second, expires, 5).await.unwrap());
     assert!(fixture.queues[0]
-        .claim(start + 14, 10, 1)
+        .claim(expires + 4, 60, 1)
         .await
         .unwrap()
         .is_empty());
     let third = fixture.queues[0]
-        .claim(start + 15, 10, 1)
+        .claim(expires + 5, 60, 1)
         .await
         .unwrap()
         .remove(0);
     fixture.queues[1].enqueue(original.clone()).await.unwrap();
     assert!(fixture.queues[0]
-        .acknowledge(&third, start + 15)
+        .acknowledge(&third, expires + 5)
         .await
         .unwrap());
-    let preserved = fixture.queues[1].claim(start + 15, 10, 1).await.unwrap();
+    let preserved = fixture.queues[1].claim(expires + 5, 60, 1).await.unwrap();
     assert_eq!(preserved.len(), 1);
     assert_eq!(preserved[0].command(), &original);
     assert!(!fixture.queues[0]
-        .acknowledge(&third, start + 15)
+        .acknowledge(&third, expires + 5)
         .await
         .unwrap());
     assert!(fixture.queues[1]
-        .acknowledge(&preserved[0], start + 15)
+        .acknowledge(&preserved[0], expires + 5)
         .await
         .unwrap());
     fixture.passed().await;

@@ -1,0 +1,37 @@
+{{- $root := . -}}
+{{- range $plane := list "token" "web" }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "a-auth.name" $root }}-{{ $plane }}
+  labels:
+    {{- include "a-auth.labels" $root | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/instance: {{ $root.Release.Name | quote }}
+    a-auth.io/plane: {{ $plane }}
+  ports:
+    - name: protocol
+      port: 80
+      targetPort: protocol
+{{- end }}
+{{- if .Values.management.serviceEnabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "a-auth.name" . }}-management
+  labels:
+    {{- include "a-auth.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name | quote }}
+    a-auth.io/plane: web
+  ports:
+    - name: management
+      port: 8081
+      targetPort: management
+{{- end }}

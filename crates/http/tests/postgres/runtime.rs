@@ -12,15 +12,15 @@ use p256::{
 };
 use std::{os::unix::fs::PermissionsExt, path::PathBuf};
 
-struct Fixture {
-    root: PathBuf,
-    config: PathBuf,
-    admin: sqlx::PgPool,
+pub(super) struct Fixture {
+    pub(super) root: PathBuf,
+    pub(super) config: PathBuf,
+    pub(super) admin: sqlx::PgPool,
     database: String,
 }
 
 impl Fixture {
-    async fn new() -> Self {
+    pub(super) async fn new() -> Self {
         let (_store, _pool, admin, database, url) = isolated_database().await;
         let root = std::env::temp_dir().join(format!(
             "a-auth-production-runtime-{:032x}",
@@ -150,7 +150,7 @@ impl Fixture {
         }
     }
 
-    async fn passed(self) {
+    pub(super) async fn passed(self) {
         sqlx::query(&format!("DROP DATABASE {} WITH (FORCE)", self.database))
             .execute(&self.admin)
             .await

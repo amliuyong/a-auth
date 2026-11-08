@@ -279,6 +279,15 @@ async fn postgres_smtp_corrupt_encrypted_authority_is_not_overwritten_or_claimed
             .await,
         Err(StoreError::Permanent(_))
     ));
+    // SQLx queues rollback when the failed admission's transaction is dropped.
+    // Wait for that actual row lock to clear before testing a different pool's
+    // SKIP LOCKED claim; otherwise a valid skip looks like a decode success.
+    let released: String =
+        sqlx::query_scalar("SELECT status FROM a_auth.smtp_notifications FOR UPDATE")
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+    assert_eq!(released, "pending");
     assert!(matches!(
         fixture.notifiers[0].claim(at, 30, 1).await,
         Err(StoreError::Permanent(_))
