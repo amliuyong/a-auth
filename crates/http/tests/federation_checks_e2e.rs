@@ -38,12 +38,12 @@ fn metadata() -> OidcMetadata {
     }
 }
 
-// Without the AWS feature this dispatch enum has just its Memory variant.
+// Without portable HTTP this dispatch enum has just its Memory variant.
 #[allow(clippy::infallible_destructuring_match)]
 fn fetcher(state: &AppState) -> &agent_auth_http::adapters::memory::MemoryOidcMetadataFetcher {
     match state.oidc_metadata_fetcher.as_ref() {
         OidcMetadataFetcherImpl::Memory(fetcher) => fetcher,
-        #[cfg(feature = "aws")]
+        #[cfg(feature = "portable-http")]
         _ => panic!("controlled tests require the memory adapter"),
     }
 }

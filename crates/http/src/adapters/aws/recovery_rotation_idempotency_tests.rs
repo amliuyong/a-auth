@@ -143,6 +143,7 @@ async fn recovery_rotation_replays_an_ambiguous_commit_with_the_same_token() {
             "activation_id",
             "attempt_count",
             "code_hashes",
+            "code_set_generation",
             "consumed",
             "locked_until",
             "user_id",

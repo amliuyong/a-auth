@@ -7,7 +7,7 @@ const { Template } = require('aws-cdk-lib/assertions');
 const { AgentAuthStack } = require('../dist/lib/agent-auth-stack');
 const { tenantResidency } = require('./tenant-residency-fixture');
 
-test('UsersTable has a sparse tenant index for SCIM user listing', () => {
+test('SCIM users have a sparse listing index and transactional alias snapshot access', () => {
   const app = new App();
   const stack = new AgentAuthStack(app, 'ScimUsersIndexTest', {
     webBaseUrl: 'https://auth.example.com',
@@ -64,5 +64,33 @@ test('UsersTable has a sparse tenant index for SCIM user listing', () => {
       { AttributeName: 'user_id', KeyType: 'HASH' },
     ]);
     assert.deepEqual(lifecycleIndex.Projection, { ProjectionType: projectionType });
+  }
+
+  const [usersId] = Object.entries(template.Resources).find(
+    ([, resource]) => resource === table,
+  );
+  const runtimes = Object.values(template.Resources).filter(
+    (resource) =>
+      resource.Type === 'AWS::Lambda::Function' &&
+      ['token', 'non_token'].includes(resource.Properties.Environment?.Variables?.SCOPE),
+  );
+  assert.equal(runtimes.length, 2);
+  for (const runtime of runtimes) {
+    const roleId = runtime.Properties.Role['Fn::GetAtt'][0];
+    const statements = Object.values(template.Resources)
+      .filter(
+        (resource) =>
+          ['AWS::IAM::Policy', 'AWS::IAM::ManagedPolicy'].includes(resource.Type) &&
+          (resource.Properties.Roles ?? []).some((role) => role.Ref === roleId),
+      )
+      .flatMap((resource) => resource.Properties.PolicyDocument.Statement);
+    assert.ok(
+      statements.some(
+        (statement) =>
+          [statement.Action].flat().includes('dynamodb:TransactGetItems') &&
+          JSON.stringify(statement.Resource).includes(usersId),
+      ),
+      'Each HTTP runtime must read SCIM aliases from a transaction snapshot',
+    );
   }
 });

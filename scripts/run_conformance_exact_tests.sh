@@ -274,11 +274,11 @@ run_exact ema_e2e replay_and_enterprise_identity_are_partitioned_by_agent_auth_t
 run_exact ema_e2e unknown_kid_refreshes_the_fixed_policy_jwks_once
 run_lib_exact agent-auth-http adapters::aws::authorization::tests::dynamo_replay_check_and_set_is_atomic_and_ttl_bound
 run_lib_exact agent-auth-http adapters::aws::users::tests::canonical_user_get_is_strongly_consistent_for_issuance_gates
-run_lib_exact agent-auth-http adapters::aws::identity_federation::tests::parser_enforces_response_and_key_count_limits
-run_lib_exact agent-auth-http adapters::aws::identity_federation::tests::concurrent_force_refreshes_share_one_network_failure
-run_lib_exact agent-auth-http adapters::aws::identity_federation::tests::failed_force_refresh_preserves_cached_key_ttl_and_starts_cooldown_on_completion
-run_lib_exact agent-auth-http adapters::aws::identity_federation::tests::ordinary_fetch_timestamp_does_not_suppress_forced_refresh
-run_lib_exact agent-auth-http adapters::aws::identity_federation::tests::concurrent_cold_fetches_make_one_network_attempt_and_cache_the_failure
+run_lib_exact agent-auth-http adapters::http_transport::jwks::tests::parser_enforces_response_and_key_count_limits
+run_lib_exact agent-auth-http adapters::http_transport::jwks::tests::concurrent_force_refreshes_share_one_network_failure
+run_lib_exact agent-auth-http adapters::http_transport::jwks::tests::failed_force_refresh_preserves_cached_key_ttl_and_starts_cooldown_on_completion
+run_lib_exact agent-auth-http adapters::http_transport::jwks::tests::ordinary_fetch_timestamp_does_not_suppress_forced_refresh
+run_lib_exact agent-auth-http adapters::http_transport::jwks::tests::concurrent_cold_fetches_make_one_network_attempt_and_cache_the_failure
 run_exact workload_e2e introspect_dpop_delegation_token_reflects_cnf_jkt
 run_lib_exact agent-auth-token claims::tests::jwt_size_budget_thresholds
 run_lib_exact agent-auth-http token::tests::access_token_signer_classifies_oversize_before_signing
@@ -419,7 +419,7 @@ run_exact cimd_e2e exact_client_id_and_redirect_mismatches_are_rejected
 run_lib_exact agent-auth-http cimd::tests::http_transport_pins_tls_and_enforces_redirect_size_and_timeout
 run_lib_exact agent-auth-http cimd::tests::redirect_target_must_remain_in_policy
 run_lib_exact agent-auth-http cimd::tests::redirect_limit_is_enforced
-run_lib_exact agent-auth-http adapters::aws::ciba_device::tests::pinned_client_rejects_mixed_public_private_dns_answer
+run_lib_exact agent-auth-http adapters::http_transport::callback::tests::pinned_client_rejects_mixed_public_private_dns_answer
 run_lib_exact agent-auth-http cimd::tests::unsafe_dns_resolution_is_fail_closed
 run_lib_exact agent-auth-http cimd::tests::outbound_fetch_budget_is_scoped_by_tenant_and_host
 run_lib_exact agent-auth-http cimd::tests::total_fetch_timeout_is_fail_closed

@@ -1,0 +1,31 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "a-auth.name" . }}
+  labels:
+    {{- include "a-auth.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: a-auth
+      app.kubernetes.io/instance: {{ .Release.Name | quote }}
+  policyTypes: ["Ingress"]
+  ingress:
+    - ports:
+        - port: 8080
+          protocol: TCP
+        {{- if .Values.frontend.enabled }}
+        - port: 8083
+          protocol: TCP
+        {{- end }}
+    {{- if .Values.management.serviceEnabled }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              {{- toYaml .Values.networkPolicy.managementNamespaceLabels | nindent 14 }}
+      ports:
+        - port: 8081
+          protocol: TCP
+    {{- end }}
+{{- end }}

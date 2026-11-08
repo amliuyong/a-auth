@@ -91,6 +91,7 @@ impl TenantKeyRegistry for MemoryTenantKeyRegistry {
 
 #[derive(Clone)]
 pub enum TenantKeyRegistryImpl {
+    Disabled,
     Memory(MemoryTenantKeyRegistry),
     #[cfg(feature = "aws")]
     Dynamo(crate::adapters::aws::DynamoTenantKeyRegistry),
@@ -99,6 +100,9 @@ pub enum TenantKeyRegistryImpl {
 impl TenantKeyRegistry for TenantKeyRegistryImpl {
     async fn get(&self, tenant_id: &str) -> Result<Option<TenantKeyRecord>, StoreError> {
         match self {
+            Self::Disabled => Err(StoreError::Permanent(
+                "Tenant key registry is disabled in this runtime".into(),
+            )),
             Self::Memory(registry) => registry.get(tenant_id).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(registry) => registry.get(tenant_id).await,
@@ -107,6 +111,9 @@ impl TenantKeyRegistry for TenantKeyRegistryImpl {
 
     async fn create(&self, record: TenantKeyRecord) -> Result<bool, StoreError> {
         match self {
+            Self::Disabled => Err(StoreError::Permanent(
+                "Tenant key registry is disabled in this runtime".into(),
+            )),
             Self::Memory(registry) => registry.create(record).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(registry) => registry.create(record).await,
@@ -119,6 +126,9 @@ impl TenantKeyRegistry for TenantKeyRegistryImpl {
         record: TenantKeyRecord,
     ) -> Result<bool, StoreError> {
         match self {
+            Self::Disabled => Err(StoreError::Permanent(
+                "Tenant key registry is disabled in this runtime".into(),
+            )),
             Self::Memory(registry) => registry.compare_and_swap(expected_revision, record).await,
             #[cfg(feature = "aws")]
             Self::Dynamo(registry) => registry.compare_and_swap(expected_revision, record).await,
@@ -232,6 +242,8 @@ pub enum TenantKeyDeletionVerification {
 #[derive(Clone)]
 enum TenantSigningBackend {
     Shared(Arc<SignerImpl>),
+    #[cfg(feature = "postgres")]
+    Mounted(crate::adapters::mounted_signer::MountedSignerRing),
     Memory {
         signers: Arc<Mutex<HashMap<String, MemorySigner>>>,
     },
@@ -248,6 +260,27 @@ pub struct TenantKeyService {
 }
 
 impl TenantKeyService {
+    #[cfg(feature = "postgres")]
+    pub fn mounted(ring: crate::adapters::mounted_signer::MountedSignerRing) -> Self {
+        Self {
+            registry: Arc::new(TenantKeyRegistryImpl::Disabled),
+            command_sink: Arc::new(TenantKeyCommandSinkImpl::Disabled),
+            backend: TenantSigningBackend::Mounted(ring),
+            region: crate::region::RegionRuntime::single_region(),
+        }
+    }
+
+    fn is_managed(&self) -> bool {
+        match &self.backend {
+            TenantSigningBackend::Shared(_) => false,
+            #[cfg(feature = "postgres")]
+            TenantSigningBackend::Mounted(_) => false,
+            TenantSigningBackend::Memory { .. } => true,
+            #[cfg(feature = "aws")]
+            TenantSigningBackend::Kms(_) => true,
+        }
+    }
+
     pub fn shared(signer: Arc<SignerImpl>) -> Self {
         Self {
             registry: Arc::new(TenantKeyRegistryImpl::Memory(
@@ -322,7 +355,7 @@ impl TenantKeyService {
         tenant_id: &str,
         operation_id: &str,
     ) -> Result<TenantKeyOffboardingStatus, StoreError> {
-        if matches!(self.backend, TenantSigningBackend::Shared(_)) {
+        if !self.is_managed() {
             return Ok(TenantKeyOffboardingStatus::NotTenantManaged);
         }
         let Some(record) = self.registry.get(tenant_id).await? else {
@@ -361,7 +394,7 @@ impl TenantKeyService {
         now: i64,
         governance_dispatch: TenantKeyGovernanceDispatchPermit,
     ) -> Result<TenantKeyOffboardingStatus, StoreError> {
-        if matches!(self.backend, TenantSigningBackend::Shared(_)) {
+        if !self.is_managed() {
             return Ok(TenantKeyOffboardingStatus::NotTenantManaged);
         }
 
@@ -433,7 +466,7 @@ impl TenantKeyService {
         tenant_id: &str,
         operation_id: &str,
     ) -> Result<TenantKeyDeletionVerification, StoreError> {
-        if matches!(self.backend, TenantSigningBackend::Shared(_)) {
+        if !self.is_managed() {
             return Ok(TenantKeyDeletionVerification::Incomplete);
         }
         let Some(record) = self.registry.get(tenant_id).await? else {
@@ -448,6 +481,8 @@ impl TenantKeyService {
         match &self.backend {
             TenantSigningBackend::Memory { .. } => Ok(TenantKeyDeletionVerification::Complete),
             TenantSigningBackend::Shared(_) => Ok(TenantKeyDeletionVerification::Incomplete),
+            #[cfg(feature = "postgres")]
+            TenantSigningBackend::Mounted(_) => Ok(TenantKeyDeletionVerification::Incomplete),
             #[cfg(feature = "aws")]
             TenantSigningBackend::Kms(kms) => {
                 use aws_sdk_kms::error::ProvideErrorMetadata;
@@ -510,6 +545,8 @@ impl TenantKeyService {
         // registry/KMS resolver when a tenant-managed backend actually needs it.
         let shared = match &self.backend {
             TenantSigningBackend::Shared(signer) => Some(signer.clone()),
+            #[cfg(feature = "postgres")]
+            TenantSigningBackend::Mounted(_) => None,
             TenantSigningBackend::Memory { .. } => None,
             #[cfg(feature = "aws")]
             TenantSigningBackend::Kms(_) => None,
@@ -517,6 +554,14 @@ impl TenantKeyService {
         async move {
             if let Some(signer) = shared {
                 return Ok(signer);
+            }
+            #[cfg(feature = "postgres")]
+            if let TenantSigningBackend::Mounted(ring) = &self.backend {
+                return ring
+                    .snapshot()
+                    .await
+                    .map(|signer| Arc::new(SignerImpl::Mounted(signer)))
+                    .map_err(|_| TenantSignerResolveError::SigningBackendUnavailable);
             }
             Box::pin(self.resolve_managed(tenant_id)).await
         }
@@ -548,6 +593,8 @@ impl TenantKeyService {
             .map_err(|_| TenantSignerResolveError::InvalidSnapshot)?;
         match &self.backend {
             TenantSigningBackend::Shared(signer) => Ok(signer.clone()),
+            #[cfg(feature = "postgres")]
+            TenantSigningBackend::Mounted(_) => Err(TenantSignerResolveError::InvalidSnapshot),
             TenantSigningBackend::Memory { signers } => {
                 let signer = signers
                     .lock()
@@ -672,12 +719,8 @@ mod tests {
     #[tokio::test]
     async fn memory_resolver_isolates_tenant_keysets() {
         let service = TenantKeyService::memory();
-        #[cfg(not(feature = "aws"))]
-        let TenantKeyRegistryImpl::Memory(registry) = service.registry();
-        #[cfg(feature = "aws")]
-        let registry = match service.registry() {
-            TenantKeyRegistryImpl::Memory(registry) => registry,
-            TenantKeyRegistryImpl::Dynamo(_) => panic!("memory registry"),
+        let TenantKeyRegistryImpl::Memory(registry) = service.registry() else {
+            panic!("memory registry");
         };
         let signer_a = MemorySigner::from_seed([31; 32]);
         let signer_b = MemorySigner::from_seed([32; 32]);
@@ -719,12 +762,8 @@ mod tests {
     #[tokio::test]
     async fn offboarding_disables_resolution_before_dispatch() {
         let service = TenantKeyService::memory();
-        #[cfg(not(feature = "aws"))]
-        let TenantKeyRegistryImpl::Memory(registry) = service.registry();
-        #[cfg(feature = "aws")]
-        let registry = match service.registry() {
-            TenantKeyRegistryImpl::Memory(registry) => registry,
-            TenantKeyRegistryImpl::Dynamo(_) => panic!("memory registry"),
+        let TenantKeyRegistryImpl::Memory(registry) = service.registry() else {
+            panic!("memory registry");
         };
         let signer = MemorySigner::from_seed([33; 32]);
         ready_record(registry, "t1", "onboard-1", &signer).await;

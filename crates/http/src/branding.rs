@@ -16,7 +16,7 @@ use crate::ports::{StoreError, TenantRole};
 use crate::state::AppState;
 use crate::tenant_admin::{AdminAction, TenantAdminContext};
 
-const MAX_REVISION: u64 = 9_007_199_254_740_991;
+pub(crate) const MAX_REVISION: u64 = 9_007_199_254_740_991;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -73,7 +73,7 @@ pub struct AdminBrandingView {
     pub can_manage: bool,
 }
 
-fn valid_settings(settings: &BrandingSettings) -> bool {
+pub(crate) fn valid_settings(settings: &BrandingSettings) -> bool {
     settings.name.as_ref().is_none_or(|name| {
         !name.is_empty()
             && name.trim() == name

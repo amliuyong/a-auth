@@ -864,11 +864,11 @@ impl CimdHttpClient for MemoryCimdHttpClient {
     }
 }
 
-#[cfg(feature = "aws")]
+#[cfg(feature = "portable-http")]
 #[derive(Clone, Default)]
 pub struct HttpCimdHttpClient;
 
-#[cfg(feature = "aws")]
+#[cfg(feature = "portable-http")]
 fn combined_cache_control(headers: &reqwest::header::HeaderMap) -> Option<String> {
     let mut values = headers
         .get_all(reqwest::header::CACHE_CONTROL)
@@ -888,7 +888,7 @@ fn combined_cache_control(headers: &reqwest::header::HeaderMap) -> Option<String
     Some(combined)
 }
 
-#[cfg(feature = "aws")]
+#[cfg(feature = "portable-http")]
 async fn fetch_cimd_http_response(
     client: &reqwest::Client,
     url: &str,
@@ -942,24 +942,25 @@ async fn fetch_cimd_http_response(
     })
 }
 
-#[cfg(feature = "aws")]
+#[cfg(feature = "portable-http")]
 impl CimdHttpClient for HttpCimdHttpClient {
     fn get<'a>(
         &'a self,
         url: &'a str,
     ) -> Pin<Box<dyn Future<Output = Result<CimdHttpResponse, CimdFetchError>> + Send + 'a>> {
         Box::pin(async move {
-            let client = crate::adapters::aws::pinned_https_client(url, Duration::from_secs(3))
-                .await
-                .map_err(|error| match error {
-                    crate::adapters::aws::PinnedHttpsClientError::UnsafeTarget => {
-                        CimdFetchError::UnsafeTarget
-                    }
-                    crate::adapters::aws::PinnedHttpsClientError::DnsResolution
-                    | crate::adapters::aws::PinnedHttpsClientError::ClientBuild => {
-                        CimdFetchError::TemporarilyUnavailable
-                    }
-                })?;
+            let client =
+                crate::adapters::http_transport::pinned_https_client(url, Duration::from_secs(3))
+                    .await
+                    .map_err(|error| match error {
+                        crate::adapters::http_transport::PinnedHttpsClientError::UnsafeTarget => {
+                            CimdFetchError::UnsafeTarget
+                        }
+                        crate::adapters::http_transport::PinnedHttpsClientError::DnsResolution
+                        | crate::adapters::http_transport::PinnedHttpsClientError::ClientBuild => {
+                            CimdFetchError::TemporarilyUnavailable
+                        }
+                    })?;
             fetch_cimd_http_response(&client, url).await
         })
     }
@@ -1000,7 +1001,7 @@ mod tests {
         .unwrap()
     }
 
-    #[cfg(feature = "transport-test")]
+    #[cfg(feature = "portable-transport-test")]
     async fn spawn_cimd_tls_server() -> (
         std::net::SocketAddr,
         reqwest::Certificate,
@@ -1095,12 +1096,12 @@ mod tests {
         (address, trusted_cert, server)
     }
 
-    #[cfg(feature = "transport-test")]
+    #[cfg(feature = "portable-transport-test")]
     #[tokio::test]
     async fn http_transport_pins_tls_and_enforces_redirect_size_and_timeout() {
         let (address, trusted_cert, server) = spawn_cimd_tls_server().await;
         let build_client = |timeout| {
-            crate::adapters::aws::pinned_https_client_builder_for_addrs(
+            crate::adapters::http_transport::pinned_https_client_builder_for_addrs(
                 "client.example.com",
                 &[address],
                 timeout,

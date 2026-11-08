@@ -59,6 +59,7 @@ pub enum SignerError {
 
 /// `/authorize` 阶段落地的授权码记录(`/token` 兑换时读取并消费)。
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "postgres", derive(Serialize, Deserialize))]
 pub struct CodeRecord {
     /// Exact registered workload explicitly approved on the single resource.
     /// Missing on existing codes means no delegation authority.
@@ -289,6 +290,7 @@ pub struct RegisteredClientJwks {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "postgres", derive(Serialize, Deserialize))]
 pub struct ClientRecord {
     pub client_id: String,
     pub redirect_uris: Vec<String>,
@@ -749,6 +751,7 @@ pub enum StoreError {
 /// refresh token family 记录(C3:rotation + 复用检测的载体;P0/P1 = refresh-family,P2 起 = Grant)。
 /// refresh token 不透明(查库随机串);family 绑定 authorize 的整个 resource 集合(C3.6 rotation 保集合)。
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "postgres", derive(Serialize, Deserialize))]
 pub struct RefreshFamilyRecord {
     pub family_id: String,
     /// 当前有效版本;呈现非当前版本 = 复用 → 全链吊销(C3.1)。
@@ -1047,8 +1050,9 @@ pub trait StsCaller: Send + Sync {
 }
 
 /// **secret 引用名 → 明文**解析端口(spec 003 §4 Task 4.6,评审 Kiro F4)。联邦 config 只存 secret 的
-/// **引用名**(`secretsmanager:...` / `ssm:...`),绝不落库明文(守"secret 不进 repo/不落库"红线);
-/// 换 code 前经本端口解析成明文。真机 = Secrets Manager/SSM GetSecretValue;dev/测试 = 内存预置映射。
+/// **引用名**,绝不落库明文(守"secret 不进 repo/不落库"红线);
+/// 换 code 前经本端口解析成明文。AWS = Secrets Manager;portable = 显式映射的挂载 Secret 文件;
+/// dev/测试 = 内存预置映射。
 /// ⚠️ 引用名解析 MUST 在**调用边界内**完成(用完即弃),解析结果绝不写回 config、不进日志。
 /// 瞬时失败(网络/超时/限流)→ `Err(Transient)`(上层可 503,不误当"secret 不存在")。
 pub trait SecretResolver: Send + Sync {
@@ -1104,6 +1108,7 @@ pub struct UpstreamTokenSet {
 /// ②**下游续跑**(F1:AS 作 RP 的唯一目的是替某下游 client 完成登录):`original_authz_request` —— 用户最初
 ///   那笔下游 `/authorize` 的参数原样保存,callback 成功后据此续跑、向**原 client** 发本 AS code。
 /// 缺 ② = "登录成功却回不到调用方"的死流(F1 Blocker)。
+#[cfg_attr(feature = "postgres", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FederationFlowState {
     /// flow key = `state`(不可预测;callback 精确等 + 一次性消费 → 防 CSRF/固定/重放)。
@@ -1442,6 +1447,7 @@ pub trait PolicyArtifactStore: Send + Sync {
 /// **绝不解 pairwise `sub`**,HMAC 单向)。`family_id` 是 Grant 前身指针(解 M3 同-RS-多-Grant 消歧);
 /// family 创建失败的极少数 token 无 family_id(消歧退化到按目标 resource 唯一命中)。
 /// ⚠️ **按 tenant 分区**(评审:SaaS 跨租户主体泄露闸,对齐 C10.19);短命 TTL ≥ token TTL。
+#[cfg_attr(feature = "postgres", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JtiRecord {
     pub jti: String,
@@ -3078,6 +3084,7 @@ pub trait RecoveryStore: Send + Sync {
 }
 
 /// magic-link 待兑现记录(link_id → canonical user + email + session nonce 绑定 + 一次性状态)。
+#[cfg_attr(feature = "postgres", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MagicLinkRecord {
     pub link_id: String,
@@ -3280,6 +3287,7 @@ pub struct RateLimitDecision {
 
 /// 授权会话记录(spec 004)。**与 magic-link 登录 `SessionRecord` 是两个独立概念**:
 /// 本记录追踪一次 authorize 流从发起到 complete 的生命周期。存独立表/PK 前缀。
+#[cfg_attr(feature = "postgres", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuthzSessionRecord {
     /// 授权会话 id(查询用;高熵不透明串)。
@@ -3430,6 +3438,7 @@ pub struct CibaAuthRequest {
 }
 
 /// device 授权记录(spec 013;pk=device_code)。`user_code` 另有独立查找。
+#[cfg_attr(feature = "postgres", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeviceAuthGrant {
     pub device_code: String,
@@ -3450,12 +3459,12 @@ pub struct DeviceAuthGrant {
     pub password_credential_version: Option<u64>,
 }
 
-/// CIBA 授权请求存储端口(spec 013)。真机 = DynamoDB;本地 = 内存。
+/// CIBA 授权请求存储端口(spec 013)。生产 = DynamoDB 或 PostgreSQL;本地 = 内存。
 ///
 /// 并发/一次性语义与 [`DeviceStore`] 同源(evaluated 教训:device flow 评审 F1/F2 揭示"整对象读-改-写"
 /// 会重开已消费码/踩并发批准)。故轮询/批准/消费一律走**字段级/条件 CAS**,`update` 只用于非并发路径。
 ///
-/// **tenant 分区(spec 020 §2.3)**:全 8 方法首参 `tenant`(物理键 `tpk(tenant, auth_req_id)` +
+/// **tenant 分区(spec 020 §2.3)**:全 10 方法首参 `tenant`(AWS 物理键 `tpk(tenant, auth_req_id)` +
 /// throttle 键 tenant-scope)——否则 SaaS 下 CIBA 请求可被他租户审批/签发(跨租户隔离漏洞)。
 /// 空 tenant(flag 关)→ tpk 透传 = 分区前字节等价。照 DeviceStore 同一范式。
 pub trait CibaStore: Send + Sync {

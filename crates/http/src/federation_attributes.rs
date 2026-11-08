@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::ports::StoreError;
 
+pub(crate) mod catalog;
+
 pub const MAPPINGS_MAX_PER_IDP: usize = 32;
 pub const MAPPING_REGISTRY_MAX_BYTES: usize = 65_536;
 const MAPPING_ID_MAX_BYTES: usize = 128;
@@ -450,7 +452,7 @@ pub(crate) fn plan_federated_user_reconciliation(
             changed: false,
         });
     }
-    if crate::adapters::memory::attributes_serialized_len(&user.attributes)
+    if crate::user_attributes::attributes_serialized_len(&user.attributes)
         > crate::ports::ATTRIBUTES_MAX_BYTES
     {
         return Ok(FederationAttributeReconciliationOutcome::TooLarge);

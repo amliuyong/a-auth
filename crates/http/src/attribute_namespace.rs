@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::ports::{NamespaceAttrs, StoreError};
 
+pub(crate) mod catalog;
+
 pub const MAX_EXACT_AUDIENCES: usize = 32;
 pub const MAX_NAMESPACE_URI_BYTES: usize = 1024;
 

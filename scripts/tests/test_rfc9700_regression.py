@@ -16,9 +16,13 @@ RUNNER = REPO_ROOT / "scripts" / "rfc9700_regression.py"
 class CompliantIssuerHandler(BaseHTTPRequestHandler):
     registration_auth_methods: ClassVar[list[str | None]] = []
     requests: ClassVar[list[str]] = []
+    authorizations: ClassVar[list[tuple[str, str | None]]] = []
 
     def do_GET(self) -> None:
         type(self).requests.append(urlsplit(self.path).path)
+        type(self).authorizations.append(
+            (urlsplit(self.path).path, self.headers.get("authorization"))
+        )
         base_url = f"http://127.0.0.1:{self.server.server_port}"
         parsed = urlsplit(self.path)
         if parsed.path in {
@@ -60,6 +64,9 @@ class CompliantIssuerHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         type(self).requests.append(urlsplit(self.path).path)
+        type(self).authorizations.append(
+            (urlsplit(self.path).path, self.headers.get("authorization"))
+        )
         path = urlsplit(self.path).path
         if path == "/register":
             base_url = f"http://127.0.0.1:{self.server.server_port}"
@@ -95,6 +102,9 @@ class CompliantIssuerHandler(BaseHTTPRequestHandler):
 
     def do_DELETE(self) -> None:
         type(self).requests.append(urlsplit(self.path).path)
+        type(self).authorizations.append(
+            (urlsplit(self.path).path, self.headers.get("authorization"))
+        )
         if urlsplit(self.path).path == "/register/conformance-client":
             self.send_response(204)
             self.end_headers()
@@ -120,6 +130,17 @@ class CompliantIssuerHandler(BaseHTTPRequestHandler):
         self.send_header("content-length", str(len(encoded)))
         self.end_headers()
         self.wfile.write(encoded)
+
+
+class ProtectedRegistrationIssuerHandler(CompliantIssuerHandler):
+    def do_POST(self) -> None:
+        if (
+            urlsplit(self.path).path == "/register"
+            and self.headers.get("authorization") != "Bearer iat_fixture.private-secret"
+        ):
+            self.send_json({"error": "invalid_token"}, status=401)
+            return
+        super().do_POST()
 
 
 class ImplicitAcceptingIssuerHandler(CompliantIssuerHandler):
@@ -343,9 +364,12 @@ class Rfc9700RegressionCliTests(unittest.TestCase):
         handler: type[BaseHTTPRequestHandler],
         *,
         allowed_issuer_override: str | None = None,
+        initial_access_token: str | None = None,
+        token_file_mode: int = 0o600,
     ):
         handler.registration_auth_methods = []
         handler.requests = []
+        handler.authorizations = []
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
@@ -353,6 +377,12 @@ class Rfc9700RegressionCliTests(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as directory:
                 output = Path(directory) / "suite.json"
+                token_args = []
+                if initial_access_token is not None:
+                    token_file = Path(directory) / "initial-access-token"
+                    token_file.write_text(initial_access_token)
+                    token_file.chmod(token_file_mode)
+                    token_args = ["--initial-access-token-file", str(token_file)]
                 completed = subprocess.run(
                     [
                         sys.executable,
@@ -372,6 +402,7 @@ class Rfc9700RegressionCliTests(unittest.TestCase):
                         "--allow-insecure-loopback",
                         "--output",
                         str(output),
+                        *token_args,
                     ],
                     capture_output=True,
                     text=True,
@@ -383,6 +414,82 @@ class Rfc9700RegressionCliTests(unittest.TestCase):
             server.server_close()
             thread.join()
         return completed, suite
+
+    def test_protected_registration_uses_private_iat_only_for_registration(
+        self,
+    ) -> None:
+        token = "iat_fixture.private-secret"
+        completed, suite = self.run_probe(
+            ProtectedRegistrationIssuerHandler,
+            initial_access_token=token + "\n",
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(len(suite["tests"]), 13)
+        self.assertEqual({test["status"] for test in suite["tests"]}, {"passed"})
+        credentials = [
+            (path, header)
+            for path, header in ProtectedRegistrationIssuerHandler.authorizations
+            if header is not None
+        ]
+        self.assertEqual(
+            credentials,
+            [
+                ("/register", f"Bearer {token}"),
+                ("/register/conformance-client", "Bearer registration-token"),
+            ],
+        )
+        self.assertNotIn(token, completed.stdout + completed.stderr + json.dumps(suite))
+
+    def test_protected_registration_stays_protected_without_iat(self) -> None:
+        completed, suite = self.run_probe(ProtectedRegistrationIssuerHandler)
+
+        self.assertEqual(completed.returncode, 1)
+        preflight = next(
+            test for test in suite["tests"] if test["id"] == "dynamic-client-preflight"
+        )
+        self.assertEqual(preflight["status"], "failed")
+        self.assertIn("HTTP 401", preflight["detail"])
+
+    def test_iat_with_group_access_fails_before_network(self) -> None:
+        completed, suite = self.run_probe(
+            CompliantIssuerHandler,
+            initial_access_token="iat_fixture.private-secret",
+            token_file_mode=0o640,
+        )
+
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIsNone(suite)
+        self.assertIn("group or other", completed.stderr)
+        self.assertEqual(CompliantIssuerHandler.requests, [])
+        self.assertNotIn("private-secret", completed.stderr)
+
+    def test_invalid_iat_file_fails_before_network_without_echoing_secret(self) -> None:
+        for token in ("", "iat_fixture.private-secret\ninjected", "secret\rheader"):
+            with self.subTest(token_kind="empty" if not token else "multiline"):
+                completed, suite = self.run_probe(
+                    CompliantIssuerHandler, initial_access_token=token
+                )
+
+                self.assertNotEqual(completed.returncode, 0)
+                self.assertIsNone(suite)
+                self.assertIn("one non-empty", completed.stderr)
+                self.assertEqual(CompliantIssuerHandler.requests, [])
+                self.assertNotIn("private-secret", completed.stderr)
+
+    def test_iat_is_not_sent_to_cross_origin_discovery_endpoint(self) -> None:
+        CrossOriginEndpointIssuerHandler.registration_requests = 0
+        completed, suite = self.run_probe(
+            CrossOriginEndpointIssuerHandler,
+            initial_access_token="iat_fixture.private-secret",
+        )
+
+        self.assertEqual(completed.returncode, 1)
+        self.assertIsNotNone(suite)
+        self.assertEqual(CrossOriginEndpointIssuerHandler.registration_requests, 0)
+        self.assertFalse(
+            any(header for _, header in CrossOriginEndpointIssuerHandler.authorizations)
+        )
 
     def test_rejects_issuer_outside_configured_environment_before_network(
         self,

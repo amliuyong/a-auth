@@ -144,6 +144,7 @@ async fn install_tenant_signer(service: &TenantKeyService, tenant: &str, seed: u
         TenantKeyRegistryImpl::Memory(registry) => {
             assert!(registry.create(record).await.unwrap());
         }
+        TenantKeyRegistryImpl::Disabled => panic!("expected memory registry"),
         #[cfg(feature = "aws")]
         TenantKeyRegistryImpl::Dynamo(_) => panic!("expected memory registry"),
     }

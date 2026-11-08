@@ -206,7 +206,16 @@ gh secret set OIDF_BASIC_OP_CONFIG_JSON \
 The generator requires both input files to be mode `0600` and emits mode
 `0600` JSON with stable login/consent DOM selectors, two dynamic-client names,
 the same controlled IAT in both slots, the test user's `login_hint`, and an
-optional login/consent sequence. Callback tasks match only the hosted
+optional login/consent sequence.
+
+For protected registration, `scripts/rfc9700_regression.py` accepts the optional
+`--initial-access-token-file /secure/path/oidf-initial-access-token` argument.
+The file must be private and contain one non-empty bearer token line. The
+regression sends the IAT only to the same-origin registration endpoint after
+validating discovery; subsequent probes and client cleanup do not reuse it.
+Omitting the argument preserves anonymous registration probes.
+
+Callback tasks match only the hosted
 `/test/<module-id>/callback` path via
 `https://www.certification.openid.net/test/*/callback*`; the final wildcard
 accepts the authorization response query. Validation also removes the retired

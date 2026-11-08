@@ -688,8 +688,8 @@ async fn rs_attributes_strict_token_jti_and_user_gates_fail_closed() {
 
     match observed_state.jti_store.as_ref().unwrap().as_ref() {
         JtiStoreImpl::Memory(store) => store.fail_next_get(),
-        #[cfg(feature = "aws")]
-        JtiStoreImpl::Dynamo(_) => panic!("expected memory JTI store"),
+        #[cfg(any(feature = "aws", feature = "postgres"))]
+        _ => panic!("expected memory JTI store"),
     }
     assert_eq!(
         get_rs_attrs(&router, &valid_token).await.0,

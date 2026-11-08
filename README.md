@@ -190,6 +190,11 @@ Before deploying, read [`docs/INSTALL_DEPLOY.md`](docs/INSTALL_DEPLOY.md). It
 covers prerequisites, configuration, domains, keys, migration steps, validation,
 and teardown. AWS deployments can create billable resources.
 
+For single-tenant Kubernetes deployment with PostgreSQL, follow
+[`docs/KUBERNETES_INSTALL.md`](docs/KUBERNETES_INSTALL.md). It covers the pinned
+GHCR images and Helm chart, mounted signing keys, private management access,
+configuration, upgrades, and backup/restore disposition.
+
 ## Repository Layout
 
 | Path | Purpose |
@@ -247,6 +252,7 @@ OpenAPI surface, specification, and conformance evidence together. See
 | [`DESIGN.md`](docs/DESIGN.md) | Review protocol invariants, token contracts, and architectural decisions |
 | [`DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Understand issuer, tenant, key, migration, and topology boundaries |
 | [`INSTALL_DEPLOY.md`](docs/INSTALL_DEPLOY.md) | Build and deploy the AWS infrastructure |
+| [`KUBERNETES_INSTALL.md`](docs/KUBERNETES_INSTALL.md) | Install the single-tenant Kubernetes + PostgreSQL deployment |
 | [`AGENT_PAYMENT.md`](docs/AGENT_PAYMENT.md) | Authorize one exact agent payment and verify its single execution (controlled channel only) |
 | [`CONFORMANCE.md`](docs/CONFORMANCE.md) | Check normative requirements and their automated evidence |
 | [`EXTERNAL_CONFORMANCE.md`](docs/EXTERNAL_CONFORMANCE.md) | Review the official OIDF and project regression release-gate contract |

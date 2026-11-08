@@ -1761,6 +1761,31 @@ impl GovernanceStore for DynamoGovernanceStore {
     ) -> Result<Option<GovernanceExportManifest>, StoreError> {
         let key = format!("{EXPORT_PREFIX}{export_id}");
         let manifest: Option<GovernanceExportManifest> = self.get_record(tenant_id, &key).await?;
+        if manifest.as_ref().is_some_and(|record| {
+            record.tenant_id == tenant_id
+                && record.export_id == export_id
+                && record.expires_at <= now
+        }) {
+            // Once observed expired, the authority cannot reappear after a
+            // clock rollback while DynamoDB's asynchronous TTL sweep waits.
+            // The condition preserves a concurrently recreated live export.
+            match self
+                .db
+                .delete_item()
+                .table_name(&self.governance_table)
+                .key("pk", AttributeValue::S(tenant_id.into()))
+                .key("sk", AttributeValue::S(key))
+                .condition_expression("attribute_exists(pk) AND expires_at <= :now")
+                .expression_attribute_values(":now", AttributeValue::N(now.to_string()))
+                .send()
+                .await
+            {
+                Ok(_) => {}
+                Err(error) if is_conditional(&error) => {}
+                Err(error) => return Err(super::ddb_err(error)),
+            }
+            return Ok(None);
+        }
         Ok(manifest.filter(|manifest| {
             manifest.tenant_id == tenant_id
                 && manifest.export_id == export_id
@@ -2705,6 +2730,8 @@ impl GovernanceStore for DynamoGovernanceStore {
             || record.action_id.is_empty()
             || record.resource_ref.is_empty()
             || record.resource_fingerprint.is_empty()
+            || record.resource_fingerprint
+                != crate::governance::resource_fingerprint(&record.resource_ref)
             || record.revision != 1
         {
             return Err(StoreError::Permanent(

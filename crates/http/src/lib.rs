@@ -60,12 +60,19 @@ pub mod payment;
 pub mod policy_freshness;
 mod poll_claim;
 pub mod ports;
+#[cfg(feature = "postgres")]
+pub mod postgres_runtime;
 pub mod prm;
+#[cfg(feature = "postgres")]
+pub mod production_server;
+#[cfg(feature = "postgres")]
+pub mod production_worker;
 mod rar_delivery;
 pub mod ratelimit_gate;
 pub mod reclaim;
 pub mod recompute;
 pub mod recover;
+mod recovery_state;
 pub mod refresh_flow;
 pub mod region;
 pub mod register;
@@ -85,6 +92,7 @@ pub mod tenant_key_provisioner;
 pub mod tenant_keys;
 pub mod token;
 pub mod token_exchange;
+mod user_attributes;
 pub mod user_gate;
 pub mod user_lifecycle;
 pub mod userinfo;

@@ -1,4 +1,5 @@
 import copy
+import re
 import unittest
 from pathlib import Path
 
@@ -81,6 +82,11 @@ class RequiredCiGateTests(unittest.TestCase):
         )
         for job in EXPECTED_JOBS:
             self.assertIn(f"      - {job}\n", required_job)
+
+    def test_required_policy_covers_every_declared_ci_check(self) -> None:
+        jobs = CI_WORKFLOW.read_text(encoding="utf-8").split("\njobs:\n", maxsplit=1)[1]
+        declared = set(re.findall(r"^  ([a-z0-9-]+):\s*$", jobs, re.MULTILINE))
+        self.assertEqual(declared - {"required-ci"}, set(EXPECTED_JOBS))
 
     def test_only_full_selectors_run_after_merge_or_manual_dispatch(self) -> None:
         workflow = CI_WORKFLOW.read_text(encoding="utf-8")

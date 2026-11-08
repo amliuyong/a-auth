@@ -7,6 +7,7 @@ from typing import Any
 
 EXPECTED_JOBS = (
     "markdownlint",
+    "postgres-contracts",
     "rust-quality",
     "rust-tests",
     "conformance-exact",

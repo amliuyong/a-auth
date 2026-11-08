@@ -1,0 +1,110 @@
+{{- if .Values.maintenance.enabled }}
+{{- $root := . }}
+{{- range $kind := list "retention" "reclaim" "recompute" }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "a-auth.name" $root }}-{{ $kind }}
+  labels:
+    {{- include "a-auth.labels" $root | nindent 4 }}
+spec:
+  schedule: {{ if eq $kind "retention" }}"17 * * * *"{{ else if eq $kind "reclaim" }}"37 2 * * *"{{ else }}"*/5 * * * *"{{ end }}
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 600
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: a-auth
+            app.kubernetes.io/instance: {{ $root.Release.Name | quote }}
+            a-auth.io/plane: {{ $kind }}
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            fsGroup: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          {{- with $root.Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          containers:
+            - name: maintenance
+              image: {{ include "a-auth.image" $root | quote }}
+              imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+              args:
+                - job-{{ $kind }}
+                - /etc/a-auth/runtime/runtime.json
+              env:
+                - name: AGENT_AUTH_RECLAIM_ENABLED
+                  value: {{ if $root.Values.maintenance.reclaimApply }}"1"{{ else }}"0"{{ end }}
+                - name: AGENT_AUTH_RECOMPUTE_ENABLED
+                  value: {{ if $root.Values.maintenance.recomputeApply }}"1"{{ else }}"0"{{ end }}
+              securityContext:
+                readOnlyRootFilesystem: true
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                {{- toYaml $root.Values.resources | nindent 16 }}
+              volumeMounts:
+                - name: runtime
+                  mountPath: /etc/a-auth/runtime
+                  readOnly: true
+                - name: database
+                  mountPath: /etc/a-auth/database
+                  readOnly: true
+                - name: crypto
+                  mountPath: /etc/a-auth/crypto
+                  readOnly: true
+                - name: signing
+                  mountPath: /etc/a-auth/signing
+                  readOnly: true
+                - name: administrators
+                  mountPath: /etc/a-auth/administrators
+                  readOnly: true
+                - name: external
+                  mountPath: /etc/a-auth/external
+                  readOnly: true
+          volumes:
+            - name: runtime
+              configMap:
+                name: {{ include "a-auth.name" $root }}-runtime
+                defaultMode: 0444
+            - name: database
+              secret:
+                secretName: {{ $root.Values.secrets.database }}
+                defaultMode: 0440
+            - name: crypto
+              secret:
+                secretName: {{ $root.Values.secrets.webCrypto }}
+                defaultMode: 0440
+                items:
+                  {{- range $purpose := list "server_key" "governance_key" "ciba" "outbox" "ssf" }}
+                  - key: {{ index $root.Values.runtime.secrets $purpose | quote }}
+                    path: {{ index $root.Values.runtime.secrets $purpose | quote }}
+                  {{- end }}
+            - name: signing
+              secret:
+                secretName: {{ $root.Values.secrets.signing }}
+                defaultMode: 0440
+            - name: administrators
+              secret:
+                secretName: {{ $root.Values.secrets.administrators }}
+                defaultMode: 0440
+            - name: external
+              secret:
+                secretName: {{ $root.Values.secrets.external }}
+                defaultMode: 0440
+{{- end }}
+{{- end }}

@@ -17,6 +17,14 @@ use crate::{
     ports::StoreError,
 };
 
+#[cfg(feature = "postgres")]
+#[path = "governance_resources_postgres.rs"]
+mod postgres;
+#[cfg(feature = "postgres")]
+pub(crate) use postgres::{portable_retention_evidence, PORTABLE_RETENTION_SECS};
+#[cfg(feature = "postgres")]
+pub use postgres::{PostgresGovernanceResourceBackend, PostgresGovernanceResourceConfig};
+
 pub const SECRET_DELETION_RECOVERY_DAYS: i64 = 7;
 pub const SECRET_DELETION_OPERATION_BOUND_SECS: i64 = 5;
 const SECRET_DELETION_RECOVERY_SECS: i64 = SECRET_DELETION_RECOVERY_DAYS * 24 * 60 * 60;
@@ -86,15 +94,15 @@ pub enum GovernanceRetentionTarget {
     },
 }
 
-#[cfg(feature = "aws")]
+#[cfg(any(feature = "aws", feature = "postgres"))]
 impl GovernanceRetentionTarget {
-    fn tenant_id(&self) -> &str {
+    pub(crate) fn tenant_id(&self) -> &str {
         match self {
             Self::User { tenant_id, .. } | Self::Tenant { tenant_id, .. } => tenant_id,
         }
     }
 
-    fn job_id(&self) -> &str {
+    pub(crate) fn job_id(&self) -> &str {
         match self {
             Self::User { job_id, .. } | Self::Tenant { job_id, .. } => job_id,
         }
@@ -331,6 +339,8 @@ impl GovernanceResourceBackend for MemoryGovernanceResourceBackend {
 #[derive(Clone)]
 pub enum GovernanceResourceBackendImpl {
     Memory(MemoryGovernanceResourceBackend),
+    #[cfg(feature = "postgres")]
+    Postgres(PostgresGovernanceResourceBackend),
     #[cfg(feature = "aws")]
     SecretsManager(AwsGovernanceResourceBackend),
 }
@@ -343,6 +353,12 @@ impl GovernanceResourceBackend for GovernanceResourceBackendImpl {
         now: i64,
     ) -> Result<SecretDeletionStatus, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(backend) => {
+                backend
+                    .schedule_secret_deletion(secret_ref, expected_fingerprint, now)
+                    .await
+            }
             Self::Memory(backend) => {
                 backend
                     .schedule_secret_deletion(secret_ref, expected_fingerprint, now)
@@ -363,6 +379,12 @@ impl GovernanceResourceBackend for GovernanceResourceBackendImpl {
         expected_fingerprint: &str,
     ) -> Result<SecretDeletionStatus, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(backend) => {
+                backend
+                    .inspect_secret_deletion(secret_ref, expected_fingerprint)
+                    .await
+            }
             Self::Memory(backend) => {
                 backend
                     .inspect_secret_deletion(secret_ref, expected_fingerprint)
@@ -382,6 +404,8 @@ impl GovernanceResourceBackend for GovernanceResourceBackendImpl {
         request: GovernanceRetentionRequest,
     ) -> Result<Option<GovernanceRetentionObservation>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(backend) => backend.verify_retention(request).await,
             Self::Memory(backend) => backend.verify_retention(request).await,
             #[cfg(feature = "aws")]
             Self::SecretsManager(backend) => backend.verify_retention(request).await,
@@ -393,6 +417,8 @@ impl GovernanceResourceBackend for GovernanceResourceBackendImpl {
         request: GovernanceRetentionRequest,
     ) -> Result<Option<BTreeMap<String, GovernanceReplicaEvidence>>, StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(backend) => backend.verify_replicas(request).await,
             Self::Memory(backend) => backend.verify_replicas(request).await,
             #[cfg(feature = "aws")]
             Self::SecretsManager(backend) => backend.verify_replicas(request).await,
@@ -543,8 +569,8 @@ fn sqs_queue_retention_complete(
     Ok(elapsed >= retention && visible == 0 && in_flight == 0 && delayed == 0)
 }
 
-#[cfg(feature = "aws")]
-fn archive_event_matches_retention_target(
+#[cfg(any(feature = "aws", feature = "postgres"))]
+pub(crate) fn archive_event_matches_retention_target(
     event: &crate::security_event::SecurityEvent,
     target: &GovernanceRetentionTarget,
     retention_anchor_at: i64,

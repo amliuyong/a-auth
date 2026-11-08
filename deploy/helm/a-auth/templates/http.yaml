@@ -1,0 +1,187 @@
+{{- $root := . -}}
+{{- range $plane := list "token" "web" }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "a-auth.name" $root }}-{{ $plane }}
+  labels:
+    {{- include "a-auth.labels" $root | nindent 4 }}
+spec:
+  replicas: {{ index $root.Values.replicas $plane }}
+  strategy:
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ $root.Release.Name | quote }}
+      a-auth.io/plane: {{ $plane }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: a-auth
+        app.kubernetes.io/instance: {{ $root.Release.Name | quote }}
+        a-auth.io/plane: {{ $plane }}
+      annotations:
+        a-auth.io/config-sha256: {{ $root.Values.runtime | mustToJson | sha256sum | quote }}
+        a-auth.io/rollout-revision: {{ $root.Values.rolloutRevision | quote }}
+        a-auth.io/backend-source-commit: {{ $root.Values.image.sourceCommit | quote }}
+        {{- if and (eq $plane "web") $root.Values.frontend.enabled }}
+        a-auth.io/frontend-source-commit: {{ $root.Values.frontend.image.sourceCommit | quote }}
+        {{- end }}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      {{- with $root.Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: a-auth
+          image: {{ include "a-auth.image" $root | quote }}
+          imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+          args:
+            - serve-{{ $plane }}
+            - /etc/a-auth/runtime/runtime.json
+          env:
+            - name: A_AUTH_BIND
+              value: "0.0.0.0:8080"
+            - name: A_AUTH_PROBE_BIND
+              value: "0.0.0.0:8082"
+            {{- if and (eq $plane "web") $root.Values.management.serviceEnabled }}
+            - name: A_AUTH_MANAGEMENT_BIND
+              value: "0.0.0.0:8081"
+            {{- end }}
+          ports:
+            - name: protocol
+              containerPort: 8080
+            - name: probes
+              containerPort: 8082
+            {{- if eq $plane "web" }}
+            - name: management
+              containerPort: 8081
+            {{- end }}
+          startupProbe:
+            httpGet:
+              path: /health/ready
+              port: probes
+            periodSeconds: 2
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: probes
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: probes
+            periodSeconds: 10
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml $root.Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: runtime
+              mountPath: /etc/a-auth/runtime
+              readOnly: true
+            - name: database
+              mountPath: /etc/a-auth/database
+              readOnly: true
+            - name: crypto
+              mountPath: /etc/a-auth/crypto
+              readOnly: true
+            - name: signing
+              mountPath: /etc/a-auth/signing
+              readOnly: true
+            - name: administrators
+              mountPath: /etc/a-auth/administrators
+              readOnly: true
+            - name: external
+              mountPath: /etc/a-auth/external
+              readOnly: true
+        {{- if and (eq $plane "web") $root.Values.frontend.enabled }}
+        - name: frontend
+          image: {{ include "a-auth.frontendImage" $root | quote }}
+          imagePullPolicy: {{ $root.Values.frontend.image.pullPolicy }}
+          ports:
+            - name: frontend
+              containerPort: 8083
+          startupProbe:
+            httpGet:
+              path: /health/frontend
+              port: frontend
+            periodSeconds: 2
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /health/frontend
+              port: frontend
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health/frontend
+              port: frontend
+            periodSeconds: 10
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml $root.Values.frontend.resources | nindent 12 }}
+          volumeMounts:
+            - name: frontend-tmp
+              mountPath: /tmp
+        {{- end }}
+      volumes:
+        {{- if and (eq $plane "web") $root.Values.frontend.enabled }}
+        - name: frontend-tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        {{- end }}
+        - name: runtime
+          configMap:
+            name: {{ include "a-auth.name" $root }}-runtime
+            defaultMode: 0444
+        - name: database
+          secret:
+            secretName: {{ $root.Values.secrets.database }}
+            defaultMode: 0440
+        - name: crypto
+          secret:
+            secretName: {{ if eq $plane "token" }}{{ $root.Values.secrets.tokenCrypto }}{{ else }}{{ $root.Values.secrets.webCrypto }}{{ end }}
+            defaultMode: 0440
+            items:
+              {{- range $purpose := list "server_key" "governance_key" "ciba" "outbox" "ssf" }}
+              - key: {{ index $root.Values.runtime.secrets $purpose | quote }}
+                path: {{ index $root.Values.runtime.secrets $purpose | quote }}
+              {{- end }}
+              {{- if eq $plane "token" }}
+              - key: {{ $root.Values.runtime.secrets.grace | quote }}
+                path: {{ $root.Values.runtime.secrets.grace | quote }}
+              {{- end }}
+        - name: signing
+          secret:
+            secretName: {{ $root.Values.secrets.signing }}
+            defaultMode: 0440
+        - name: administrators
+          secret:
+            secretName: {{ $root.Values.secrets.administrators }}
+            defaultMode: 0440
+        - name: external
+          secret:
+            secretName: {{ $root.Values.secrets.external }}
+            defaultMode: 0440
+{{- end }}

@@ -908,7 +908,6 @@ impl crate::ports::ScimGroupsStore for DynamoScimGroupsStore {
     }
 
     async fn delete_all_by_tenant(&self, tenant: &str) -> Result<usize, StoreError> {
-        let prefix = (!tenant.is_empty()).then(|| format!("{tenant}\u{1f}"));
         let mut keys = Vec::new();
         let mut last_key = None;
         loop {
@@ -928,10 +927,7 @@ impl crate::ports::ScimGroupsStore for DynamoScimGroupsStore {
                         "SCIM Group governance row is missing pk".into(),
                     ));
                 };
-                if prefix
-                    .as_ref()
-                    .is_some_and(|prefix| !pk.starts_with(prefix))
-                {
+                if !Self::pk_belongs_to_tenant(&pk, tenant) {
                     continue;
                 }
                 let sk = item.get("sk").cloned().ok_or_else(|| {

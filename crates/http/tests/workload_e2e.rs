@@ -5206,8 +5206,8 @@ async fn client_credentials_2lo_token_omits_delegation_claims() {
     let (router, state) = setup_2lo_with_state("k1", jwk).await;
     let grants_before = match state.grants.as_ref() {
         agent_auth_http::state::GrantStoreImpl::Memory(grants) => grants.record_count().await,
-        #[cfg(feature = "aws")]
-        agent_auth_http::state::GrantStoreImpl::Dynamo(_) => {
+        #[cfg(any(feature = "aws", feature = "postgres"))]
+        _ => {
             panic!("setup_2lo_with_state must use the memory Grant store")
         }
     };
@@ -5245,8 +5245,8 @@ async fn client_credentials_2lo_token_omits_delegation_claims() {
     }
     let grants_after = match state.grants.as_ref() {
         agent_auth_http::state::GrantStoreImpl::Memory(grants) => grants.record_count().await,
-        #[cfg(feature = "aws")]
-        agent_auth_http::state::GrantStoreImpl::Dynamo(_) => {
+        #[cfg(any(feature = "aws", feature = "postgres"))]
+        _ => {
             panic!("setup_2lo_with_state must use the memory Grant store")
         }
     };

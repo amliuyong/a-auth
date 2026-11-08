@@ -1,0 +1,323 @@
+//! PostgreSQL authority for the portable single-tenant deployment.
+//! All dependent mutations use conditional statements or locked transactions.
+
+use crate::ports::{ParRecord, ParStore, StoreError};
+use sqlx::{postgres::PgPoolOptions, PgPool, Row};
+use std::{sync::Arc, time::Duration};
+
+mod admin_auth;
+mod attribute_namespaces;
+mod authz_sessions;
+mod branding;
+mod ciba;
+mod clients;
+mod codes;
+mod device;
+mod domain_map;
+mod federation;
+mod federation_authority;
+mod federation_mappings;
+mod governance;
+mod governance_queue;
+mod grace;
+mod grants;
+mod initial_access_tokens;
+mod jti;
+mod magic_links;
+mod mounted_admin;
+mod outbox;
+mod passkey_challenges;
+mod passkeys;
+mod passwords;
+mod policy;
+mod rate_limits;
+mod recovery;
+mod refresh;
+mod replay;
+mod scim_groups;
+mod security_event_fallback;
+mod security_events;
+mod serialization;
+mod sessions;
+mod smtp;
+mod ssf;
+mod users;
+mod workload_trust;
+
+pub use ciba::PostgresCibaStore;
+pub use codes::ExchangeFailureRequest;
+pub use governance::PostgresGovernanceStore;
+pub use governance_queue::{PostgresGovernanceLease, PostgresGovernanceQueue};
+pub use grace::PostgresGraceStore;
+pub use outbox::PostgresMessageOutbox;
+pub use refresh::RefreshRotationRequest;
+pub use security_event_fallback::{
+    PostgresSecurityEventBatch, PostgresSecurityEventFallback, PostgresSecurityEventLease,
+};
+pub use smtp::{PostgresSmtpBatch, PostgresSmtpLease, PostgresSmtpNotifier, PostgresSmtpSend};
+pub use ssf::PostgresSsfStore;
+pub use users::{PostgresInvitationStore, PostgresUsersStore, UserAuthorityKey};
+
+static MIGRATIONS: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
+
+/// Clones share a bounded connection pool. Separately constructed instances
+/// coordinate through PostgreSQL; correctness never relies on process locks.
+#[derive(Clone)]
+pub struct PostgresStore {
+    pool: PgPool,
+    identity: Arc<()>,
+}
+
+impl PostgresStore {
+    pub(crate) fn shares_pool_with(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.identity, &other.identity)
+    }
+
+    /// Open a pool without changing schema. Schema migration is an explicit
+    /// deployment step so ordinary runtime roles need no DDL privileges.
+    pub async fn connect(database_url: &str, max_connections: u32) -> Result<Self, StoreError> {
+        if max_connections == 0 {
+            return Err(StoreError::Permanent(
+                "PostgreSQL pool must have at least one connection".into(),
+            ));
+        }
+        let pool = PgPoolOptions::new()
+            .max_connections(max_connections)
+            .acquire_timeout(Duration::from_secs(5))
+            .after_connect(|connection, _| {
+                Box::pin(async move {
+                    sqlx::query(
+                        "SELECT set_config('statement_timeout', '15s', false), \
+                         set_config('lock_timeout', '5s', false), \
+                         set_config('idle_in_transaction_session_timeout', '15s', false)",
+                    )
+                    .execute(connection)
+                    .await?;
+                    Ok(())
+                })
+            })
+            .connect(database_url)
+            .await
+            .map_err(db_error)?;
+        let version: i32 = sqlx::query_scalar("SELECT current_setting('server_version_num')::int")
+            .fetch_one(&pool)
+            .await
+            .map_err(db_error)?;
+        if version < 160_000 {
+            pool.close().await;
+            return Err(StoreError::Permanent(
+                "PostgreSQL 16 or later is required".into(),
+            ));
+        }
+        Ok(Self {
+            pool,
+            identity: Arc::new(()),
+        })
+    }
+
+    /// Embedded, versioned forward migrations with database-wide locking and
+    /// checksum verification. A failed migration never marks its version applied.
+    pub async fn migrate(&self) -> Result<(), StoreError> {
+        // DDL startup needs a longer budget than an ordinary authority write.
+        // Close this session so neither relaxed timeouts nor SQLx's advisory
+        // lock on an early error/cancellation can return to the runtime pool.
+        // Keep the pool permit until close completes to preserve its bound.
+        let mut connection = self.pool.acquire().await.map_err(db_error)?;
+        connection.close_on_drop();
+        sqlx::query(
+            "SELECT set_config('statement_timeout', '120s', false), \
+             set_config('lock_timeout', '60s', false)",
+        )
+        .execute(&mut *connection)
+        .await
+        .map_err(db_error)?;
+        let result = MIGRATIONS
+            .run_direct(&mut *connection)
+            .await
+            .map_err(|error| match error {
+                sqlx::migrate::MigrateError::Execute(error)
+                | sqlx::migrate::MigrateError::ExecuteMigration(error, _) => db_error(error),
+                _ => {
+                    StoreError::Permanent("PostgreSQL migration version or checksum failed".into())
+                }
+            });
+        let close = connection.close().await.map_err(db_error);
+        result.and(close)
+    }
+
+    /// Runtime readiness reads the complete forward-migration authority and
+    /// verifies checksums without DDL, advisory locks or automatic repair.
+    pub async fn verify_schema(&self) -> Result<(), StoreError> {
+        let expected: Vec<_> = MIGRATIONS.iter().collect();
+        let rows = sqlx::query(
+            "SELECT version, success, checksum FROM public._sqlx_migrations \
+             ORDER BY version LIMIT $1",
+        )
+        .bind((expected.len() + 1) as i64)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(db_error)?;
+        if rows.len() != expected.len() {
+            return Err(StoreError::Permanent(
+                "PostgreSQL schema authority incomplete".into(),
+            ));
+        }
+        for (row, migration) in rows.iter().zip(expected) {
+            let version: i64 = row.try_get("version").map_err(db_error)?;
+            let success: bool = row.try_get("success").map_err(db_error)?;
+            let checksum: Vec<u8> = row.try_get("checksum").map_err(db_error)?;
+            if version != migration.version
+                || !success
+                || checksum.as_slice() != migration.checksum.as_ref()
+            {
+                return Err(StoreError::Permanent(
+                    "PostgreSQL schema authority invalid".into(),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn close(&self) {
+        self.pool.close().await;
+    }
+
+    /// Explicit migration-Job operation. Never called by HTTP/worker startup.
+    /// The named existing role receives DML, not migration or schema ownership.
+    pub async fn grant_runtime_role(&self, role: &str) -> Result<(), StoreError> {
+        let invalid = || StoreError::Permanent("Invalid PostgreSQL runtime role".into());
+        if role.is_empty()
+            || role.len() > 63
+            || !role
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+            || !role
+                .bytes()
+                .next()
+                .is_some_and(|b| b.is_ascii_lowercase() || b == b'_')
+        {
+            return Err(invalid());
+        }
+        let mut transaction = self.pool.begin().await.map_err(db_error)?;
+        let admissible: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM pg_roles AS r WHERE r.rolname=$1 \
+             AND r.rolname<>current_user AND r.rolcanlogin AND NOT r.rolsuper \
+             AND NOT r.rolcreatedb AND NOT r.rolcreaterole \
+             AND NOT has_database_privilege(r.oid,current_database(),'CREATE') \
+             AND NOT has_schema_privilege(r.oid,'a_auth','CREATE') \
+             AND NOT EXISTS(SELECT 1 FROM pg_class AS c JOIN pg_namespace AS n \
+               ON n.oid=c.relnamespace WHERE c.relowner=r.oid AND \
+               (n.nspname='a_auth' OR (n.nspname='public' AND c.relname='_sqlx_migrations'))) \
+             AND NOT EXISTS(SELECT 1 FROM pg_auth_members WHERE member=r.oid))",
+        )
+        .bind(role)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(db_error)?;
+        if !admissible {
+            return Err(invalid());
+        }
+        // Only the validated ASCII identifier is interpolated. SQL identifiers
+        // cannot be bound as ordinary query parameters.
+        for statement in [
+            format!("GRANT USAGE ON SCHEMA a_auth TO \"{role}\""),
+            format!(
+                "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA a_auth TO \"{role}\""
+            ),
+            format!("REVOKE ALL PRIVILEGES ON public._sqlx_migrations FROM \"{role}\""),
+            format!("GRANT SELECT ON public._sqlx_migrations TO \"{role}\""),
+        ] {
+            sqlx::query(&statement)
+                .execute(&mut *transaction)
+                .await
+                .map_err(db_error)?;
+        }
+        transaction.commit().await.map_err(db_error)
+    }
+}
+
+/// Never include driver messages: they can contain SQL data or connection
+/// credentials. SQLSTATE is sufficient for classification and diagnostics.
+fn db_error(error: sqlx::Error) -> StoreError {
+    if let sqlx::Error::Database(database) = &error {
+        let state = database.code().unwrap_or_default();
+        let message = format!("PostgreSQL operation failed (SQLSTATE {state})");
+        if matches!(
+            &state[..state.len().min(2)],
+            "08" | "40" | "53" | "57" | "58"
+        ) || state == "55P03"
+        {
+            return StoreError::Transient(message);
+        }
+        return StoreError::Permanent(message);
+    }
+    match error {
+        sqlx::Error::Io(_)
+        | sqlx::Error::Tls(_)
+        | sqlx::Error::PoolTimedOut
+        | sqlx::Error::PoolClosed
+        | sqlx::Error::WorkerCrashed => {
+            StoreError::Transient("PostgreSQL connection unavailable".into())
+        }
+        _ => StoreError::Permanent("PostgreSQL configuration or record decoding failed".into()),
+    }
+}
+
+impl ParStore for PostgresStore {
+    async fn put(&self, tenant: &str, record: ParRecord) -> Result<(), StoreError> {
+        sqlx::query(
+            "INSERT INTO a_auth.par (tenant, request_uri, client_id, raw_params, expires_at) \
+             VALUES ($1, $2, $3, $4, $5) ON CONFLICT (tenant, request_uri) DO UPDATE \
+             SET client_id = EXCLUDED.client_id, raw_params = EXCLUDED.raw_params, \
+                 expires_at = EXCLUDED.expires_at",
+        )
+        .bind(tenant)
+        .bind(&record.request_uri)
+        .bind(&record.client_id)
+        .bind(&record.raw_params)
+        .bind(record.expires_at)
+        .execute(&self.pool)
+        .await
+        .map_err(db_error)?;
+        Ok(())
+    }
+
+    async fn consume(
+        &self,
+        tenant: &str,
+        request_uri: &str,
+        now: i64,
+    ) -> Result<Option<ParRecord>, StoreError> {
+        // Delete expired records as well: validity is checked after the atomic
+        // deletion, so an expired request cannot survive a clock rollback.
+        let row = sqlx::query(
+            "DELETE FROM a_auth.par WHERE tenant = $1 AND request_uri = $2 \
+             RETURNING request_uri, client_id, raw_params, expires_at",
+        )
+        .bind(tenant)
+        .bind(request_uri)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(db_error)?;
+        let Some(row) = row else { return Ok(None) };
+        let expires_at = row.try_get("expires_at").map_err(db_error)?;
+        if expires_at <= now {
+            return Ok(None);
+        }
+        Ok(Some(ParRecord {
+            request_uri: row.try_get("request_uri").map_err(db_error)?,
+            client_id: row.try_get("client_id").map_err(db_error)?,
+            raw_params: row.try_get("raw_params").map_err(db_error)?,
+            expires_at,
+        }))
+    }
+
+    async fn delete_all_by_tenant(&self, tenant: &str) -> Result<usize, StoreError> {
+        let result = sqlx::query("DELETE FROM a_auth.par WHERE tenant = $1")
+            .bind(tenant)
+            .execute(&self.pool)
+            .await
+            .map_err(db_error)?;
+        Ok(result.rows_affected() as usize)
+    }
+}

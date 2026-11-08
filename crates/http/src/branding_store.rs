@@ -23,6 +23,8 @@ pub struct BrandingStore {
 
 #[derive(Clone)]
 enum Backend {
+    #[cfg(feature = "postgres")]
+    Postgres(crate::adapters::postgres::PostgresStore),
     Memory(Arc<RwLock<HashMap<String, StoredBranding>>>),
     #[cfg(feature = "aws")]
     Dynamo {
@@ -32,6 +34,13 @@ enum Backend {
 }
 
 impl BrandingStore {
+    #[cfg(feature = "postgres")]
+    pub fn postgres(store: crate::adapters::postgres::PostgresStore) -> Self {
+        Self {
+            backend: Backend::Postgres(store),
+        }
+    }
+
     pub fn memory() -> Self {
         Self {
             backend: Backend::Memory(Arc::default()),
@@ -57,6 +66,8 @@ impl BrandingStore {
     ) -> Result<Option<StoredBranding>, StoreError> {
         let key = Self::key(deployment_host);
         match &self.backend {
+            #[cfg(feature = "postgres")]
+            Backend::Postgres(store) => store.get_branding(deployment_host).await,
             Backend::Memory(rows) => Ok(rows.read().await.get(&key).cloned()),
             #[cfg(feature = "aws")]
             Backend::Dynamo { db, table } => {
@@ -109,6 +120,12 @@ impl BrandingStore {
         }
         let key = Self::key(deployment_host);
         match &self.backend {
+            #[cfg(feature = "postgres")]
+            Backend::Postgres(store) => {
+                store
+                    .put_branding(deployment_host, record, expected_revision)
+                    .await
+            }
             Backend::Memory(rows) => {
                 let mut rows = rows.write().await;
                 let matches = match rows.get(&key) {

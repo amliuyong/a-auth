@@ -900,8 +900,8 @@ async fn post_jit_identity_reread_failure_leaves_assertion_consumed_without_toke
     let (state, assertion) = configured_state().await;
     match state.users.as_ref() {
         UsersStoreImpl::Memory(users) => users.fail_get_by_id_after(1),
-        #[cfg(feature = "aws")]
-        UsersStoreImpl::Dynamo(_) => panic!("dev state must use the memory users store"),
+        #[cfg(any(feature = "aws", feature = "postgres"))]
+        _ => panic!("dev state must use the memory users store"),
     }
     let user_id = derive_enterprise_user_id(
         &state.server_secret,
@@ -1079,8 +1079,8 @@ async fn post_consume_and_final_identity_lifecycle_changes_fail_closed() {
                     .transition_status_after_get_by_id(successful_reads, status)
                     .await;
             }
-            #[cfg(feature = "aws")]
-            UsersStoreImpl::Dynamo(_) => panic!("dev state must use the memory users store"),
+            #[cfg(any(feature = "aws", feature = "postgres"))]
+            _ => panic!("dev state must use the memory users store"),
         }
         let inspect = state.clone();
         let (router, _) = build_router(state);

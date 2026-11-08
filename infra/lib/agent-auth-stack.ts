@@ -2913,6 +2913,12 @@ export class AgentAuthStack extends Stack {
       usersTable.grantReadWriteData(runtime);
       runtime.addToRolePolicy(
         new iam.PolicyStatement({
+          actions: ['dynamodb:TransactGetItems'],
+          resources: [usersTable.tableArn],
+        }),
+      );
+      runtime.addToRolePolicy(
+        new iam.PolicyStatement({
           actions: ['dynamodb:TransactWriteItems'],
           resources: [
             usersTable.tableArn,

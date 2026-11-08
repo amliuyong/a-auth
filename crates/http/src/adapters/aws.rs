@@ -325,19 +325,17 @@ mod clients;
 pub use clients::{DynamoClientStore, DynamoInitialAccessTokenStore};
 
 mod identity_federation;
-mod oidc_metadata;
+pub use crate::adapters::http_transport::{
+    HttpCibaCallbackDelivery, HttpJwksFetcher, HttpOidcMetadataFetcher, HttpSsfPushClient,
+    HttpUpstreamTokenExchanger,
+};
 pub use identity_federation::{
     DynamoAdminAuthStore, DynamoFederationConfigStore, DynamoFederationFlowStore,
-    DynamoWorkloadTrustStore, HttpJwksFetcher, HttpStsCaller, HttpUpstreamTokenExchanger,
-    SecretsManagerResolver,
+    DynamoWorkloadTrustStore, HttpStsCaller, SecretsManagerResolver,
 };
-pub use oidc_metadata::HttpOidcMetadataFetcher;
 
 mod ciba_device;
-#[cfg(all(test, feature = "transport-test"))]
-pub(crate) use ciba_device::pinned_https_client_builder_for_addrs;
-pub(crate) use ciba_device::{pinned_https_client, PinnedHttpsClientError};
-pub use ciba_device::{DynamoCibaStore, DynamoDeviceStore, HttpCibaCallbackDelivery};
+pub use ciba_device::{DynamoCibaStore, DynamoDeviceStore};
 
 mod authorization;
 pub use authorization::{
@@ -356,7 +354,6 @@ mod region;
 mod scim_groups;
 mod security_events;
 mod ssf;
-mod ssf_push;
 mod tenant_key_provisioner;
 mod tenant_keys;
 mod users;
@@ -370,7 +367,6 @@ pub use region::DynamoRegionControlStore;
 pub use scim_groups::DynamoScimGroupsStore;
 pub use security_events::{DynamoSecurityEventStore, SqsSecurityEventFallback};
 pub use ssf::DynamoSsfStore;
-pub use ssf_push::HttpSsfPushClient;
 pub use tenant_key_provisioner::AwsTenantKeyProvisioningBackend;
 pub use tenant_keys::{DynamoTenantKeyRegistry, SqsTenantKeyCommandSink};
 pub(crate) use users::AuthorizedFederatedReconciliation;

@@ -271,6 +271,34 @@ function resourceByPrefix(template, prefix, type) {
   return matches[0];
 }
 
+test('standby HTTP runtimes can transact-read SCIM aliases on the shared user table', () => {
+  const { template, authorityTableNames } = synthStandby();
+  const runtimes = Object.values(template.Resources).filter(
+    (resource) =>
+      resource.Type === 'AWS::Lambda::Function' &&
+      ['token', 'non_token'].includes(resource.Properties.Environment?.Variables?.SCOPE),
+  );
+  assert.equal(runtimes.length, 2);
+  for (const runtime of runtimes) {
+    const roleId = runtime.Properties.Role['Fn::GetAtt'][0];
+    const statements = Object.values(template.Resources)
+      .filter(
+        (resource) =>
+          ['AWS::IAM::Policy', 'AWS::IAM::ManagedPolicy'].includes(resource.Type) &&
+          (resource.Properties.Roles ?? []).some((role) => role.Ref === roleId),
+      )
+      .flatMap((resource) => resource.Properties.PolicyDocument.Statement);
+    assert.ok(
+      statements.some(
+        (statement) =>
+          [statement.Action].flat().includes('dynamodb:TransactGetItems') &&
+          JSON.stringify(statement.Resource).includes(authorityTableNames.users),
+      ),
+      'Standby SCIM classification must retain transaction snapshot permission',
+    );
+  }
+});
+
 test('standby runtime and its Secret references follow the selected commercial pair', () => {
   for (const [primary, standby] of [
     ['eu-west-1', 'ap-southeast-2'],
