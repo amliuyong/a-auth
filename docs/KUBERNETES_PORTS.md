@@ -64,7 +64,8 @@ All seven existing governance data operations select coherent PostgreSQL
 ports. Destructive commits recheck the claimed lease after row-lock waits;
 cleanup retains SSF audit and erases credential/session/recovery/notification
 authority atomically. These data-plane fixtures do not establish production
-startup, durable queues or native worker acceptance.
+startup or native worker acceptance. The durable governance queue is tested
+separately with its worker batch and explicit development control/transports.
 
 ## Remaining persistent authority
 
@@ -92,7 +93,7 @@ capability decision and reject unsupported payment settings at startup.
 | `StsCaller` | Explicitly disabled in the AWS-free profile; retain the existing optional AWS path |
 | `SecretResolver` | [`FileSecretResolver`](MOUNTED_SECRETS.md) with explicit reference bindings and confined mounted-file reads; production wiring and installed proof pending |
 | `UpstreamTokenExchanger` | Shared portable TLS exchange with registered endpoint trust; production secret/transport composition pending |
-| `GovernanceJobQueue` | PostgreSQL durable wake-ups, `SKIP LOCKED` claim, lease fencing and retry |
+| `GovernanceJobQueue` | [PostgreSQL durable wake-ups and worker batch](POSTGRES_GOVERNANCE_QUEUE.md), `SKIP LOCKED` claim, lease fencing and retry; production entrypoint and installed acceptance pending |
 | `Notifier` | SMTP delivery with durable/idempotent recovery notification handling |
 | `AuthzEventSink` | Explicit projection configuration; authority commit independent of projection failure |
 | `CibaCallbackDelivery` | Shared portable bounded callback HTTP with existing destination/credential checks; production wiring pending |

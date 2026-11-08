@@ -7,7 +7,7 @@ use agent_auth_http::{
 use std::sync::Arc;
 use tokio::sync::Barrier;
 
-fn user_data_state(
+pub(super) fn user_data_state(
     base: agent_auth_http::adapters::postgres::PostgresStore,
 ) -> agent_auth_http::AppState {
     use agent_auth_http::{
@@ -55,7 +55,7 @@ fn user_data_state(
     state
 }
 
-async fn start_user_erasure(state: &agent_auth_http::AppState, user_id: &str) -> String {
+pub(super) async fn start_user_erasure(state: &agent_auth_http::AppState, user_id: &str) -> String {
     use axum::{
         body::{to_bytes, Body},
         http::{Request, StatusCode},

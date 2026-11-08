@@ -2781,6 +2781,104 @@ pub async fn process_command_once(
     }
 }
 
+/// Aggregate portable-worker outcomes; no command, lease nonce or user data
+/// appears in the report. Production configuration and entrypoints supply the
+/// fully constructed state, poll interval and shutdown coordination.
+#[cfg(feature = "postgres")]
+#[derive(Default, serde::Serialize)]
+pub struct PostgresGovernanceBatch {
+    pub claimed: usize,
+    pub requeued: usize,
+    pub terminal: usize,
+    pub acknowledged: usize,
+    pub retried: usize,
+    pub dead_lettered: usize,
+    pub lease_lost: usize,
+}
+
+/// Process one bounded PostgreSQL wake-up batch. The existing job state machine
+/// owns effects; an unacknowledged message remains available for redelivery.
+#[cfg(feature = "postgres")]
+pub async fn run_postgres_queue_once(
+    state: &AppState,
+    now: i64,
+    limit: usize,
+) -> Result<PostgresGovernanceBatch, StoreError> {
+    use crate::governance::{GovernanceJobQueueImpl, GovernanceStoreImpl};
+    let (GovernanceJobQueueImpl::Postgres(queue), GovernanceStoreImpl::Postgres(governance)) =
+        (state.governance_jobs.as_ref(), state.governance.as_ref())
+    else {
+        return Err(StoreError::Permanent(
+            "PostgreSQL governance worker requires durable PostgreSQL authority".into(),
+        ));
+    };
+    if !queue.uses_governance(governance) {
+        return Err(StoreError::Permanent(
+            "PostgreSQL governance worker pool composition invalid".into(),
+        ));
+    }
+    let work_time = now.max(crate::token::current_unix_secs_pub());
+    match state.region.admit(work_time).await? {
+        crate::region::RegionAdmission::Active => {}
+        crate::region::RegionAdmission::Inactive { .. } => {
+            return Err(StoreError::Transient(
+                "Governance writer admission inactive".into(),
+            ));
+        }
+    }
+    let leases = queue
+        .claim(work_time, DESTRUCTIVE_JOB_LEASE_SECS, limit)
+        .await?;
+    let mut report = PostgresGovernanceBatch {
+        claimed: leases.len(),
+        ..Default::default()
+    };
+    for lease in leases {
+        let work_time = now.max(crate::token::current_unix_secs_pub());
+        if !state
+            .governance_config
+            .admits_destructive_governance(&lease.command().tenant_id, state.region.local_region())
+        {
+            if queue.dead_letter(&lease, work_time).await? {
+                report.dead_lettered += 1;
+            } else {
+                report.lease_lost += 1;
+            }
+            continue;
+        }
+        let result = process_command_once(state, lease.command().clone(), work_time).await;
+        let settle_time = now.max(crate::token::current_unix_secs_pub());
+        match result {
+            Ok(outcome) => {
+                match outcome {
+                    GovernanceCommandOutcome::Requeued(_) => report.requeued += 1,
+                    GovernanceCommandOutcome::Terminal(_) => report.terminal += 1,
+                }
+                if queue.acknowledge(&lease, settle_time).await? {
+                    report.acknowledged += 1;
+                } else {
+                    report.lease_lost += 1;
+                }
+            }
+            Err(GovernanceEngineError::Store(StoreError::Transient(_))) => {
+                if queue.retry(&lease, settle_time, 5).await? {
+                    report.retried += 1;
+                } else {
+                    report.lease_lost += 1;
+                }
+            }
+            Err(_) => {
+                if queue.dead_letter(&lease, settle_time).await? {
+                    report.dead_lettered += 1;
+                } else {
+                    report.lease_lost += 1;
+                }
+            }
+        }
+    }
+    Ok(report)
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;

@@ -942,6 +942,8 @@ pub enum GovernanceStoreImpl {
 
 #[derive(Clone)]
 pub enum GovernanceJobQueueImpl {
+    #[cfg(feature = "postgres")]
+    Postgres(crate::adapters::postgres::PostgresGovernanceQueue),
     Memory(crate::adapters::memory::MemoryGovernanceJobQueue),
     #[cfg(feature = "aws")]
     Sqs(crate::adapters::aws::SqsGovernanceJobQueue),
@@ -951,6 +953,8 @@ pub enum GovernanceJobQueueImpl {
 impl GovernanceJobQueue for GovernanceJobQueueImpl {
     async fn enqueue(&self, command: GovernanceJobCommand) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(queue) => queue.enqueue(command).await,
             Self::Memory(queue) => queue.enqueue(command).await,
             #[cfg(feature = "aws")]
             Self::Sqs(queue) => queue.enqueue(command).await,

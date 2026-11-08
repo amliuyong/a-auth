@@ -45,7 +45,7 @@ tests do not establish cluster, deployment, or conformance acceptance.
 | Conditional writes and transactions | Real PostgreSQL concurrency and failure-atomicity tests equivalent to existing memory/AWS tests | IN_PROGRESS |
 | Forward migrations, standard PostgreSQL | Versioned SQL, repeat/concurrent migration tests, PostgreSQL 16 run | IN_PROGRESS |
 | Secret/file signer and JWKS rotation | Independent ES256/RS256 verification across reload and retired-key removal; installed replica rotation | IN_PROGRESS |
-| Server and background work | Probe/shutdown tests, worker redelivery/lease fencing, cluster execution | NOT_RUN |
+| Server and background work | Probe/shutdown tests, worker redelivery/lease fencing, cluster execution | IN_PROGRESS |
 | Secret resolver | Confined-file adapter tests and installed deployment evidence | IN_PROGRESS |
 | SMTP and optional archives | Adapter tests and installed deployment evidence | NOT_RUN |
 | Secure container and chart | Rendered manifests, authentication and reachability tests | NOT_RUN |
@@ -196,8 +196,18 @@ user erasure and tenant offboarding, permanent alias/tenant suppression,
 foreign-pool and HMAC mismatch rejection, lease expiry during an observed SQL
 row-lock wait, and actual late-write failures that roll back earlier deletes
 or stream revocation. The fixtures use development control/transports and
-explicit PostgreSQL data-plane composition. Production startup, durable queue
-admission, native workers and installed acceptance remain pending.
+explicit PostgreSQL data-plane composition. Production startup, native workers
+and installed acceptance remain pending.
+
+The [PostgreSQL governance queue](POSTGRES_GOVERNANCE_QUEUE.md) adds durable
+wake-ups, bounded `SKIP LOCKED` claims, private lease capabilities and fenced
+acknowledgment/retry/dead-letter operations. A wake-up enqueued during a lease
+survives acknowledgment. Seven independent-pool fixtures cover contention,
+locked-head progress, rollback, damaged commands, expiry and a worker crash
+after a phase commit. Redelivery repairs the next wake-up without repeating the
+phase or credential-epoch mutation. The batch rejects a foreign-pool
+composition before claiming. Production polling/shutdown, retention scheduling,
+dead-letter operations and installed qualification remain required.
 
 Federated attribute reconciliation locks namespace, mapping and user authority
 in that order. Owner purge locks the mapping registry before the user and
@@ -208,8 +218,8 @@ IdP against the physical row identity. Authorized administrator attribute
 writes also lock namespace authority before the user, recheck the captured
 authority and retain the raw attribute CAS and federation ownership rules.
 
-The current shared suite contains 181 cases: thirty-five contracts run through each of
-the memory, AWS, and PostgreSQL adapters, plus seventy-three PostgreSQL-specific
+The current shared suite contains 188 cases: thirty-five contracts run through each of
+the memory, AWS, and PostgreSQL adapters, plus eighty PostgreSQL-specific
 transaction/durability cases and three AWS recovery interleaving/compatibility
 cases. AWS adapters run against a loopback DynamoDB
 emulator; PostgreSQL adapters run against PostgreSQL 16. This does not establish
