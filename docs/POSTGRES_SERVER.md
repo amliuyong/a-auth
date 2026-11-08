@@ -90,6 +90,12 @@ Deployments use non-root users, read-only root filesystems, no privilege
 escalation, dropped capabilities and no service-account token. Their crypto
 projections explicitly include only the appropriate purpose files.
 
+Kubernetes Secret projection roots can have group/world writable Unix mode
+bits while the kernel mounts them read-only. Mounted-secret and signer loaders
+accept that directory case only after checking the opened descriptor's
+read-only mount flag. Writable mounts still reject unsafe directory modes;
+private-file permissions and confined-path checks remain required.
+
 These sources are under active validation. Initial chart lint/rendering is
 not installation evidence; actual TCP/shutdown, installed protocol,
 conformance, GHCR and restore gates remain separate in the

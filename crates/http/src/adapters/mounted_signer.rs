@@ -18,9 +18,9 @@ use rsa::{
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::{
-    fs::File,
+    fs::{File, OpenOptions},
     io::Read,
-    os::unix::fs::{MetadataExt, PermissionsExt},
+    os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
     path::{Component, Path, PathBuf},
     sync::Arc,
 };
@@ -155,8 +155,16 @@ fn text(bytes: &[u8]) -> Result<&str, SignerError> {
 }
 
 fn validate_root(root: &Path) -> Result<(), SignerError> {
-    let metadata = root.metadata().map_err(|_| invalid())?;
-    if !metadata.is_dir() || metadata.permissions().mode() & 0o022 != 0 {
+    let directory = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(root)
+        .map_err(|_| invalid())?;
+    let metadata = directory.metadata().map_err(|_| invalid())?;
+    if !metadata.is_dir()
+        || (metadata.permissions().mode() & 0o022 != 0
+            && !super::mounted_files::read_only_mount(&directory))
+    {
         return Err(invalid());
     }
     Ok(())

@@ -49,7 +49,10 @@ fn unavailable() -> StoreError {
 
 fn directory_valid(file: &File) -> Result<(), StoreError> {
     let metadata = file.metadata().map_err(|_| unavailable())?;
-    if !metadata.is_dir() || metadata.permissions().mode() & 0o022 != 0 {
+    if !metadata.is_dir()
+        || (metadata.permissions().mode() & 0o022 != 0
+            && !super::mounted_files::read_only_mount(file))
+    {
         return Err(invalid());
     }
     Ok(())
