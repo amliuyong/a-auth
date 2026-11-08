@@ -1,34 +1,39 @@
 {{- if .Values.ingress.enabled }}
+{{- $root := . }}
+{{- range $plane := list "token" "web" }}
+---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ include "a-auth.name" . }}
+  name: {{ include "a-auth.name" $root }}{{ if eq $plane "token" }}-token{{ end }}
   labels:
-    {{- include "a-auth.labels" . | nindent 4 }}
+    {{- include "a-auth.labels" $root | nindent 4 }}
+  {{- $annotations := $root.Values.ingress.webAnnotations }}
+  {{- if eq $plane "token" }}
+  {{- $annotations = $root.Values.ingress.tokenAnnotations }}
+  {{- end }}
+  {{- with $annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
-  {{- with .Values.ingress.className }}
+  {{- with $root.Values.ingress.className }}
   ingressClassName: {{ . | quote }}
   {{- end }}
   tls:
     - hosts:
-        - {{ required "runtime.host is required" .Values.runtime.host | quote }}
-      secretName: {{ required "ingress.tlsSecretName is required" .Values.ingress.tlsSecretName | quote }}
+        - {{ required "runtime.host is required" $root.Values.runtime.host | quote }}
+      secretName: {{ required "ingress.tlsSecretName is required" $root.Values.ingress.tlsSecretName | quote }}
   rules:
-    - host: {{ .Values.runtime.host | quote }}
+    - host: {{ $root.Values.runtime.host | quote }}
       http:
         paths:
-          - path: /token
-            pathType: Exact
+          - path: {{ if eq $plane "token" }}/token{{ else }}/{{ end }}
+            pathType: {{ if eq $plane "token" }}Exact{{ else }}Prefix{{ end }}
             backend:
               service:
-                name: {{ include "a-auth.name" . }}-token
+                name: {{ include "a-auth.name" $root }}-{{ $plane }}
                 port:
                   name: protocol
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "a-auth.name" . }}-web
-                port:
-                  name: protocol
+{{- end }}
 {{- end }}

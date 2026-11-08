@@ -38,6 +38,8 @@ ingress:
   enabled: false
   className: ""
   tlsSecretName: ""
+  webAnnotations: {}
+  tokenAnnotations: {}
 networkPolicy:
   enabled: true
   managementNamespaceLabels:

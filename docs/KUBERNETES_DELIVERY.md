@@ -53,7 +53,7 @@ tests do not establish cluster, deployment, or conformance acceptance.
 | EKS + external RDS PostgreSQL | Installed chart and all required protocol flows including enterprise IdP | IN_PROGRESS |
 | Existing conformance gates | Exact-candidate Kubernetes run and comparison with AWS self-hosted results | NOT_RUN |
 | memory/AWS/PostgreSQL contracts | Shared contracts across three adapters plus equivalent atomicity/idempotency coverage | IN_PROGRESS |
-| Multi-replica code/refresh/replay/IAT | Concurrent requests to distinct replicas with exactly one successful effect | IN_PROGRESS |
+| Multi-replica code/refresh/replay/IAT | Concurrent requests to distinct installed replicas with exactly one effect; shared refresh grace response | PASS |
 | AWS-free dependency tree/runtime | Production feature dependency tree and runtime egress evidence | NOT_RUN |
 | Backup/restore revocation safety | Recovery drill with grants, refresh families, replay history, and documented remediation | NOT_RUN |
 | OCI image and chart on GHCR | Published immutable digests, readback, install commands | IN_PROGRESS |
@@ -92,25 +92,47 @@ four durable queue-worker modes and three maintenance Job modes. Local real-TCP
 tests exercise readiness loss/recovery and an accepted request draining across
 SIGTERM. See [server entrypoints](POSTGRES_SERVER.md).
 
-Native amd64 and arm64 backend images and chart 0.1.0 have been published on
-GHCR with immutable digest readbacks. The first kind installation exposed a
-Secret-projection directory-mode rejection. The descriptor-based read-only
-mount fix then passed installed migration and readiness: two web Pods, two
-token Pods and all four workers became ready against TLS PostgreSQL 16.
-Distinct web replicas passed one-time IAT contention and private management
-authentication/public exclusion. Discovery identified the installed backend
-commit and exposed both signing algorithms.
+Native amd64 and arm64 backend and browser images at component commit
+`0a9fb2efbd1a9f933f3d52656a242927d3139d70`, plus chart 0.1.1, have been
+published on GHCR with immutable digest readbacks. Both kind with TLS
+PostgreSQL 16 and EKS with private encrypted PostgreSQL 17 RDS have installed
+the application and all forty-one migrations. Each environment runs two web
+Pods, two token Pods and two replicas of each of the four workers. Separate
+DDL and runtime database roles and restricted application Secret projections
+remain in use.
 
-That protocol campaign then found a missing trusted TCP source-IP extension
-in password login. The existing API-only chart also returned 404 for the
-required browser pages. Both repairs are under validation. Chart 0.1.1 adds
-the separate browser container; local live-container routing, mount separation,
-logging and drain checks do not establish installed browser acceptance.
-The dedicated EKS control plane and private encrypted PostgreSQL 17 RDS
-creation requests have been accepted after explicit IAM authorization and
-role-policy readback. Node readiness, RDS readiness and the installed cloud
-campaign remain pending. Full protocol, enterprise IdP, conformance, rotation,
-egress and restore acceptance are still required.
+Each installation passed eleven protocol checks through distinct Pod
+port-forwards: discovery/source identity, dual-algorithm JWKS, public/private
+management separation, one-time IAT contention, password onboarding, PKCE code
+contention and terminal replay rejection, independent token signatures,
+authenticated introspection, one refresh rotation with a shared grace response,
+DPoP JTI contention using independent codes, and cross-replica refresh-family
+revocation. An in-flight code exchange loser can return 503 while its lease
+is held; a completed replay returns `invalid_grant`. These observations do
+not establish official conformance or enterprise federation.
+
+Both environments also passed seven real Chromium browser checks over an
+installed TLS Ingress: initial-password login and required change, authorization
+session, Secure/HttpOnly cookie, consent and state-bound callback, PKCE token
+exchange with independent ES256/RS256 verification, JavaScript execution and
+component-source identity. The private qualification CA was independently
+validated with curl; Chromium trusted the single certificate public-key pin.
+The callback was captured by the test browser. Public WebPKI and an external
+relying-party deployment are not established by this run.
+
+This browser campaign found that Traefik's default rule-length priority routed
+`/token` to the web frontend. The chart 0.1.2 candidate splits the two Ingress
+resources and supports separate controller annotations; explicit priorities
+passed installed HTTPS routing and browser checks in both environments.
+Immutable publication and installation readback of that chart version remain
+pending. See the [server reference](POSTGRES_SERVER.md) for its configuration.
+
+Each environment's two SMTP workers delivered one durable notification to a
+TLS SMTP fixture, with one accepted message and no second acceptance on
+reobservation. Worker crash/uncertain-result qualification remains separate.
+Enterprise IdP, official conformance and AWS comparison, installed signing
+rotation, runtime AWS API observations, restore, complete background-work
+qualification and final delivery documentation remain required.
 
 `PostgresGovernanceResourceBackend` observes live authority and physically
 retained records in the configured primary database. Operator-owned mounts

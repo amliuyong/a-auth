@@ -113,6 +113,23 @@ without browser pages. Both containers must pass their readiness probes.
 Frontend access logs omit paths, queries, headers, cookies and bodies. SIGQUIT
 lets its accepted requests drain within the Pod termination budget.
 
+Chart 0.1.2 uses separate Ingress resources for the exact token route and the
+web prefix route. Set `ingress.tokenAnnotations` and `ingress.webAnnotations`
+for the chosen controller. Traefik's default rule-length priority can select
+the web prefix before the token route; configure explicit priorities:
+
+```yaml
+ingress:
+  tokenAnnotations:
+    traefik.ingress.kubernetes.io/router.priority: "100"
+  webAnnotations:
+    traefik.ingress.kubernetes.io/router.priority: "10"
+```
+
+Both resources use the configured host, Ingress class and TLS Secret. Verify
+`POST /token` reaches the token Service through HTTPS after installation;
+a rendered exact-path rule alone does not establish controller behavior.
+
 For a built frontend image, exercise live routing, private-path exclusion,
 same-origin POST forwarding, container permissions, log privacy and shutdown:
 

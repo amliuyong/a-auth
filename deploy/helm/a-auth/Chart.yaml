@@ -2,5 +2,5 @@ apiVersion: v2
 name: a-auth
 description: Single-tenant a-auth with PostgreSQL 16 and mounted operator secrets
 type: application
-version: 0.1.1
+version: 0.1.2
 appVersion: "1.1.0"
