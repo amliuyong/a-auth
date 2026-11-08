@@ -1,17 +1,20 @@
 <svg
   xmlns="http://www.w3.org/2000/svg"
-  viewBox="0 0 1200 760"
+  viewBox="0 0 1200 1060"
   role="img"
   aria-labelledby="architecture-title architecture-description"
 >
   <title id="architecture-title">A Auth system architecture</title>
   <desc id="architecture-description">
-    OAuth clients and agents enter through CloudFront and API Gateway to the
-    A Auth Rust protocol runtime. The React user interface uses the same edge
-    and runtime. The runtime federates with enterprise identity providers,
-    stores authority and replay state in DynamoDB, and uses AWS KMS for signing
-    and encryption. MCP and OAuth resource servers receive access tokens from
-    clients and validate them with metadata, JWKS, or the resource-server SDK.
+    OAuth clients and agents use a same-origin HTTPS edge and the shared Rust
+    protocol and policy core. Resource servers receive tokens from clients
+    and independently verify JWTs using public metadata, JWKS and the SDK.
+    Select one deployment profile: AWS uses CloudFront, API Gateway, Lambda,
+    DynamoDB and KMS; single-tenant Kubernetes uses ingress, separate web and
+    token services, PostgreSQL, mounted signing keys and external secrets,
+    private management APIs and durable governance, event, SMTP and SSF workers.
+    The React UI and enterprise federation integrate with the core. Kubernetes
+    SaaS and multi-Region are unsupported; production restore promotion is held.
   </desc>
 
   <defs>
@@ -105,7 +108,7 @@
     </style>
   </defs>
 
-  <rect width="1200" height="760" rx="24" fill="#f4f7fb"/>
+  <rect width="1200" height="1060" rx="24" fill="#f4f7fb"/>
 
   <g aria-hidden="true">
     <circle cx="1110" cy="66" r="38" fill="#e6f4ff"/>
@@ -117,7 +120,7 @@
     A Auth architecture
   </text>
   <text x="48" y="86" fill="#486581" font-size="15">
-    Protocol and policy core behind an AWS-native edge, with explicit trust boundaries
+    Shared Rust core; choose AWS-native or single-tenant Kubernetes deployment
   </text>
 
   <rect
@@ -152,7 +155,7 @@
 
   <text class="boundary-label" x="62" y="151">CALLERS</text>
   <text class="boundary-label" x="352" y="151">A AUTH DEPLOYMENT</text>
-  <text class="boundary-label" x="882" y="151">ENTERPRISE + AWS SERVICES</text>
+  <text class="boundary-label" x="882" y="151">IDENTITY + PROFILE ADAPTERS</text>
 
   <g filter="url(#shadow)">
     <rect x="70" y="190" width="200" height="104" rx="14" fill="#ffffff" stroke="#69b1ff" stroke-width="2"/>
@@ -191,7 +194,7 @@
       stroke-width="2.2"
     />
     <text class="node-title" x="458" y="222">Public edge</text>
-    <text class="node-detail" x="458" y="247">CloudFront + API Gateway</text>
+    <text class="node-detail" x="408" y="257">AWS: CloudFront + API Gateway · K8s: ingress</text>
     <rect x="662" y="207" width="88" height="30" rx="15" fill="#1677ff"/>
     <text x="706" y="227" fill="#ffffff" font-size="12" font-weight="750" text-anchor="middle">
       HTTPS
@@ -209,7 +212,7 @@
       stroke-width="2.4"
     />
     <text x="470" y="382" fill="#ffffff" font-size="20" font-weight="750">
-      Rust protocol + HTTP runtime
+      Rust protocol runtime
     </text>
     <text x="470" y="409" fill="#adc6ff" font-size="14">
       OAuth / OIDC protocol and policy core
@@ -220,7 +223,7 @@
     <rect x="644" y="447" width="102" height="24" rx="12" fill="#15395b"/>
     <text class="pill" x="469" y="464" fill="#bae7ff" text-anchor="middle">protocols</text>
     <text class="pill" x="584" y="464" fill="#bae7ff" text-anchor="middle">policy</text>
-    <text class="pill" x="695" y="464" fill="#bae7ff" text-anchor="middle">AWS adapters</text>
+    <text class="pill" x="695" y="464" fill="#bae7ff" text-anchor="middle">adapter ports</text>
   </g>
 
   <g filter="url(#shadow)">
@@ -228,7 +231,8 @@
     <rect x="438" y="575" width="34" height="26" rx="3" fill="none" stroke="#389e0d" stroke-width="2"/>
     <circle cx="455" cy="588" r="5" fill="#b7eb8f" stroke="#389e0d" stroke-width="1.5"/>
     <text class="node-title" x="492" y="586">React UI</text>
-    <text class="node-detail" x="492" y="611">login · consent · account · admin</text>
+    <text class="node-detail" x="492" y="609">login · consent · account</text>
+    <text x="492" y="630" fill="#486581" font-size="12">K8s admin: private API admission</text>
   </g>
 
   <g filter="url(#shadow)">
@@ -242,8 +246,8 @@
       stroke-width="2.2"
     />
     <text class="node-title" x="948" y="223">Enterprise IdP</text>
-    <text class="node-detail" x="914" y="253">OIDC · SAML · SCIM</text>
-    <text class="node-detail" x="914" y="274">identity and lifecycle source</text>
+    <text class="node-detail" x="914" y="253">OIDC · SAML federation</text>
+    <text class="node-detail" x="914" y="274">SCIM: management API</text>
   </g>
 
   <g filter="url(#shadow)">
@@ -255,8 +259,9 @@
       stroke="#d46b08"
       stroke-width="2"
     />
-    <text class="node-title" x="952" y="424">DynamoDB</text>
-    <text class="node-detail" x="914" y="461">authority, sessions, replay state</text>
+    <text class="node-title" x="952" y="424">Authority stores</text>
+    <text class="node-detail" x="914" y="451">DynamoDB / PostgreSQL</text>
+    <text x="914" y="473" fill="#486581" font-size="12">authority, sessions, replay state</text>
   </g>
 
   <g filter="url(#shadow)">
@@ -269,8 +274,8 @@
       stroke-linecap="round"
       stroke-width="2.2"
     />
-    <text class="node-title" x="952" y="582">AWS KMS</text>
-    <text class="node-detail" x="914" y="617">signing and encryption keys</text>
+    <text class="node-title" x="952" y="582">Keys + secrets</text>
+    <text class="node-detail" x="914" y="617">AWS KMS / protected mounts</text>
   </g>
 
   <path
@@ -315,7 +320,7 @@
   <text class="flow-label" x="170" y="388" text-anchor="middle">access token</text>
 
   <path
-    d="M270 544 H340 V426 H390"
+    d="M270 544 H340 V255 H380"
     fill="none"
     stroke="#486581"
     stroke-width="2.5"
@@ -374,4 +379,26 @@
     />
     <text class="node-detail" x="278" y="5">validation material</text>
   </g>
+
+  <text class="boundary-label" x="48" y="752">DEPLOYMENT PROFILES — SELECT ONE</text>
+
+  <rect x="40" y="774" width="545" height="218" rx="18" fill="#e6f4ff" stroke="#1677ff" stroke-width="2"/>
+  <text class="node-title" x="64" y="808">AWS-native · CDK</text>
+  <text class="node-detail" x="64" y="840">CloudFront + API Gateway → Rust Lambda</text>
+  <text class="node-detail" x="64" y="868">DynamoDB authority · KMS signing / encryption</text>
+  <text class="node-detail" x="64" y="896">React UI · AWS service / worker adapters</text>
+  <text class="node-detail" x="64" y="924">Self-hosted or tenant-aware issuer / key boundaries</text>
+  <text x="64" y="964" fill="#243b53" font-size="13">Topology and trust boundaries: docs/DEPLOYMENT.md</text>
+
+  <rect x="615" y="774" width="545" height="218" rx="18" fill="#f6ffed" stroke="#52c41a" stroke-width="2"/>
+  <text class="node-title" x="639" y="808">Kubernetes + PostgreSQL · Helm</text>
+  <text class="node-detail" x="639" y="840">HTTPS ingress → separate web / token services</text>
+  <text class="node-detail" x="639" y="868">PostgreSQL 16+ · mounted ES256 / RS256 keys + secrets</text>
+  <text class="node-detail" x="639" y="896">Private admin / SCIM · public management routes: 404</text>
+  <text class="node-detail" x="639" y="924">Governance / event / SMTP / SSF workers · migration Job</text>
+  <text x="639" y="964" fill="#243b53" font-size="13">Single tenant / issuer · docs/KUBERNETES_INSTALL.md</text>
+
+  <text x="600" y="1024" fill="#486581" font-size="14" text-anchor="middle">
+    Kubernetes: no SaaS or multi-Region · production restore promotion: HOLD_NO_RELEASE
+  </text>
 </svg>

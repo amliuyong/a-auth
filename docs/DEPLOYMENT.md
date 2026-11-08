@@ -1,9 +1,17 @@
-# Agent Auth — 部署与多租户实现说明
+# Agent Auth — AWS 部署与多租户实现说明
 
 > 本文承载 **SaaS 多租户置备 / 密钥在线迁移 / 跨形态升级** 等**实现与运维细节**,从 `DESIGN.md` 抽出以保持协议内核的可读性(见 DESIGN.md §0.5 与 §11 #11)。
 > 协议内核(端点/token/委托/MCP 集成)看 `DESIGN.md`;两形态的**语义/信任模型对照**看 DESIGN.md §0.5;本文只讲**怎么落地**。
 > 引用约定:`§x` 指 DESIGN.md 的节。
 > 整套系统的 AWS 月费、单价与规模假设见 [`COST.md`](./COST.md)（us-east-1）。
+
+本文描述 AWS 的自部署与多租户拓扑。单租户 Kubernetes + PostgreSQL
+共享协议内核，采用独立的存储、签名、传输与 worker 适配器组合；安装与信任边界见
+[`KUBERNETES_INSTALL.md`](./KUBERNETES_INSTALL.md) 和
+[`POSTGRES_RUNTIME.md`](./POSTGRES_RUNTIME.md)。
+本文的 KMS、DynamoDB、CloudFront、BYOD 与多区域说明不适用于该 profile。
+Kubernetes 的已安装验收与生产恢复限制以
+[`KUBERNETES_DELIVERY.md`](./KUBERNETES_DELIVERY.md) 为准。
 
 ---
 
