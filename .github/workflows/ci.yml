@@ -92,6 +92,11 @@ jobs:
         run: >-
           cargo test -p agent-auth-http --no-default-features --features postgres
           --test mounted_signer --locked
+      - name: Verify portable SMTP TLS and durable single submission
+        run: >-
+          cargo test -p agent-auth-http --no-default-features
+          --features postgres,portable-transport-test
+          --test smtp_transport --locked
 
   rust-quality:
     name: Rust quality

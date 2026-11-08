@@ -36,6 +36,7 @@ mod scim_groups;
 mod security_events;
 mod serialization;
 mod sessions;
+mod smtp;
 mod ssf;
 mod users;
 mod workload_trust;
@@ -47,6 +48,7 @@ pub use governance_queue::{PostgresGovernanceLease, PostgresGovernanceQueue};
 pub use grace::PostgresGraceStore;
 pub use outbox::PostgresMessageOutbox;
 pub use refresh::RefreshRotationRequest;
+pub use smtp::{PostgresSmtpBatch, PostgresSmtpLease, PostgresSmtpNotifier, PostgresSmtpSend};
 pub use ssf::PostgresSsfStore;
 pub use users::{PostgresInvitationStore, PostgresUsersStore, UserAuthorityKey};
 

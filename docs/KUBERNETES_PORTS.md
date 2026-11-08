@@ -94,7 +94,7 @@ capability decision and reject unsupported payment settings at startup.
 | `SecretResolver` | [`FileSecretResolver`](MOUNTED_SECRETS.md) with explicit reference bindings and confined mounted-file reads; production wiring and installed proof pending |
 | `UpstreamTokenExchanger` | Shared portable TLS exchange with registered endpoint trust; production secret/transport composition pending |
 | `GovernanceJobQueue` | [PostgreSQL durable wake-ups and worker batch](POSTGRES_GOVERNANCE_QUEUE.md), `SKIP LOCKED` claim, lease fencing and retry; production entrypoint and installed acceptance pending |
-| `Notifier` | SMTP delivery with durable/idempotent recovery notification handling |
+| `Notifier` | [TLS SMTP and PostgreSQL notification authority](POSTGRES_SMTP.md) with recovery-operation deduplication and uncertain-send fencing; production composition and installed acceptance pending |
 | `AuthzEventSink` | Explicit projection configuration; authority commit independent of projection failure |
 | `CibaCallbackDelivery` | Shared portable bounded callback HTTP with existing destination/credential checks; production wiring pending |
 | [`ArchiveDeliverySink`](../crates/http/src/security_event_archive.rs) | Optional S3-compatible archive or explicit archive disablement |

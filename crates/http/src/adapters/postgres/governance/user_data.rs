@@ -192,10 +192,11 @@ async fn alias_authority(
     aliases: &[String],
     remove: bool,
 ) -> Result<(u64, u64), StoreError> {
-    let mut counts = [0, 0];
+    let mut counts = [0, 0, 0];
     for (index, (table, column, bytes)) in [
         ("magic_link_cooldowns", "email", false),
         ("message_outbox", "recipient", true),
+        ("smtp_notifications", "recipient", true),
     ]
     .into_iter()
     .enumerate()
@@ -237,7 +238,12 @@ async fn alias_authority(
             })?
         };
     }
-    Ok((counts[0], counts[1]))
+    Ok((
+        counts[0],
+        counts[1].checked_add(counts[2]).ok_or_else(|| {
+            StoreError::Permanent("Notification inventory count exceeds u64".into())
+        })?,
+    ))
 }
 
 impl PostgresGovernanceStore {

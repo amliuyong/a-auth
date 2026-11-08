@@ -47,7 +47,7 @@ tests do not establish cluster, deployment, or conformance acceptance.
 | Secret/file signer and JWKS rotation | Independent ES256/RS256 verification across reload and retired-key removal; installed replica rotation | IN_PROGRESS |
 | Server and background work | Probe/shutdown tests, worker redelivery/lease fencing, cluster execution | IN_PROGRESS |
 | Secret resolver | Confined-file adapter tests and installed deployment evidence | IN_PROGRESS |
-| SMTP and optional archives | Adapter tests and installed deployment evidence | NOT_RUN |
+| SMTP and optional archives | Adapter tests and installed deployment evidence | IN_PROGRESS |
 | Secure container and chart | Rendered manifests, authentication and reachability tests | NOT_RUN |
 | kind + in-cluster PostgreSQL | Installed chart and all required protocol flows including enterprise IdP | NOT_RUN |
 | EKS + external RDS PostgreSQL | Installed chart and all required protocol flows including enterprise IdP | NOT_RUN |
@@ -218,8 +218,8 @@ IdP against the physical row identity. Authorized administrator attribute
 writes also lock namespace authority before the user, recheck the captured
 authority and retain the raw attribute CAS and federation ownership rules.
 
-The current shared suite contains 188 cases: thirty-five contracts run through each of
-the memory, AWS, and PostgreSQL adapters, plus eighty PostgreSQL-specific
+The current shared suite contains 195 cases: thirty-five contracts run through each of
+the memory, AWS, and PostgreSQL adapters, plus eighty-seven PostgreSQL-specific
 transaction/durability cases and three AWS recovery interleaving/compatibility
 cases. AWS adapters run against a loopback DynamoDB
 emulator; PostgreSQL adapters run against PostgreSQL 16. This does not establish
@@ -434,9 +434,22 @@ Selection orders the complete tenant set before applying its limit.
 Shared contracts reproduced memory limiting before sorting and AWS counting
 the same concurrent deletion repeatedly. Memory now limits after sorting;
 AWS recipient and tenant cleanup count successful conditional deletions.
-The explicit observation writer and test notification fixture do not establish
-SMTP delivery. Production SMTP, durable delivery state/leases, recovery
-notification handling and native worker acceptance remain required.
+The explicit observation writer and its test notification fixture do not
+establish SMTP delivery.
+
+[PostgreSQL SMTP notifications](POSTGRES_SMTP.md) add encrypted durable
+admission, private bounded leases and a single-submission transition before
+networking. Recovery-operation retries cannot rebind or duplicate delivery.
+Required TLS validates relay certificates and hostnames, with bounded network
+work and sanitized errors. A positive DATA receipt and encrypted observation
+commit together; failed database recording can be retried without resubmitting.
+Lost receipts and crashes after submission admission retain an unknown external
+result and never reopen automatic submission. Local TLS tests combine two
+PostgreSQL pools, 16 admissions and 16 workers to verify one submission and
+no retry after a lost DATA receipt. Outbox and governance erasure remove pending
+and in-flight notification authority; late observations cannot recreate it.
+Production mounted SMTP configuration, polling/shutdown, operational status
+reporting and native worker acceptance remain required.
 Governance-authorized erasure now uses the transactions described above.
 Governance transitions share the extracted domain rules with memory.
 PostgreSQL locks the same tenant directory as identity admission before reading
@@ -462,7 +475,7 @@ All three stores reject an external action whose resource fingerprint does not
 match its reference, following a reproduced memory/AWS contract failure.
 The control snapshot rewrites tenant state on mutation; this does not establish
 performance acceptance. Governance-authorized data-plane transactions are wired;
-production startup, durable queues and native worker acceptance remain required.
+production startup and native worker acceptance remain required.
 CIBA request snapshots use per-record encryption, including the per-request
 notification credential, binding message, delivery destination and captured
 password version. Authentication binds the CIBA purpose, tenant, request,

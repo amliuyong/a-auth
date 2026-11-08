@@ -893,7 +893,7 @@ impl PostgresUsersStore {
         Ok(())
     }
 
-    async fn admit_aliases(
+    pub(super) async fn admit_aliases(
         &self,
         transaction: &mut Transaction<'_, Postgres>,
         tenant: &str,

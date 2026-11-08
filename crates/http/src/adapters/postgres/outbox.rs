@@ -4,7 +4,7 @@ use crate::{
     ports::{MessageOutbox, SentMessage, StoreError},
 };
 use serde::{Deserialize, Serialize};
-use sqlx::{postgres::PgRow, Row};
+use sqlx::{postgres::PgRow, Postgres, Row, Transaction};
 use zeroize::Zeroizing;
 
 /// Encrypted delivery observations. This storage adapter does not send mail.
@@ -27,14 +27,14 @@ struct StoredMessage {
     ttl: i64,
 }
 
-const COLUMNS: &str = "tenant, message_id, kind, recipient, created_at, ttl, \
+pub(super) const COLUMNS: &str = "tenant, message_id, kind, recipient, created_at, ttl, \
     kid, key_nonce, encrypted_key, nonce, ciphertext";
 
 fn invalid() -> StoreError {
     StoreError::Permanent("Invalid encrypted notification authority".into())
 }
 
-fn context(message: &SentMessage) -> Result<Vec<u8>, StoreError> {
+pub(super) fn context(message: &SentMessage) -> Result<Vec<u8>, StoreError> {
     serde_json::to_vec(&(
         "notification-outbox",
         &message.tenant,
@@ -47,7 +47,7 @@ fn context(message: &SentMessage) -> Result<Vec<u8>, StoreError> {
     .map_err(|_| invalid())
 }
 
-fn encode(message: &SentMessage) -> Result<Zeroizing<Vec<u8>>, StoreError> {
+pub(super) fn encode(message: &SentMessage) -> Result<Zeroizing<Vec<u8>>, StoreError> {
     serde_json::to_vec(&StoredMessage {
         message_id: message.message_id.clone(),
         tenant: message.tenant.clone(),
@@ -61,7 +61,7 @@ fn encode(message: &SentMessage) -> Result<Zeroizing<Vec<u8>>, StoreError> {
     .map_err(|_| StoreError::Permanent("Notification encoding failed".into()))
 }
 
-fn decode(row: PgRow, keys: &EncryptionKeyring) -> Result<SentMessage, StoreError> {
+pub(super) fn decode(row: PgRow, keys: &EncryptionKeyring) -> Result<SentMessage, StoreError> {
     let identity = |column: &str| -> Result<String, StoreError> {
         let value: Vec<u8> = row.try_get(column).map_err(db_error)?;
         String::from_utf8(value).map_err(|_| invalid())
@@ -131,28 +131,38 @@ impl PostgresMessageOutbox {
     /// Create an immutable delivery observation. An exact retry returns false;
     /// a captured ID cannot be rebound to another recipient or notification.
     pub async fn record_delivered(&self, message: SentMessage) -> Result<bool, StoreError> {
-        let keys = self.keys()?;
+        self.keys()?;
         let mut transaction = self.store.pool.begin().await.map_err(db_error)?;
-        PostgresUsersStore::lock_directory(&mut transaction, &message.tenant).await?;
+        let outcome = self.record_delivered_in(&mut transaction, &message).await?;
+        transaction.commit().await.map_err(db_error)?;
+        Ok(outcome)
+    }
+
+    pub(super) async fn record_delivered_in(
+        &self,
+        transaction: &mut Transaction<'_, Postgres>,
+        message: &SentMessage,
+    ) -> Result<bool, StoreError> {
+        let keys = self.keys()?;
+        PostgresUsersStore::lock_directory(transaction, &message.tenant).await?;
         let existing = sqlx::query(&format!(
             "SELECT {COLUMNS} FROM a_auth.message_outbox \
              WHERE tenant = $1 AND message_id = $2 FOR UPDATE"
         ))
         .bind(message.tenant.as_bytes())
         .bind(message.message_id.as_bytes())
-        .fetch_optional(&mut *transaction)
+        .fetch_optional(&mut **transaction)
         .await
         .map_err(db_error)?;
         if let Some(existing) = existing {
-            if decode(existing, keys)? != message {
+            if decode(existing, keys)? != *message {
                 return Err(StoreError::Permanent(
                     "Notification identity is already bound".into(),
                 ));
             }
-            transaction.commit().await.map_err(db_error)?;
             return Ok(false);
         }
-        let sealed = keys.seal(&context(&message)?, &encode(&message)?)?;
+        let sealed = keys.seal(&context(message)?, &encode(message)?)?;
         sqlx::query(
             "INSERT INTO a_auth.message_outbox \
              (tenant, message_id, kind, recipient, created_at, ttl, \
@@ -170,10 +180,9 @@ impl PostgresMessageOutbox {
         .bind(&sealed.encrypted_key)
         .bind(sealed.nonce.as_slice())
         .bind(&sealed.ciphertext)
-        .execute(&mut *transaction)
+        .execute(&mut **transaction)
         .await
         .map_err(db_error)?;
-        transaction.commit().await.map_err(db_error)?;
         Ok(true)
     }
 }
@@ -207,6 +216,20 @@ impl MessageOutbox for PostgresMessageOutbox {
         }
         let mut transaction = self.store.pool.begin().await.map_err(db_error)?;
         PostgresUsersStore::lock_directory(&mut transaction, tenant).await?;
+        let pending = sqlx::query(
+            "DELETE FROM a_auth.smtp_notifications WHERE tenant = $1 \
+             AND recipient = ANY($2::BYTEA[])",
+        )
+        .bind(tenant.as_bytes())
+        .bind(
+            recipients
+                .iter()
+                .map(|recipient| recipient.as_bytes().to_vec())
+                .collect::<Vec<_>>(),
+        )
+        .execute(&mut *transaction)
+        .await
+        .map_err(db_error)?;
         let result = sqlx::query(
             "DELETE FROM a_auth.message_outbox WHERE tenant = $1 \
              AND recipient = ANY($2::BYTEA[])",
@@ -222,18 +245,23 @@ impl MessageOutbox for PostgresMessageOutbox {
         .await
         .map_err(db_error)?;
         transaction.commit().await.map_err(db_error)?;
-        Ok(result.rows_affected() as usize)
+        Ok((result.rows_affected() + pending.rows_affected()) as usize)
     }
 
     async fn delete_all_by_tenant(&self, tenant: &str) -> Result<usize, StoreError> {
         let mut transaction = self.store.pool.begin().await.map_err(db_error)?;
         PostgresUsersStore::lock_directory(&mut transaction, tenant).await?;
+        let pending = sqlx::query("DELETE FROM a_auth.smtp_notifications WHERE tenant = $1")
+            .bind(tenant.as_bytes())
+            .execute(&mut *transaction)
+            .await
+            .map_err(db_error)?;
         let result = sqlx::query("DELETE FROM a_auth.message_outbox WHERE tenant = $1")
             .bind(tenant.as_bytes())
             .execute(&mut *transaction)
             .await
             .map_err(db_error)?;
         transaction.commit().await.map_err(db_error)?;
-        Ok(result.rows_affected() as usize)
+        Ok((result.rows_affected() + pending.rows_affected()) as usize)
     }
 }

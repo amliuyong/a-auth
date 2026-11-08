@@ -82,6 +82,7 @@ httpdate = "1"
 sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio-rustls", "postgres", "json", "migrate", "macros"], optional = true }
 # Descriptor-relative, non-following reads of operator-mounted Secret files.
 libc = { version = "0.2", optional = true }
+lettre = { version = "0.11.23", default-features = false, features = ["builder", "smtp-transport", "tokio1-rustls-tls"], optional = true }
 
 [features]
 default = []
@@ -90,7 +91,8 @@ aws = ["dep:aws-config", "dep:aws-sdk-kms", "dep:aws-sdk-lambda", "dep:aws-sdk-r
 portable-http = ["dep:reqwest"]
 portable-transport-test = ["portable-http", "dep:rcgen", "dep:tokio-rustls"]
 transport-test = ["aws", "portable-transport-test"]
-postgres = ["dep:sqlx", "dep:libc", "portable-http"]
+postgres = ["dep:sqlx", "dep:libc", "portable-http", "portable-smtp"]
+portable-smtp = ["dep:lettre"]
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

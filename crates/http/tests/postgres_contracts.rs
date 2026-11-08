@@ -126,6 +126,9 @@ mod governance_fault_contracts;
 #[path = "postgres/governance_queue.rs"]
 mod governance_queue_contracts;
 
+#[path = "postgres/smtp.rs"]
+mod smtp_contracts;
+
 #[path = "postgres/ciba.rs"]
 mod ciba_contracts;
 

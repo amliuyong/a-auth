@@ -16,5 +16,8 @@ pub mod mounted_signer;
 #[cfg(feature = "postgres")]
 pub mod postgres;
 
+#[cfg(feature = "portable-smtp")]
+pub mod smtp;
+
 #[cfg(feature = "aws")]
 pub mod aws;

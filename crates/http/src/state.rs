@@ -4944,8 +4944,11 @@ impl crate::ports::PasswordStore for PasswordStoreImpl {
 
 /// Notifier 端口枚举分发。`Log`=纯打日志(轻量测试);`Outbox`=写内存 outbox(dev,可观测);
 /// `Dynamo`=写 messages 表(真机,TTL=1 天,SES 未接前的模拟,spec 003 §1.5)。
+/// `Postgres`=加密持久化通知 admission；TLS SMTP worker 保留单次提交和不确定结果 authority。
 #[derive(Clone)]
 pub enum NotifierImpl {
+    #[cfg(feature = "postgres")]
+    Postgres(crate::adapters::postgres::PostgresSmtpNotifier),
     Log(LogNotifier),
     Outbox(MemoryOutboxNotifier),
     #[cfg(feature = "aws")]
@@ -4980,6 +4983,8 @@ impl Notifier for NotifierImpl {
         link_url: &str,
     ) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            NotifierImpl::Postgres(n) => n.send_magic_link(tenant, email, link_url).await,
             NotifierImpl::Log(n) => n.send_magic_link(tenant, email, link_url).await,
             NotifierImpl::Outbox(n) => n.send_magic_link(tenant, email, link_url).await,
             #[cfg(feature = "aws")]
@@ -4995,6 +5000,17 @@ impl Notifier for NotifierImpl {
         client_ip: Option<&str>,
     ) -> Result<(), StoreError> {
         match self {
+            #[cfg(feature = "postgres")]
+            NotifierImpl::Postgres(n) => {
+                n.notify_recovery(
+                    tenant,
+                    notification_id,
+                    recipient_email,
+                    recovered_at,
+                    client_ip,
+                )
+                .await
+            }
             NotifierImpl::Log(n) => {
                 n.notify_recovery(
                     tenant,
